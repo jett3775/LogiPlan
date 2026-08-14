@@ -1,0 +1,57 @@
+{
+  "audit_baseline_id": "LOGIPLAN_2026_WORKBOOK_AUDIT_D092_V1",
+  "audited_on": "2026-08-14",
+  "source_workbook": "outputs/2026-demo-data-current-labor-split/LogiPlan-AI-2026-Demo-Data.xlsx",
+  "source_workbook_sha256": "a3a61b423900d00db4309a15ce37e153a82f1e3d56a10974075aa741b7a766c6",
+  "cost_model_revision": "D-092",
+  "sheet_count": 15,
+  "formula_error_count": 0,
+  "model_status": "PASS",
+  "row_counts": {
+    "routes": 10,
+    "driver_facts": 360,
+    "cost_facts": 2160,
+    "fixed_cost_facts": 252,
+    "gmv_facts": 108,
+    "service_facts": 360,
+    "monthly_summary": 48,
+    "country_summary": 144,
+    "attribution_summary_and_country_rows": 800,
+    "scenario_rows": 12,
+    "evaluation_questions": 20,
+    "boundary_questions": 2
+  },
+  "variable_cost_components": [
+    "BASE_FREIGHT",
+    "FUEL_SURCHARGE",
+    "FRONTLINE_VARIABLE_LABOR",
+    "PACKAGING",
+    "RETURN_LOGISTICS",
+    "BILLABLE_EXCEPTION"
+  ],
+  "fixed_cost_categories": [
+    "WAREHOUSE_RENT",
+    "FRONTLINE_BASE_LABOR",
+    "WAREHOUSE_MANAGEMENT_LABOR",
+    "SYSTEM_COST"
+  ],
+  "checks": [
+    {"name": "Cost facts vs Model_Calc row tie-out", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Actual authority amount delta", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Fixed cost recalculation", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "GMV recalculation", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Service rate recalculation", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Monthly total = variable + fixed", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Latest Outlook composition", "result": 0, "tolerance": "±0.05 CNY", "status": "PASS"},
+    {"name": "Chain attribution reconciliation", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Shapley attribution reconciliation", "result": 0, "tolerance": "0 rows", "status": "PASS"},
+    {"name": "Evaluation question count", "result": 20, "tolerance": "20", "status": "PASS"},
+    {"name": "Boundary question count", "result": 2, "tolerance": "2", "status": "PASS"}
+  ],
+  "derived_artifacts": [
+    "data/generated/logiplan-2026-demo-data.json",
+    "data/generated/ai-evaluation-baseline.json",
+    "docs/demo-data-spec.md",
+    "docs/ai-evaluation-baseline.md"
+  ]
+}
