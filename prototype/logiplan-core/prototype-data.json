@@ -1,0 +1,4581 @@
+{
+  "meta": {
+    "prototype_notice": "PROTOTYPE — 可丢弃 UI 数据快照，不是生产接口",
+    "dataset_id": "LOGIPLAN_2026_DEMO_V1",
+    "generated_on": "2026-08-14",
+    "reporting_currency": "CNY",
+    "data_classification": "SYNTHETIC_DEMO_DATA",
+    "cost_model_revision": "D-092",
+    "source_workbook": "outputs/2026-demo-data-current-labor-split/LogiPlan-AI-2026-Demo-Data.xlsx",
+    "source_workbook_sha256": "a3a61b423900d00db4309a15ce37e153a82f1e3d56a10974075aa741b7a766c6",
+    "latest_closed_month": "2026-08",
+    "versions": {
+      "budget": "BUDGET_2026_V1",
+      "actual": "ACTUAL_2026_08_CLOSE_V1",
+      "forecast": "FORECAST_2026_08_V1"
+    },
+    "attribution_sequence": [
+      "VOLUME",
+      "MIX",
+      "EFFICIENCY",
+      "PRICE",
+      "FX"
+    ]
+  },
+  "dashboard": {
+    "scope_label": "2026 全年｜公司｜Latest Outlook vs Budget",
+    "composition_label": "1—8 月 Actual + 9—12 月 Forecast",
+    "kpis": {
+      "total_cost": {
+        "current": "18327462.9382",
+        "baseline": "16197761.9712",
+        "variance": "2129700.9671",
+        "variance_rate": "0.13148118677508757702852727787261679889112567732221292569767348374526244123682478",
+        "evidence_id": "EVID_ANNUAL_TOTAL_COST"
+      },
+      "variable_cost": {
+        "current": "10568131.6882",
+        "baseline": "8577761.9712",
+        "variance": "1990369.7171",
+        "variance_rate": "0.23203834797007547726482565886873313585104747672514342330544990091758110371189954",
+        "evidence_id": "EVID_ANNUAL_VARIABLE_COST"
+      },
+      "fixed_cost": {
+        "current": "7759331.2500",
+        "baseline": "7620000.0000",
+        "variance": "139331.2500",
+        "variance_rate": "0.018284940944881889763779527559055118110236220472440944881889763779527559055118110",
+        "evidence_id": "EVID_ANNUAL_FIXED_COST"
+      },
+      "unit_variable_cost": {
+        "current": "47.8564",
+        "baseline": "41.7409",
+        "variance": "6.1155",
+        "variance_rate": "0.14651034962573251178699303943089552786030093948746535112652245907966724092195516",
+        "evidence_id": "EVID_ANNUAL_UNIT_VARIABLE_COST"
+      },
+      "transport_cost_per_kg": {
+        "current": "34.1228",
+        "baseline": "29.4280",
+        "variance": "4.6948",
+        "variance_rate": "0.15953593282494924366620666806090341307891682991070349899328075207256360337721706",
+        "evidence_id": "EVID_ANNUAL_TRANSPORT_COST_PER_KG"
+      },
+      "total_cost_rate": {
+        "current": "0.1230",
+        "baseline": "0.1171",
+        "variance": "0.0059",
+        "variance_rate": "0.050751662581755666920616813032679247373981160099770541193782651423622735167056245",
+        "evidence_id": "EVID_ANNUAL_TOTAL_COST_RATE"
+      }
+    },
+    "monthly_trend": [
+      {
+        "month_id": "2026-01",
+        "month_label": "1月",
+        "current_type": "ACTUAL",
+        "current": "1193234.4645",
+        "baseline": "1194244.9786",
+        "variance": "-1010.5141",
+        "variance_rate": "-0.00084615307022658918305564244801779776458143049870440608114504577385139786799994773"
+      },
+      {
+        "month_id": "2026-02",
+        "month_label": "2月",
+        "current_type": "ACTUAL",
+        "current": "1187198.6940",
+        "baseline": "1174271.9436",
+        "variance": "12926.7503",
+        "variance_rate": "0.011008310634260153958281250040705662886530600270417352179287672554483487101269093"
+      },
+      {
+        "month_id": "2026-03",
+        "month_label": "3月",
+        "current_type": "ACTUAL",
+        "current": "1276222.9253",
+        "baseline": "1244596.9580",
+        "variance": "31625.9672",
+        "variance_rate": "0.025410609450572339392683564886404656879474722214002307489878087347684363206041606"
+      },
+      {
+        "month_id": "2026-04",
+        "month_label": "4月",
+        "current_type": "ACTUAL",
+        "current": "1301423.8328",
+        "baseline": "1264916.8566",
+        "variance": "36506.9762",
+        "variance_rate": "0.028861166637504302590885616487038327792800092106804373229398049664765909082653876"
+      },
+      {
+        "month_id": "2026-05",
+        "month_label": "5月",
+        "current_type": "ACTUAL",
+        "current": "1350799.5571",
+        "baseline": "1290786.5736",
+        "variance": "60012.9834",
+        "variance_rate": "0.046493343411201898856568683833156742885283454813122878829960903305544708450459459"
+      },
+      {
+        "month_id": "2026-06",
+        "month_label": "6月",
+        "current_type": "ACTUAL",
+        "current": "1388064.6647",
+        "baseline": "1311279.9041",
+        "variance": "76784.7607",
+        "variance_rate": "0.058557109298246482452003748057829104634024856783658297085720379220064777298388999"
+      },
+      {
+        "month_id": "2026-07",
+        "month_label": "7月",
+        "current_type": "ACTUAL",
+        "current": "1453534.1209",
+        "baseline": "1337669.9166",
+        "variance": "115864.2043",
+        "variance_rate": "0.086616438712821576021320282808456600667687662604780397747241765984628418210214302"
+      },
+      {
+        "month_id": "2026-08",
+        "month_label": "8月",
+        "current_type": "ACTUAL",
+        "current": "1916891.9975",
+        "baseline": "1296336.3921",
+        "variance": "620555.6055",
+        "variance_rate": "0.47869951756090907193934192783208932057107109807499810389956507871109658600984069"
+      },
+      {
+        "month_id": "2026-09",
+        "month_label": "9月",
+        "current_type": "FORECAST",
+        "current": "1555201.0285",
+        "baseline": "1302117.6640",
+        "variance": "253083.3645",
+        "variance_rate": "0.19436289936583824586549188769116709805232238001191327154054445659777775440118331"
+      },
+      {
+        "month_id": "2026-10",
+        "month_label": "10月",
+        "current_type": "FORECAST",
+        "current": "1665561.4262",
+        "baseline": "1402987.8363",
+        "variance": "262573.5899",
+        "variance_rate": "0.18715314779501731579019103159162108107614592162809817548502684830379894962875890"
+      },
+      {
+        "month_id": "2026-11",
+        "month_label": "11月",
+        "current_type": "FORECAST",
+        "current": "1932682.3787",
+        "baseline": "1597075.6164",
+        "variance": "335606.7622",
+        "variance_rate": "0.21013830452302937919715777046552981900286080867613727444607139564583645708866634"
+      },
+      {
+        "month_id": "2026-12",
+        "month_label": "12月",
+        "current_type": "FORECAST",
+        "current": "2106647.8480",
+        "baseline": "1781477.3311",
+        "variance": "325170.5169",
+        "variance_rate": "0.18252857399253987429693914075416597287791359907973778234830376915067749365575272"
+      }
+    ],
+    "top_anomalies": [
+      {
+        "month_id": "2026-08",
+        "country_id": "GB",
+        "country_label": "英国",
+        "current_type": "ACTUAL",
+        "current": "891643.2815",
+        "baseline": "317169.0583",
+        "variance": "574474.2232",
+        "variance_rate": "1.8112555687938367763716415958776564666635487104259429593423937692286562983671050",
+        "rank": 1,
+        "adverse_contribution_share": "0.28824636201961976479676394914433910463325469055771831914048023539456596319370400",
+        "is_core_entry": true
+      },
+      {
+        "month_id": "2026-11",
+        "country_id": "GB",
+        "country_label": "英国",
+        "current_type": "FORECAST",
+        "current": "788585.4725",
+        "baseline": "527237.3251",
+        "variance": "261348.1474",
+        "variance_rate": "0.49569356146534109402284794341967571688411002395688979827804748508472369808997742",
+        "rank": 2,
+        "adverse_contribution_share": "0.13113321654188599629070005525006964349601799471934941201798115746455257578173462",
+        "is_core_entry": false
+      },
+      {
+        "month_id": "2026-12",
+        "country_id": "GB",
+        "country_label": "英国",
+        "current_type": "FORECAST",
+        "current": "899660.0783",
+        "baseline": "640406.9529",
+        "variance": "259253.1254",
+        "variance_rate": "0.40482559440727229755486426899771766133059870034209743990374764197640770839712251",
+        "rank": 3,
+        "adverse_contribution_share": "0.13008202495580010585090069124221859184300629783470212163560160010146984108307878",
+        "is_core_entry": false
+      },
+      {
+        "month_id": "2026-10",
+        "country_id": "GB",
+        "country_label": "英国",
+        "current_type": "FORECAST",
+        "current": "600242.7287",
+        "baseline": "395427.9938",
+        "variance": "204814.7349",
+        "variance_rate": "0.51795709486471214251858611489870553164692955354002505702078566128753925666716570",
+        "rank": 4,
+        "adverse_contribution_share": "0.10276719100481626400961476703185678384179139122557694366473892517555107014257005",
+        "is_core_entry": false
+      },
+      {
+        "month_id": "2026-09",
+        "country_id": "GB",
+        "country_label": "英国",
+        "current_type": "FORECAST",
+        "current": "525337.6900",
+        "baseline": "327741.3603",
+        "variance": "197596.3298",
+        "variance_rate": "0.60290324535664517261415017853170693825664259334797374009411632723725380258943539",
+        "rank": 5,
+        "adverse_contribution_share": "0.099145306983512678372476363649444345551184866257441949093154690258008932699276240",
+        "is_core_entry": false
+      }
+    ],
+    "positive_variance_pool": "1992997.3068",
+    "fixed_cost_breakdown": {
+      "current": "7759331.2500",
+      "baseline": "7620000.0000",
+      "variance": "139331.2500",
+      "rows": [
+        {
+          "category_id": "WAREHOUSE_RENT",
+          "label": "仓租",
+          "current": "4101071.2500",
+          "baseline": "4024800.0000",
+          "variance": "76271.2500",
+          "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821",
+          "children": [
+            {
+              "scope_id": "DE_FC",
+              "label": "德国仓",
+              "current": "2384343.7500",
+              "baseline": "2340000.0000",
+              "variance": "44343.7500",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            },
+            {
+              "scope_id": "FR_FC",
+              "label": "法国仓",
+              "current": "1716727.5000",
+              "baseline": "1684800.0000",
+              "variance": "31927.5000",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            }
+          ]
+        },
+        {
+          "category_id": "FRONTLINE_BASE_LABOR",
+          "label": "一线作业基础人工",
+          "current": "2384343.7500",
+          "baseline": "2340000.0000",
+          "variance": "44343.7500",
+          "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821",
+          "children": [
+            {
+              "scope_id": "DE_FC",
+              "label": "德国仓",
+              "current": "1335232.5000",
+              "baseline": "1310400.0000",
+              "variance": "24832.5000",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            },
+            {
+              "scope_id": "FR_FC",
+              "label": "法国仓",
+              "current": "1049111.2500",
+              "baseline": "1029600.0000",
+              "variance": "19511.2500",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            }
+          ]
+        },
+        {
+          "category_id": "WAREHOUSE_MANAGEMENT_LABOR",
+          "label": "仓库管理人工",
+          "current": "667616.2500",
+          "baseline": "655200.0000",
+          "variance": "12416.2500",
+          "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821",
+          "children": [
+            {
+              "scope_id": "DE_FC",
+              "label": "德国仓",
+              "current": "381495.0000",
+              "baseline": "374400.0000",
+              "variance": "7095.0000",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            },
+            {
+              "scope_id": "FR_FC",
+              "label": "法国仓",
+              "current": "286121.2500",
+              "baseline": "280800.0000",
+              "variance": "5321.2500",
+              "variance_rate": "0.018950320512820512820512820512820512820512820512820512820512820512820512820512821"
+            }
+          ]
+        },
+        {
+          "category_id": "SYSTEM_COST",
+          "label": "系统费用",
+          "current": "606300.0000",
+          "baseline": "600000.0000",
+          "variance": "6300.0000",
+          "variance_rate": "0.0105",
+          "children": [
+            {
+              "scope_id": "SHARED",
+              "label": "共享层",
+              "current": "606300.0000",
+              "baseline": "600000.0000",
+              "variance": "6300.0000",
+              "variance_rate": "0.0105"
+            }
+          ]
+        }
+      ]
+    },
+    "warehouse_variance_context": {
+      "scope_label": "2026 年 8 月｜公司｜Actual vs Budget",
+      "result_id": "RESULT_COMPANY_WAREHOUSE_VARIANCE",
+      "current": "1262886.9975",
+      "baseline": "661336.3921",
+      "variance": "601550.6055",
+      "report_rounding_note": "发货仓分项与公司总额均由高精度底稿计算；四位报告值逐行相加可能产生 0.0001 CNY 尾差。",
+      "warehouses": [
+        {
+          "warehouse_id": "DE_FC",
+          "label": "德国仓",
+          "current": "1075815.8128",
+          "baseline": "486564.7201",
+          "variance": "589251.0927",
+          "variance_rate": "1.2110436049617839976953223163982867273884583839847432131053492998419248808345269",
+          "evidence_id": "EVID_COMPANY_WAREHOUSE_DE_FC"
+        },
+        {
+          "warehouse_id": "FR_FC",
+          "label": "法国仓",
+          "current": "187071.1847",
+          "baseline": "174771.6719",
+          "variance": "12299.5128",
+          "variance_rate": "0.070374750304141376157564844185250656783042264599398204766990708852282793460323987",
+          "evidence_id": "EVID_COMPANY_WAREHOUSE_FR_FC"
+        }
+      ]
+    }
+  },
+  "attribution": {
+    "scope_label": "2026 年 8 月｜英国｜Actual vs Budget",
+    "method_label": "量 → 结构 → 效率 → 价 → 汇率连环替代",
+    "summary": {
+      "current": "891643.2815",
+      "baseline": "317169.0583",
+      "variance": "574474.2232",
+      "variance_rate": "1.8112555687938367763716415958776564666635487104259429593423937692286562983671050",
+      "evidence_id": "EVID_GB_VARIANCE"
+    },
+    "diagnostics": [
+      {
+        "diagnostic_id": "ORDERS",
+        "label": "订单量",
+        "current": "8932.0000",
+        "baseline": "4800.0000",
+        "delta": "4132.0000",
+        "delta_rate": "0.86083333333333333333333333333333333333333333333333333333333333333333333333333333",
+        "unit": "COUNT",
+        "delta_label": "相对变化",
+        "evidence_id": "EVID_DIAG_ORDERS"
+      },
+      {
+        "diagnostic_id": "AIR_SHARE",
+        "label": "空运包裹占比",
+        "current": "0.6602",
+        "baseline": "0.1369",
+        "delta": "0.5232",
+        "delta_rate": "3.8213771761937736619947383299986848390330197754717520013449188354138472939066659",
+        "unit": "RATIO",
+        "delta_label": "百分点变化",
+        "evidence_id": "EVID_DIAG_AIR_SHARE"
+      },
+      {
+        "diagnostic_id": "CARRIER_C_SHARE",
+        "label": "Carrier C 包裹占比",
+        "current": "0.3884",
+        "baseline": "0.0288",
+        "delta": "0.3596",
+        "delta_rate": "12.499935370986815030136329775318944994035246742827970264793369486510280734107449",
+        "unit": "RATIO",
+        "delta_label": "百分点变化",
+        "evidence_id": "EVID_DIAG_CARRIER_C_SHARE"
+      },
+      {
+        "diagnostic_id": "ON_TIME_RATE",
+        "label": "准时履约率",
+        "current": "0.9616",
+        "baseline": "0.9411",
+        "delta": "0.0205",
+        "delta_rate": "0.021805977598456915516426729793254556030469461284198927092718669032574099571003587",
+        "unit": "RATIO",
+        "delta_label": "百分点变化",
+        "evidence_id": "EVID_DIAG_ON_TIME_RATE"
+      },
+      {
+        "diagnostic_id": "SERVICE_MATURITY",
+        "label": "服务成熟度",
+        "current": "0.9200",
+        "baseline": null,
+        "delta": null,
+        "delta_rate": null,
+        "unit": "RATIO",
+        "delta_label": "尚未最终成熟",
+        "evidence_id": "EVID_DIAG_SERVICE_MATURITY"
+      }
+    ],
+    "factors": [
+      {
+        "factor_id": "VOLUME",
+        "label": "量",
+        "amount": "85239.1844",
+        "start": "317169.0583",
+        "end": "402408.2428",
+        "share_of_variance": "0.14837773566044452134321287120343032966724808618129090862071906495265032170609131",
+        "evidence_id": "EVID_FACTOR_VOLUME"
+      },
+      {
+        "factor_id": "MIX",
+        "label": "结构",
+        "amount": "324207.8221",
+        "start": "402408.2428",
+        "end": "726616.0648",
+        "share_of_variance": "0.56435573434878877048143241834607459510679343943887830924487918849557572259136717",
+        "evidence_id": "EVID_FACTOR_MIX"
+      },
+      {
+        "factor_id": "EFFICIENCY",
+        "label": "效率",
+        "amount": "64558.2789",
+        "start": "726616.0648",
+        "end": "791174.3437",
+        "share_of_variance": "0.11237802547847391269249890986801010805764443682106061264332051820549377616909268",
+        "evidence_id": "EVID_FACTOR_EFFICIENCY"
+      },
+      {
+        "factor_id": "PRICE",
+        "label": "价",
+        "amount": "79960.1574",
+        "start": "791174.3437",
+        "end": "871134.5011",
+        "share_of_variance": "0.13918841646508723273228868911813854647285054235015236016405493653309249949089628",
+        "evidence_id": "EVID_FACTOR_PRICE"
+      },
+      {
+        "factor_id": "FX",
+        "label": "汇率",
+        "amount": "20508.7803",
+        "start": "871134.5011",
+        "end": "891643.2815",
+        "share_of_variance": "0.035700088047205562750567111464346420695463495208617809327026291813187680042552560",
+        "evidence_id": "EVID_FACTOR_FX"
+      }
+    ],
+    "component_summary": [
+      {
+        "component_id": "BASE_FREIGHT",
+        "label": "基础运费",
+        "current": "649161.1884",
+        "baseline": "216708.1081",
+        "variance": "432453.0802",
+        "variance_rate": "1.9955556067663435380847099107220067095918824515363818252407532563924316220824428",
+        "evidence_id": "EVID_GB_COMPONENT_BASE_FREIGHT"
+      },
+      {
+        "component_id": "FRONTLINE_VARIABLE_LABOR",
+        "label": "一线作业弹性人工",
+        "current": "97909.5818",
+        "baseline": "43984.5120",
+        "variance": "53925.0698",
+        "variance_rate": "1.2260013212250712250712250712250712250712250712250712250712250712250712250712251",
+        "evidence_id": "EVID_GB_COMPONENT_FRONTLINE_VARIABLE_LABOR"
+      },
+      {
+        "component_id": "FUEL_SURCHARGE",
+        "label": "燃油附加费",
+        "current": "60506.0428",
+        "baseline": "20163.3347",
+        "variance": "40342.7081",
+        "variance_rate": "2.0007954336425302433400193624842928792824946282576703481312134738180383636404432",
+        "evidence_id": "EVID_GB_COMPONENT_FUEL_SURCHARGE"
+      },
+      {
+        "component_id": "RETURN_LOGISTICS",
+        "label": "退货物流费",
+        "current": "42086.6704",
+        "baseline": "16548.2496",
+        "variance": "25538.4208",
+        "variance_rate": "1.5432702186142515036756515927823568723546446870126977055023390510135887725551348",
+        "evidence_id": "EVID_GB_COMPONENT_RETURN_LOGISTICS"
+      },
+      {
+        "component_id": "PACKAGING",
+        "label": "包装费",
+        "current": "36828.8606",
+        "baseline": "17561.7562",
+        "variance": "19267.1044",
+        "variance_rate": "1.0971057924193385452403411573162396077819133095172185786686153373854838900120567",
+        "evidence_id": "EVID_GB_COMPONENT_PACKAGING"
+      },
+      {
+        "component_id": "BILLABLE_EXCEPTION",
+        "label": "计费异常事件费",
+        "current": "5150.9376",
+        "baseline": "2203.0977",
+        "variance": "2947.8399",
+        "variance_rate": "1.3380431803486176101783038199223170321436217389974615408141419702113343731840842",
+        "evidence_id": "EVID_GB_COMPONENT_BILLABLE_EXCEPTION"
+      }
+    ],
+    "tree": [
+      {
+        "row_id": "TREE_DE_FC",
+        "level": 0,
+        "dimension": "fulfillment_center_id",
+        "dimension_label": "发货仓",
+        "member_id": "DE_FC",
+        "label": "德国仓",
+        "current": "869556.6463",
+        "baseline": "302785.7148",
+        "variance": "566770.9315",
+        "current_high_precision": "869556.64630510250636191449088000000000000000000000000000000000000000000000000000",
+        "baseline_high_precision": "302785.71481497600000000",
+        "variance_high_precision": "566770.93149012650636191449088000000000000000000000000000000000000000000000000000",
+        "variance_rate": "1.8718549249804093036604773176980167483454688436866053186633010823524439369974194",
+        "factor_contributions": {
+          "VOLUME": "81373.6609",
+          "MIX": "321902.4687",
+          "EFFICIENCY": "63809.5857",
+          "PRICE": "79593.1649",
+          "FX": "20092.0514"
+        },
+        "factor_contributions_high_precision": {
+          "VOLUME": "81373.66085652480000000",
+          "MIX": "321902.46870579168000000000",
+          "EFFICIENCY": "63809.58567406500000000000",
+          "PRICE": "79593.164871957914062606336000000000000000000000000000000000000000000000000000001",
+          "FX": "20092.051381787112299308154880000000000000000000000000000000000000000000000000000"
+        },
+        "evidence_id": "EVID_GB_TREE_DE_FC",
+        "children": [
+          {
+            "row_id": "TREE_DE_FC__AIR",
+            "level": 1,
+            "dimension": "transport_mode_id",
+            "dimension_label": "运输方式",
+            "member_id": "AIR",
+            "label": "空运",
+            "current": "635322.2651",
+            "baseline": "39174.7197",
+            "variance": "596147.5454",
+            "current_high_precision": "635322.26508954443038720925696000000000000000000000000000000000000000000000000000",
+            "baseline_high_precision": "39174.71971737600000000",
+            "variance_high_precision": "596147.54537216843038720925696000000000000000000000000000000000000000000000000000",
+            "variance_rate": "15.217659492474846706968686251498874354267697778071006425305404095945408855825268",
+            "factor_contributions": {
+              "VOLUME": "10528.2059",
+              "MIX": "457789.0247",
+              "EFFICIENCY": "45705.5225",
+              "PRICE": "67392.0414",
+              "FX": "14732.7507"
+            },
+            "factor_contributions_high_precision": {
+              "VOLUME": "10528.20592404480000000",
+              "MIX": "457789.02472565472000000000",
+              "EFFICIENCY": "45705.52254127860000000000",
+              "PRICE": "67392.041440504813610074112000000000000000000000000000000000000000000000000000001",
+              "FX": "14732.750740685496777135144960000000000000000000000000000000000000000000000000000"
+            },
+            "evidence_id": "EVID_GB_TREE_DE_FC__AIR",
+            "children": [
+              {
+                "row_id": "TREE_DE_FC__AIR__CARRIER_C",
+                "level": 2,
+                "dimension": "carrier_id",
+                "dimension_label": "承运商",
+                "member_id": "CARRIER_C",
+                "label": "Carrier C",
+                "current": "410311.5007",
+                "baseline": "12660.9039",
+                "variance": "397650.5968",
+                "current_high_precision": "410311.50071712221308518400000000000000000000000000000000000000000000000000000000",
+                "baseline_high_precision": "12660.903936000000000",
+                "variance_high_precision": "397650.59678112221308518400000000000000000000000000000000000000000000000000000000",
+                "variance_rate": "31.407757202109634037206235698588274953324786051042351104369045897482433911423368",
+                "factor_contributions": {
+                  "VOLUME": "3402.6179",
+                  "MIX": "309130.2011",
+                  "EFFICIENCY": "29271.6019",
+                  "PRICE": "46318.2983",
+                  "FX": "9527.8775"
+                },
+                "factor_contributions_high_precision": {
+                  "VOLUME": "3402.617932800000000",
+                  "MIX": "309130.20109031424000000",
+                  "EFFICIENCY": "29271.60192337920000000",
+                  "PRICE": "46318.298309797022924800000000000000000000000000000000000000000000000000000000001",
+                  "FX": "9527.877524831750160384000000000000000000000000000000000000000000000000000000000"
+                },
+                "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C",
+                "children": [
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__BASE_FREIGHT",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BASE_FREIGHT",
+                    "label": "基础运费",
+                    "current": "315260.2661",
+                    "baseline": "9614.8685",
+                    "variance": "305645.3976",
+                    "current_high_precision": "315260.2660929100431360000000",
+                    "baseline_high_precision": "9614.86848000000000",
+                    "variance_high_precision": "305645.3976129100431360000000",
+                    "variance_rate": "31.788827714979835390946502057613168724279835390946502057613168724279835390946502",
+                    "factor_contributions": {
+                      "VOLUME": "2583.9959",
+                      "MIX": "236072.8754",
+                      "EFFICIENCY": "22167.1196",
+                      "PRICE": "37298.9275",
+                      "FX": "7522.4792"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "2583.99590400000000",
+                      "MIX": "236072.87536896000000000",
+                      "EFFICIENCY": "22167.11962080000000000",
+                      "PRICE": "37298.9274848289792000000000",
+                      "FX": "7522.4792343210639360000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BASE_FREIGHT",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__FRONTLINE_VARIABLE_LABOR",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FRONTLINE_VARIABLE_LABOR",
+                    "label": "一线作业弹性人工",
+                    "current": "38254.7988",
+                    "baseline": "1272.3610",
+                    "variance": "36982.4378",
+                    "current_high_precision": "38254.798795136000000000000000000000000000000000000000000000000000000000000000001",
+                    "baseline_high_precision": "1272.3609600000",
+                    "variance_high_precision": "36982.437835136000000000000000000000000000000000000000000000000000000000000000001",
+                    "variance_rate": "29.065995419362756933378402304955977272361453152413604391005520949023773882530945",
+                    "factor_contributions": {
+                      "VOLUME": "341.9470",
+                      "MIX": "30283.2217",
+                      "EFFICIENCY": "0.0000",
+                      "PRICE": "5635.4805",
+                      "FX": "721.7887"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "341.9470080000",
+                      "MIX": "30283.22169600000",
+                      "EFFICIENCY": "0.00000000000",
+                      "PRICE": "5635.480474624000000000000000000000000000000000000000000000000000000000000000001",
+                      "FX": "721.788656512000000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FRONTLINE_VARIABLE_LABOR",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__FUEL_SURCHARGE",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FUEL_SURCHARGE",
+                    "label": "燃油附加费",
+                    "current": "24380.1272",
+                    "baseline": "743.5498",
+                    "variance": "23636.5774",
+                    "current_high_precision": "24380.1272445183766691840000",
+                    "baseline_high_precision": "743.54982912000000",
+                    "variance_high_precision": "23636.5774153983766691840000",
+                    "variance_rate": "31.788827714979835390946502057613168724279835390946502057613168724279835390946502",
+                    "factor_contributions": {
+                      "VOLUME": "199.8290",
+                      "MIX": "18256.3024",
+                      "EFFICIENCY": "1714.2573",
+                      "PRICE": "2884.4504",
+                      "FX": "581.7384"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "199.82901657600000",
+                      "MIX": "18256.30236186624000000",
+                      "EFFICIENCY": "1714.25725067520000000",
+                      "PRICE": "2884.4503921601077248000000",
+                      "FX": "581.7383941208289443840000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FUEL_SURCHARGE",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__RETURN_LOGISTICS",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "RETURN_LOGISTICS",
+                    "label": "退货物流费",
+                    "current": "16361.9705",
+                    "baseline": "477.7574",
+                    "variance": "15884.2131",
+                    "current_high_precision": "16361.97050492928000000",
+                    "baseline_high_precision": "477.7574400000000",
+                    "variance_high_precision": "15884.21306492928000000",
+                    "variance_rate": "33.247442603780864197530864197530864197530864197530864197530864197530864197530864",
+                    "factor_contributions": {
+                      "VOLUME": "128.3973",
+                      "MIX": "11371.0141",
+                      "EFFICIENCY": "3742.8653",
+                      "PRICE": "251.5205",
+                      "FX": "390.4158"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "128.3973120000000",
+                      "MIX": "11371.01414400000000",
+                      "EFFICIENCY": "3742.86528000000000",
+                      "PRICE": "251.52054681600000000",
+                      "FX": "390.41578211328000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__RETURN_LOGISTICS",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__PACKAGING",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "PACKAGING",
+                    "label": "包装费",
+                    "current": "14343.3434",
+                    "baseline": "507.2191",
+                    "variance": "13836.1243",
+                    "current_high_precision": "14343.3434496844800000",
+                    "baseline_high_precision": "507.219148800000",
+                    "variance_high_precision": "13836.1243008844800000",
+                    "variance_rate": "27.278395016470797720797720797720797720797720797720797720797720797720797720797721",
+                    "factor_contributions": {
+                      "VOLUME": "136.3151",
+                      "MIX": "12072.2267",
+                      "EFFICIENCY": "1135.3358",
+                      "PRICE": "221.6175",
+                      "FX": "270.6291"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "136.315146240000",
+                      "MIX": "12072.2266828800000",
+                      "EFFICIENCY": "1135.3358016000000",
+                      "PRICE": "221.6175484723200000",
+                      "FX": "270.6291216921600000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__PACKAGING",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_C__BILLABLE_EXCEPTION",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BILLABLE_EXCEPTION",
+                    "label": "计费异常事件费",
+                    "current": "1710.9946",
+                    "baseline": "45.1481",
+                    "variance": "1665.8466",
+                    "current_high_precision": "1710.9946299440332800000",
+                    "baseline_high_precision": "45.148078080000000",
+                    "variance_high_precision": "1665.8465518640332800000",
+                    "variance_rate": "36.897396804183813443072702331961591220850480109739368998628257887517146776406036",
+                    "factor_contributions": {
+                      "VOLUME": "12.1335",
+                      "MIX": "1074.5608",
+                      "EFFICIENCY": "512.0240",
+                      "PRICE": "26.3019",
+                      "FX": "40.8263"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "12.133545984000000",
+                      "MIX": "1074.5608366080000000",
+                      "EFFICIENCY": "512.0239703040000000",
+                      "PRICE": "26.3018628956160000000",
+                      "FX": "40.8263360724172800000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BILLABLE_EXCEPTION",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "row_id": "TREE_DE_FC__AIR__CARRIER_B",
+                "level": 2,
+                "dimension": "carrier_id",
+                "dimension_label": "承运商",
+                "member_id": "CARRIER_B",
+                "label": "Carrier B",
+                "current": "225010.7644",
+                "baseline": "26513.8158",
+                "variance": "198496.9486",
+                "current_high_precision": "225010.76437242221730202525696000000000000000000000000000000000000000000000000000",
+                "baseline_high_precision": "26513.81578137600000000",
+                "variance_high_precision": "198496.94859104621730202525696000000000000000000000000000000000000000000000000000",
+                "variance_rate": "7.4865477767434622931979296133044056645434359205458819919932651194960240157319774",
+                "factor_contributions": {
+                  "VOLUME": "7125.5880",
+                  "MIX": "148658.8236",
+                  "EFFICIENCY": "16433.9206",
+                  "PRICE": "21073.7431",
+                  "FX": "5204.8732"
+                },
+                "factor_contributions_high_precision": {
+                  "VOLUME": "7125.58799124480000000",
+                  "MIX": "148658.82363534048000000000",
+                  "EFFICIENCY": "16433.92061789940000000000",
+                  "PRICE": "21073.743130707790685274112000000000000000000000000000000000000000000000000000000",
+                  "FX": "5204.873215853746616751144960000000000000000000000000000000000000000000000000000"
+                },
+                "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B",
+                "children": [
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__BASE_FREIGHT",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BASE_FREIGHT",
+                    "label": "基础运费",
+                    "current": "160481.6719",
+                    "baseline": "18949.1872",
+                    "variance": "141532.4848",
+                    "current_high_precision": "160481.6719439568864768000000",
+                    "baseline_high_precision": "18949.18717440000000",
+                    "variance_high_precision": "141532.4847695568864768000000",
+                    "variance_rate": "7.4690530768921130952380952380952380952380952380952380952380952380952380952380952",
+                    "factor_contributions": {
+                      "VOLUME": "5092.5941",
+                      "MIX": "107020.5104",
+                      "EFFICIENCY": "11701.9903",
+                      "PRICE": "13888.1093",
+                      "FX": "3829.2807"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "5092.59405312000000",
+                      "MIX": "107020.51037395200000000",
+                      "EFFICIENCY": "11701.99032156000000000",
+                      "PRICE": "13888.1093454725529600000000",
+                      "FX": "3829.2806754523335168000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BASE_FREIGHT",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FRONTLINE_VARIABLE_LABOR",
+                    "label": "一线作业弹性人工",
+                    "current": "23909.2492",
+                    "baseline": "2968.8422",
+                    "variance": "20940.4070",
+                    "current_high_precision": "23909.249246960000000000000000000000000000000000000000000000000000000000000000000",
+                    "baseline_high_precision": "2968.8422400000",
+                    "variance_high_precision": "20940.407006960000000000000000000000000000000000000000000000000000000000000000000",
+                    "variance_rate": "7.0533916301864527500120720459703510550968178086822154618764788256313680042493602",
+                    "factor_contributions": {
+                      "VOLUME": "797.8764",
+                      "MIX": "16169.2374",
+                      "EFFICIENCY": "0.0000",
+                      "PRICE": "3522.1753",
+                      "FX": "451.1179"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "797.8763520000",
+                      "MIX": "16169.23744800000",
+                      "EFFICIENCY": "0.00000000000",
+                      "PRICE": "3522.175296640000000000000000000000000000000000000000000000000000000000000000000",
+                      "FX": "451.117910320000000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FUEL_SURCHARGE",
+                    "label": "燃油附加费",
+                    "current": "20250.7328",
+                    "baseline": "2179.1565",
+                    "variance": "18071.5763",
+                    "current_high_precision": "20250.732833926476425225256960000000",
+                    "baseline_high_precision": "2179.15652505600000000",
+                    "variance_high_precision": "18071.576308870476425225256960000000",
+                    "variance_rate": "8.2929225602121778571428571428571428571428571428571428571428571428571428571428571",
+                    "factor_contributions": {
+                      "VOLUME": "585.6483",
+                      "MIX": "12307.3587",
+                      "EFFICIENCY": "1345.7289",
+                      "PRICE": "3349.6342",
+                      "FX": "483.2062"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "585.64831610880000000",
+                      "MIX": "12307.35869300448000000000",
+                      "EFFICIENCY": "1345.72888697940000000000",
+                      "PRICE": "3349.634206328357725274112000000000",
+                      "FX": "483.206206449438699951144960000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "RETURN_LOGISTICS",
+                    "label": "退货物流费",
+                    "current": "10226.2316",
+                    "baseline": "1114.7674",
+                    "variance": "9111.4642",
+                    "current_high_precision": "10226.23156558080000000",
+                    "baseline_high_precision": "1114.7673600000000",
+                    "variance_high_precision": "9111.46420558080000000",
+                    "variance_rate": "8.1734221260127314814814814814814814814814814814814814814814814814814814814814815",
+                    "factor_contributions": {
+                      "VOLUME": "299.5937",
+                      "MIX": "6071.3695",
+                      "EFFICIENCY": "2339.2908",
+                      "PRICE": "157.2003",
+                      "FX": "244.0099"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "299.5937280000000",
+                      "MIX": "6071.36947200000000",
+                      "EFFICIENCY": "2339.29080000000000",
+                      "PRICE": "157.20034176000000000",
+                      "FX": "244.00986382080000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__PACKAGING",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "PACKAGING",
+                    "label": "包装费",
+                    "current": "8964.5897",
+                    "baseline": "1183.5113",
+                    "variance": "7781.0783",
+                    "current_high_precision": "8964.5896560528000000",
+                    "baseline_high_precision": "1183.511347200000",
+                    "variance_high_precision": "7781.0783088528000000",
+                    "variance_rate": "6.5745700936975351037851037851037851037851037851037851037851037851037851037851038",
+                    "factor_contributions": {
+                      "VOLUME": "318.0687",
+                      "MIX": "6445.7706",
+                      "EFFICIENCY": "709.5849",
+                      "PRICE": "138.5110",
+                      "FX": "169.1432"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "318.068674560000",
+                      "MIX": "6445.7705894400000",
+                      "EFFICIENCY": "709.5848760000000",
+                      "PRICE": "138.5109677952000000",
+                      "FX": "169.1432010576000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__PACKAGING",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BILLABLE_EXCEPTION",
+                    "label": "计费异常事件费",
+                    "current": "1178.2891",
+                    "baseline": "118.3511",
+                    "variance": "1059.9380",
+                    "current_high_precision": "1178.2891259452544000000",
+                    "baseline_high_precision": "118.351134720000000",
+                    "variance_high_precision": "1059.9379912252544000000",
+                    "variance_rate": "8.9558751906595526387193053859720526387193053859720526387193053859720526387193054",
+                    "factor_contributions": {
+                      "VOLUME": "31.8069",
+                      "MIX": "644.5771",
+                      "EFFICIENCY": "337.3257",
+                      "PRICE": "18.1130",
+                      "FX": "28.1154"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "31.806867456000000",
+                      "MIX": "644.5770589440000000",
+                      "EFFICIENCY": "337.3257333600000000",
+                      "PRICE": "18.1129727116800000000",
+                      "FX": "28.1153587535744000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "row_id": "TREE_DE_FC__ROAD",
+            "level": 1,
+            "dimension": "transport_mode_id",
+            "dimension_label": "运输方式",
+            "member_id": "ROAD",
+            "label": "公路",
+            "current": "234234.3812",
+            "baseline": "263610.9951",
+            "variance": "-29376.6139",
+            "current_high_precision": "234234.38121555807597470523392000000000000000000000000000000000000000000000000000",
+            "baseline_high_precision": "263610.99509760000000000",
+            "variance_high_precision": "-29376.61388204192402529476608000000000000000000000000000000000000000000000000000",
+            "variance_rate": "-0.11143925871212409928118307049429608321062898866810396397158264630188711863454640",
+            "factor_contributions": {
+              "VOLUME": "70845.4549",
+              "MIX": "-135886.5560",
+              "EFFICIENCY": "18104.0631",
+              "PRICE": "12201.1234",
+              "FX": "5359.3006"
+            },
+            "factor_contributions_high_precision": {
+              "VOLUME": "70845.45493248000000000",
+              "MIX": "-135886.55601986304000000000",
+              "EFFICIENCY": "18104.06313278640000000000",
+              "PRICE": "12201.123431453100452532224000000000000000000000000000000000000000000000000000000",
+              "FX": "5359.300641101615522173009920000000000000000000000000000000000000000000000000000"
+            },
+            "evidence_id": "EVID_GB_TREE_DE_FC__ROAD",
+            "children": [
+              {
+                "row_id": "TREE_DE_FC__ROAD__CARRIER_B",
+                "level": 2,
+                "dimension": "carrier_id",
+                "dimension_label": "承运商",
+                "member_id": "CARRIER_B",
+                "label": "Carrier B",
+                "current": "91752.9170",
+                "baseline": "77674.3465",
+                "variance": "14078.5705",
+                "current_high_precision": "91752.916965258242453760000000000000000000000000000000000000000000000000000000000",
+                "baseline_high_precision": "77674.346496000000000",
+                "variance_high_precision": "14078.570469258242453760000000000000000000000000000000000000000000000000000000000",
+                "variance_rate": "0.18125122520320460442590036361237492296699914548837558075823016191108760274725131",
+                "factor_contributions": {
+                  "VOLUME": "20874.9806",
+                  "MIX": "-20892.8989",
+                  "EFFICIENCY": "7019.1122",
+                  "PRICE": "4973.4010",
+                  "FX": "2103.9755"
+                },
+                "factor_contributions_high_precision": {
+                  "VOLUME": "20874.980620800000000",
+                  "MIX": "-20892.89892345600000000",
+                  "EFFICIENCY": "7019.11222412400000000",
+                  "PRICE": "4973.401012623115072000000000000000000000000000000000000000000000000000000000000",
+                  "FX": "2103.975535167127381760000000000000000000000000000000000000000000000000000000000"
+                },
+                "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B",
+                "children": [
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__BASE_FREIGHT",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BASE_FREIGHT",
+                    "label": "基础运费",
+                    "current": "64183.0821",
+                    "baseline": "54577.1520",
+                    "variance": "9605.9301",
+                    "current_high_precision": "64183.0820588286353024000000",
+                    "baseline_high_precision": "54577.15200000000000",
+                    "variance_high_precision": "9605.9300588286353024000000",
+                    "variance_rate": "0.17600643688458927469135802469135802469135802469135802469135802469135802469135802",
+                    "factor_contributions": {
+                      "VOLUME": "14667.6096",
+                      "MIX": "-14283.1554",
+                      "EFFICIENCY": "4907.2863",
+                      "PRICE": "2782.7061",
+                      "FX": "1531.4835"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "14667.60960000000000",
+                      "MIX": "-14283.15544454400000000",
+                      "EFFICIENCY": "4907.28626388000000000",
+                      "PRICE": "2782.7061196507372800000000",
+                      "FX": "1531.4835198418980224000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BASE_FREIGHT",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FRONTLINE_VARIABLE_LABOR",
+                    "label": "一线作业弹性人工",
+                    "current": "12432.8096",
+                    "baseline": "10603.0080",
+                    "variance": "1829.8016",
+                    "current_high_precision": "12432.809608419200000000000000000000000000000000000000000000000000000000000000000",
+                    "baseline_high_precision": "10603.0080000000",
+                    "variance_high_precision": "1829.801608419200000000000000000000000000000000000000000000000000000000000000000",
+                    "variance_rate": "0.17257382135514752040175768989328311362209667294413057124921531701192718141870684",
+                    "factor_contributions": {
+                      "VOLUME": "2849.5584",
+                      "MIX": "-3085.8693",
+                      "EFFICIENCY": "0.0000",
+                      "PRICE": "1831.5312",
+                      "FX": "234.5813"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "2849.5584000000",
+                      "MIX": "-3085.86925920000",
+                      "EFFICIENCY": "0.00000000000",
+                      "PRICE": "1831.531154252800000000000000000000000000000000000000000000000000000000000000000",
+                      "FX": "234.581313366400000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__RETURN_LOGISTICS",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "RETURN_LOGISTICS",
+                    "label": "退货物流费",
+                    "current": "5317.6404",
+                    "baseline": "3981.3120",
+                    "variance": "1336.3284",
+                    "current_high_precision": "5317.64041410201600000",
+                    "baseline_high_precision": "3981.3120000000000",
+                    "variance_high_precision": "1336.32841410201600000",
+                    "variance_rate": "0.33565026154745370370370370370370370370370370370370370370370370370370370370370370",
+                    "factor_contributions": {
+                      "VOLUME": "1069.9776",
+                      "MIX": "-1158.7097",
+                      "EFFICIENCY": "1216.4312",
+                      "PRICE": "81.7442",
+                      "FX": "126.8851"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "1069.9776000000000",
+                      "MIX": "-1158.70970880000000",
+                      "EFFICIENCY": "1216.43121600000000",
+                      "PRICE": "81.74417771520000000",
+                      "FX": "126.88512918681600000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__RETURN_LOGISTICS",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__FUEL_SURCHARGE",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FUEL_SURCHARGE",
+                    "label": "燃油附加费",
+                    "current": "4506.4717",
+                    "baseline": "3832.0128",
+                    "variance": "674.4589",
+                    "current_high_precision": "4506.4717190241382233600000",
+                    "baseline_high_precision": "3832.01280000000000",
+                    "variance_high_precision": "674.4589190241382233600000",
+                    "variance_rate": "0.17600643688458927469135802469135802469135802469135802469135802469135802469135802",
+                    "factor_contributions": {
+                      "VOLUME": "1029.8534",
+                      "MIX": "-1002.8599",
+                      "EFFICIENCY": "344.5541",
+                      "PRICE": "195.3815",
+                      "FX": "107.5297"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "1029.85344000000000",
+                      "MIX": "-1002.85985036160000000",
+                      "EFFICIENCY": "344.55414193200000000",
+                      "PRICE": "195.3814935073921920000000",
+                      "FX": "107.5296939463460313600000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FUEL_SURCHARGE",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__PACKAGING",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "PACKAGING",
+                    "label": "包装费",
+                    "current": "4661.5866",
+                    "baseline": "4226.8262",
+                    "variance": "434.7604",
+                    "current_high_precision": "4661.5866211474560000",
+                    "baseline_high_precision": "4226.826240000000",
+                    "variance_high_precision": "434.7603811474560000",
+                    "variance_rate": "0.10285740564236111111111111111111111111111111111111111111111111111111111111111111",
+                    "factor_contributions": {
+                      "VOLUME": "1135.9596",
+                      "MIX": "-1230.1635",
+                      "EFFICIENCY": "368.9841",
+                      "PRICE": "72.0257",
+                      "FX": "87.9545"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "1135.959552000000",
+                      "MIX": "-1230.1634741760000",
+                      "EFFICIENCY": "368.9841355200000",
+                      "PRICE": "72.0257032535040000",
+                      "FX": "87.9544645499520000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__PACKAGING",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_B__BILLABLE_EXCEPTION",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BILLABLE_EXCEPTION",
+                    "label": "计费异常事件费",
+                    "current": "651.3265",
+                    "baseline": "454.0355",
+                    "variance": "197.2911",
+                    "current_high_precision": "651.3265437367969280000",
+                    "baseline_high_precision": "454.035456000000000",
+                    "variance_high_precision": "197.2910877367969280000",
+                    "variance_rate": "0.43452793197013435003631082062454611474219317356572258533042846768336964415395788",
+                    "factor_contributions": {
+                      "VOLUME": "122.0220",
+                      "MIX": "-132.1412",
+                      "EFFICIENCY": "181.8565",
+                      "PRICE": "10.0124",
+                      "FX": "15.5414"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "122.022028800000000",
+                      "MIX": "-132.1411863744000000",
+                      "EFFICIENCY": "181.8564667920000000",
+                      "PRICE": "10.0123642434816000000",
+                      "FX": "15.5414142757153280000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BILLABLE_EXCEPTION",
+                    "children": []
+                  }
+                ]
+              },
+              {
+                "row_id": "TREE_DE_FC__ROAD__CARRIER_A",
+                "level": 2,
+                "dimension": "carrier_id",
+                "dimension_label": "承运商",
+                "member_id": "CARRIER_A",
+                "label": "Carrier A",
+                "current": "142481.4643",
+                "baseline": "185936.6486",
+                "variance": "-43455.1844",
+                "current_high_precision": "142481.46425029983352094523392000000000000000000000000000000000000000000000000000",
+                "baseline_high_precision": "185936.64860160000000000",
+                "variance_high_precision": "-43455.18435130016647905476608000000000000000000000000000000000000000000000000000",
+                "variance_rate": "-0.23370962463892785835461423663969716845469959992853437200284325768360359049574821",
+                "factor_contributions": {
+                  "VOLUME": "49970.4743",
+                  "MIX": "-114993.6571",
+                  "EFFICIENCY": "11084.9509",
+                  "PRICE": "7227.7224",
+                  "FX": "3255.3251"
+                },
+                "factor_contributions_high_precision": {
+                  "VOLUME": "49970.47431168000000000",
+                  "MIX": "-114993.65709640704000000000",
+                  "EFFICIENCY": "11084.95090866240000000000",
+                  "PRICE": "7227.722418829985380532224000000000000000000000000000000000000000000000000000000",
+                  "FX": "3255.325105934488140413009920000000000000000000000000000000000000000000000000000"
+                },
+                "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A",
+                "children": [
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__BILLABLE_EXCEPTION",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BILLABLE_EXCEPTION",
+                    "label": "计费异常事件费",
+                    "current": "1503.0613",
+                    "baseline": "1527.6958",
+                    "variance": "-24.6345",
+                    "current_high_precision": "1503.0612547772236800000",
+                    "baseline_high_precision": "1527.695769600000000",
+                    "variance_high_precision": "-24.6345148227763200000",
+                    "variance_rate": "-0.016125275275997150997150997150997150997150997150997150997150997150997150997150997",
+                    "factor_contributions": {
+                      "VOLUME": "410.5682",
+                      "MIX": "-966.0672",
+                      "EFFICIENCY": "471.8942",
+                      "PRICE": "23.1055",
+                      "FX": "35.8648"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "410.568238080000000",
+                      "MIX": "-966.0672274176000000",
+                      "EFFICIENCY": "471.8942163936000000",
+                      "PRICE": "23.1054559464960000000",
+                      "FX": "35.8648021747276800000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BILLABLE_EXCEPTION",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__RETURN_LOGISTICS",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "RETURN_LOGISTICS",
+                    "label": "退货物流费",
+                    "current": "8999.0838",
+                    "baseline": "10351.4112",
+                    "variance": "-1352.3274",
+                    "current_high_precision": "8999.08377771110400000",
+                    "baseline_high_precision": "10351.4112000000000",
+                    "variance_high_precision": "-1352.32742228889600000",
+                    "variance_rate": "-0.13064184159633190883190883190883190883190883190883190883190883190883190883190883",
+                    "factor_contributions": {
+                      "VOLUME": "2781.9418",
+                      "MIX": "-6545.9101",
+                      "EFFICIENCY": "2058.5759",
+                      "PRICE": "138.3363",
+                      "FX": "214.7287"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "2781.9417600000000",
+                      "MIX": "-6545.91006720000000",
+                      "EFFICIENCY": "2058.57590400000000",
+                      "PRICE": "138.33630074880000000",
+                      "FX": "214.72868016230400000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__RETURN_LOGISTICS",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__FUEL_SURCHARGE",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FUEL_SURCHARGE",
+                    "label": "燃油附加费",
+                    "current": "9676.5162",
+                    "baseline": "12318.1793",
+                    "variance": "-2641.6631",
+                    "current_high_precision": "9676.516208996170990385233920000000",
+                    "baseline_high_precision": "12318.17932800000000000",
+                    "variance_high_precision": "-2641.663119003829009614766080000000",
+                    "variance_rate": "-0.21445239987691702239316239316239316239316239316239316239316239316239316239316239",
+                    "factor_contributions": {
+                      "VOLUME": "3310.5107",
+                      "MIX": "-7554.4613",
+                      "EFFICIENCY": "720.9133",
+                      "PRICE": "650.4812",
+                      "FX": "230.8930"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "3310.51069440000000000",
+                      "MIX": "-7554.46126869504000000000",
+                      "EFFICIENCY": "720.91328158080000000000",
+                      "PRICE": "650.481162215925348532224000000000",
+                      "FX": "230.893011494485641853009920000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FUEL_SURCHARGE",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__PACKAGING",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "PACKAGING",
+                    "label": "包装费",
+                    "current": "7888.8389",
+                    "baseline": "10989.7482",
+                    "variance": "-3100.9093",
+                    "current_high_precision": "7888.8388973264640000",
+                    "baseline_high_precision": "10989.748224000000",
+                    "variance_high_precision": "-3100.9093266735360000",
+                    "variance_rate": "-0.28216381881266436554898093359631821170282708744247205785667324128862590401051940",
+                    "factor_contributions": {
+                      "VOLUME": "2953.4948",
+                      "MIX": "-6949.5745",
+                      "EFFICIENCY": "624.4347",
+                      "PRICE": "121.8897",
+                      "FX": "148.8460"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "2953.494835200000",
+                      "MIX": "-6949.5745213440000",
+                      "EFFICIENCY": "624.4346908800000",
+                      "PRICE": "121.8896516597760000",
+                      "FX": "148.8460169306880000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__PACKAGING",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__FRONTLINE_VARIABLE_LABOR",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FRONTLINE_VARIABLE_LABOR",
+                    "label": "一线作业弹性人工",
+                    "current": "21040.1393",
+                    "baseline": "27567.8208",
+                    "variance": "-6527.6815",
+                    "current_high_precision": "21040.139337324800000000000000000000000000000000000000000000000000000000000000000",
+                    "baseline_high_precision": "27567.8208000000",
+                    "variance_high_precision": "-6527.681462675200000000000000000000000000000000000000000000000000000000000000000",
+                    "variance_rate": "-0.23678627012386847784500978764342519231697849690027004238216754514016573990498371",
+                    "factor_contributions": {
+                      "VOLUME": "7408.8518",
+                      "MIX": "-17433.0313",
+                      "EFFICIENCY": "0.0000",
+                      "PRICE": "3099.5143",
+                      "FX": "396.9838"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "7408.8518400000",
+                      "MIX": "-17433.03132480000",
+                      "EFFICIENCY": "0.00000000000",
+                      "PRICE": "3099.514261043200000000000000000000000000000000000000000000000000000000000000000",
+                      "FX": "396.983761081600000000000000000000000000000000000000000000000000000000000000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FRONTLINE_VARIABLE_LABOR",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_DE_FC__ROAD__CARRIER_A__BASE_FREIGHT",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BASE_FREIGHT",
+                    "label": "基础运费",
+                    "current": "93373.8248",
+                    "baseline": "123181.7933",
+                    "variance": "-29807.9685",
+                    "current_high_precision": "93373.8247741640708505600000",
+                    "baseline_high_precision": "123181.79328000000000",
+                    "variance_high_precision": "-29807.9685058359291494400000",
+                    "variance_rate": "-0.24198355708363924501424501424501424501424501424501424501424501424501424501424501",
+                    "factor_contributions": {
+                      "VOLUME": "33105.1069",
+                      "MIX": "-75544.6127",
+                      "EFFICIENCY": "7209.1328",
+                      "PRICE": "3194.3956",
+                      "FX": "2228.0088"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "33105.10694400000000",
+                      "MIX": "-75544.61268695040000000",
+                      "EFFICIENCY": "7209.13281580800000000",
+                      "PRICE": "3194.3955872157880320000000",
+                      "FX": "2228.0088340906828185600000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BASE_FREIGHT",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "row_id": "TREE_FR_FC",
+        "level": 0,
+        "dimension": "fulfillment_center_id",
+        "dimension_label": "发货仓",
+        "member_id": "FR_FC",
+        "label": "法国仓",
+        "current": "22086.6352",
+        "baseline": "14383.3435",
+        "variance": "7703.2917",
+        "current_high_precision": "22086.635188196045617920000000",
+        "baseline_high_precision": "14383.343520000000000",
+        "variance_high_precision": "7703.291668196045617920000000",
+        "variance_rate": "0.53557030446256390446829848085280243657839022397206849162426178360509601456004160",
+        "factor_contributions": {
+          "VOLUME": "3865.5236",
+          "MIX": "2305.3534",
+          "EFFICIENCY": "748.6932",
+          "PRICE": "366.9925",
+          "FX": "416.7290"
+        },
+        "factor_contributions_high_precision": {
+          "VOLUME": "3865.523571000000000",
+          "MIX": "2305.353369173400000000",
+          "EFFICIENCY": "748.693212747480000000",
+          "PRICE": "366.992549460145889280000000",
+          "FX": "416.728965815019728640000000"
+        },
+        "evidence_id": "EVID_GB_TREE_FR_FC",
+        "children": [
+          {
+            "row_id": "TREE_FR_FC__AIR",
+            "level": 1,
+            "dimension": "transport_mode_id",
+            "dimension_label": "运输方式",
+            "member_id": "AIR",
+            "label": "空运",
+            "current": "22086.6352",
+            "baseline": "14383.3435",
+            "variance": "7703.2917",
+            "current_high_precision": "22086.635188196045617920000000",
+            "baseline_high_precision": "14383.343520000000000",
+            "variance_high_precision": "7703.291668196045617920000000",
+            "variance_rate": "0.53557030446256390446829848085280243657839022397206849162426178360509601456004160",
+            "factor_contributions": {
+              "VOLUME": "3865.5236",
+              "MIX": "2305.3534",
+              "EFFICIENCY": "748.6932",
+              "PRICE": "366.9925",
+              "FX": "416.7290"
+            },
+            "factor_contributions_high_precision": {
+              "VOLUME": "3865.523571000000000",
+              "MIX": "2305.353369173400000000",
+              "EFFICIENCY": "748.693212747480000000",
+              "PRICE": "366.992549460145889280000000",
+              "FX": "416.728965815019728640000000"
+            },
+            "evidence_id": "EVID_GB_TREE_FR_FC__AIR",
+            "children": [
+              {
+                "row_id": "TREE_FR_FC__AIR__CARRIER_B",
+                "level": 2,
+                "dimension": "carrier_id",
+                "dimension_label": "承运商",
+                "member_id": "CARRIER_B",
+                "label": "Carrier B",
+                "current": "22086.6352",
+                "baseline": "14383.3435",
+                "variance": "7703.2917",
+                "current_high_precision": "22086.635188196045617920000000",
+                "baseline_high_precision": "14383.343520000000000",
+                "variance_high_precision": "7703.291668196045617920000000",
+                "variance_rate": "0.53557030446256390446829848085280243657839022397206849162426178360509601456004160",
+                "factor_contributions": {
+                  "VOLUME": "3865.5236",
+                  "MIX": "2305.3534",
+                  "EFFICIENCY": "748.6932",
+                  "PRICE": "366.9925",
+                  "FX": "416.7290"
+                },
+                "factor_contributions_high_precision": {
+                  "VOLUME": "3865.523571000000000",
+                  "MIX": "2305.353369173400000000",
+                  "EFFICIENCY": "748.693212747480000000",
+                  "PRICE": "366.992549460145889280000000",
+                  "FX": "416.728965815019728640000000"
+                },
+                "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B",
+                "children": [
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__BASE_FREIGHT",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BASE_FREIGHT",
+                    "label": "基础运费",
+                    "current": "15862.3435",
+                    "baseline": "10385.1072",
+                    "variance": "5477.2363",
+                    "current_high_precision": "15862.343483869344000000",
+                    "baseline_high_precision": "10385.107200000000",
+                    "variance_high_precision": "5477.236283869344000000",
+                    "variance_rate": "0.52741258981605351170568561872909698996655518394648829431438127090301003344481605",
+                    "factor_contributions": {
+                      "VOLUME": "2790.9976",
+                      "MIX": "1752.4219",
+                      "EFFICIENCY": "389.4398",
+                      "PRICE": "245.0875",
+                      "FX": "299.2895"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "2790.997560000000",
+                      "MIX": "1752.421933080000000",
+                      "EFFICIENCY": "389.439826776000000",
+                      "PRICE": "245.087464317696000000",
+                      "FX": "299.289499695648000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BASE_FREIGHT",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FRONTLINE_VARIABLE_LABOR",
+                    "label": "一线作业弹性人工",
+                    "current": "2272.5848",
+                    "baseline": "1572.4800",
+                    "variance": "700.1048",
+                    "current_high_precision": "2272.584837600000",
+                    "baseline_high_precision": "1572.48000000",
+                    "variance_high_precision": "700.104837600000",
+                    "variance_rate": "0.44522336538461538461538461538461538461538461538461538461538461538461538461538462",
+                    "factor_contributions": {
+                      "VOLUME": "422.6040",
+                      "MIX": "199.5084",
+                      "EFFICIENCY": "0.0000",
+                      "PRICE": "35.1135",
+                      "FX": "42.8790"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "422.60400000",
+                      "MIX": "199.508400000",
+                      "EFFICIENCY": "0.000000000",
+                      "PRICE": "35.113478400000",
+                      "FX": "42.878959200000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "FUEL_SURCHARGE",
+                    "label": "燃油附加费",
+                    "current": "1692.1948",
+                    "baseline": "1090.4363",
+                    "variance": "601.7585",
+                    "current_high_precision": "1692.194802859181617920000000",
+                    "baseline_high_precision": "1090.436256000000000",
+                    "variance_high_precision": "601.758546859181617920000000",
+                    "variance_rate": "0.55185119125311036789297658862876254180602006688963210702341137123745819397993311",
+                    "factor_contributions": {
+                      "VOLUME": "293.0547",
+                      "MIX": "184.0043",
+                      "EFFICIENCY": "40.8912",
+                      "PRICE": "51.8801",
+                      "FX": "31.9282"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "293.054743800000000",
+                      "MIX": "184.004302973400000000",
+                      "EFFICIENCY": "40.891181811480000000",
+                      "PRICE": "51.880114446769889280000000",
+                      "FX": "31.928203827531728640000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "RETURN_LOGISTICS",
+                    "label": "退货物流费",
+                    "current": "1181.7441",
+                    "baseline": "623.0016",
+                    "variance": "558.7425",
+                    "current_high_precision": "1181.744115552000000",
+                    "baseline_high_precision": "623.00160000000",
+                    "variance_high_precision": "558.742515552000000",
+                    "variance_rate": "0.89685566706730769230769230769230769230769230769230769230769230769230769230769231",
+                    "factor_contributions": {
+                      "VOLUME": "167.4317",
+                      "MIX": "79.0433",
+                      "EFFICIENCY": "271.7114",
+                      "PRICE": "18.2590",
+                      "FX": "22.2971"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "167.43168000000",
+                      "MIX": "79.043328000000",
+                      "EFFICIENCY": "271.711440000000",
+                      "PRICE": "18.259008768000000",
+                      "FX": "22.297058784000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__PACKAGING",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "PACKAGING",
+                    "label": "包装费",
+                    "current": "970.5019",
+                    "baseline": "654.4512",
+                    "variance": "316.0507",
+                    "current_high_precision": "970.50194398080000",
+                    "baseline_high_precision": "654.4512000000",
+                    "variance_high_precision": "316.05074398080000",
+                    "variance_rate": "0.48292484448160535117056856187290969899665551839464882943143812709030100334448161",
+                    "factor_contributions": {
+                      "VOLUME": "175.8838",
+                      "MIX": "83.0335",
+                      "EFFICIENCY": "23.8270",
+                      "PRICE": "14.9951",
+                      "FX": "18.3114"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "175.8837600000",
+                      "MIX": "83.03349600000",
+                      "EFFICIENCY": "23.82700320000",
+                      "PRICE": "14.99512734720000",
+                      "FX": "18.31135743360000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__PACKAGING",
+                    "children": []
+                  },
+                  {
+                    "row_id": "TREE_FR_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+                    "level": 3,
+                    "dimension": "cost_component_id",
+                    "dimension_label": "成本类别",
+                    "member_id": "BILLABLE_EXCEPTION",
+                    "label": "计费异常事件费",
+                    "current": "107.2660",
+                    "baseline": "57.8673",
+                    "variance": "49.3987",
+                    "current_high_precision": "107.26600433472000000",
+                    "baseline_high_precision": "57.8672640000000",
+                    "variance_high_precision": "49.39874033472000000",
+                    "variance_rate": "0.85365605560200668896321070234113712374581939799331103678929765886287625418060201",
+                    "factor_contributions": {
+                      "VOLUME": "15.5518",
+                      "MIX": "7.3419",
+                      "EFFICIENCY": "22.8238",
+                      "PRICE": "1.6574",
+                      "FX": "2.0239"
+                    },
+                    "factor_contributions_high_precision": {
+                      "VOLUME": "15.5518272000000",
+                      "MIX": "7.34190912000000",
+                      "EFFICIENCY": "22.82376096000000",
+                      "PRICE": "1.65735618048000000",
+                      "FX": "2.02388687424000000"
+                    },
+                    "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "ai_analysis": {
+      "answer_id": "ANSWER_FIXED_GB_2026_08_V1",
+      "answer_type": "FIXED_EXAMPLE",
+      "scope_label": "2026 年 8 月｜英国｜Actual vs Budget",
+      "conclusion": {
+        "text": "英国 8 月履约变动成本为 891,643.2815 CNY，较 Budget 不利 574,474.2232 CNY；结构因素是首要驱动。",
+        "evidence_ids": [
+          "EVID_GB_VARIANCE",
+          "EVID_FACTOR_MIX"
+        ]
+      },
+      "evidence": {
+        "text": "结构因素贡献 324,207.8221 CNY，空运包裹占比由 13.69% 升至 66.02%，Carrier C 包裹占比由 2.88% 升至 38.84%；这些是结构变化证据，不单独构成因果证明。",
+        "evidence_ids": [
+          "EVID_FACTOR_MIX",
+          "EVID_DIAG_AIR_SHARE",
+          "EVID_DIAG_CARRIER_C_SHARE"
+        ]
+      },
+      "impact": {
+        "text": "基础运费增量 432,453.0802 CNY，为最大成本类别增量；英国范围内德国仓贡献 566,770.9315 CNY。",
+        "evidence_ids": [
+          "EVID_GB_COMPONENT_BASE_FREIGHT",
+          "EVID_GB_TREE_DE_FC"
+        ]
+      },
+      "recommendations": [
+        {
+          "text": "复核空运与 Carrier C 的业务分配规则，并在正式 Forecast 中把结构动作单独版本化。",
+          "evidence_ids": [
+            "EVID_FACTOR_MIX",
+            "EVID_DIAG_AIR_SHARE",
+            "EVID_DIAG_CARRIER_C_SHARE"
+          ],
+          "scenario_validation_status": "NOT_RUN",
+          "feasibility_status": "NOT_VALIDATED"
+        },
+        {
+          "text": "分别检查基础运价与汇率暴露；当前证据不足以承诺节省金额。",
+          "evidence_ids": [
+            "EVID_GB_COMPONENT_BASE_FREIGHT",
+            "EVID_FACTOR_PRICE",
+            "EVID_FACTOR_FX"
+          ],
+          "scenario_validation_status": "NOT_RUN",
+          "feasibility_status": "NOT_VALIDATED"
+        }
+      ],
+      "limitations": {
+        "text": "准时履约率 96.16%，但服务成熟度仅 92.00%，尚不能表述为最终服务表现。固定成本未分摊到英国；当前事实也不支持订单级 Top 10。",
+        "evidence_ids": [
+          "EVID_DIAG_ON_TIME_RATE",
+          "EVID_DIAG_SERVICE_MATURITY"
+        ]
+      },
+      "evidence_snapshot_id": "SNAPSHOT_GB_2026_08_V1",
+      "evaluation_question_ids": [
+        "E01",
+        "E05",
+        "E06",
+        "E07",
+        "E09",
+        "E10",
+        "E20"
+      ]
+    },
+    "order_level_guardrail": {
+      "code": "ORDER_LEVEL_NOT_AVAILABLE",
+      "message_zh": "当前事实粒度为月 × 目的国 × 发货仓 × 承运商 ×运输方式；可提供线路层下钻，不生成订单级 Top 10。"
+    }
+  },
+  "evidence": {
+    "EVID_ANNUAL_TOTAL_COST": {
+      "evidence_id": "EVID_ANNUAL_TOTAL_COST",
+      "metric": "全年 total_cost 差异",
+      "value": "2129700.9671",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_ANNUAL_VARIABLE_COST": {
+      "evidence_id": "EVID_ANNUAL_VARIABLE_COST",
+      "metric": "全年 variable_cost 差异",
+      "value": "1990369.7171",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_ANNUAL_FIXED_COST": {
+      "evidence_id": "EVID_ANNUAL_FIXED_COST",
+      "metric": "全年 fixed_cost 差异",
+      "value": "139331.2500",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_ANNUAL_UNIT_VARIABLE_COST": {
+      "evidence_id": "EVID_ANNUAL_UNIT_VARIABLE_COST",
+      "metric": "全年 unit_variable_cost 差异",
+      "value": "6.1155",
+      "unit": "CNY_PER_ORDER",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_ANNUAL_TRANSPORT_COST_PER_KG": {
+      "evidence_id": "EVID_ANNUAL_TRANSPORT_COST_PER_KG",
+      "metric": "全年 transport_cost_per_kg 差异",
+      "value": "4.6948",
+      "unit": "CNY_PER_KG",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_ANNUAL_TOTAL_COST_RATE": {
+      "evidence_id": "EVID_ANNUAL_TOTAL_COST_RATE",
+      "metric": "全年 total_cost_rate 差异",
+      "value": "0.0059",
+      "unit": "RATIO",
+      "period": {
+        "from": "2026-01",
+        "to": "2026-12"
+      },
+      "comparison": "LATEST_OUTLOOK_VS_BUDGET",
+      "filters": {},
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "forecast": "FORECAST_2026_08_V1",
+        "calculation": "LATEST_OUTLOOK_V1"
+      },
+      "calculation_method": "1—8 月 Actual 加 9—12 月 Forecast，再与年度 Budget 比较",
+      "source_result_id": "RESULT_DASHBOARD_OVERVIEW",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "monthly_summary",
+        "cost_facts"
+      ]
+    },
+    "EVID_COMPANY_WAREHOUSE_DE_FC": {
+      "evidence_id": "EVID_COMPANY_WAREHOUSE_DE_FC",
+      "metric": "公司履约变动成本差异｜德国仓",
+      "value": "589251.0927",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "fulfillment_center_id": [
+          "DE_FC"
+        ]
+      },
+      "group_by": [
+        "fulfillment_center_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "WAREHOUSE_VARIANCE_V1"
+      },
+      "calculation_method": "公司范围 Actual 线路成本减 Budget 线路成本；不分摊固定成本",
+      "source_result_id": "RESULT_COMPANY_WAREHOUSE_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_COMPANY_WAREHOUSE_FR_FC": {
+      "evidence_id": "EVID_COMPANY_WAREHOUSE_FR_FC",
+      "metric": "公司履约变动成本差异｜法国仓",
+      "value": "12299.5128",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "fulfillment_center_id": [
+          "FR_FC"
+        ]
+      },
+      "group_by": [
+        "fulfillment_center_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "WAREHOUSE_VARIANCE_V1"
+      },
+      "calculation_method": "公司范围 Actual 线路成本减 Budget 线路成本；不分摊固定成本",
+      "source_result_id": "RESULT_COMPANY_WAREHOUSE_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_VARIANCE": {
+      "evidence_id": "EVID_GB_VARIANCE",
+      "metric": "英国履约变动成本不利差异",
+      "value": "574474.2232",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COUNTRY_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_VARIANCE_SUMMARY",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary"
+      ]
+    },
+    "EVID_FACTOR_VOLUME": {
+      "evidence_id": "EVID_FACTOR_VOLUME",
+      "metric": "英国履约变动成本差异｜量因素",
+      "value": "85239.1844",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "factor_id": [
+          "VOLUME"
+        ]
+      },
+      "group_by": [
+        "factor_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "量→结构→效率→价→汇率连环替代",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_BRIDGE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "attribution_country_summary",
+        "attribution_detail"
+      ]
+    },
+    "EVID_FACTOR_MIX": {
+      "evidence_id": "EVID_FACTOR_MIX",
+      "metric": "英国履约变动成本差异｜结构因素",
+      "value": "324207.8221",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "factor_id": [
+          "MIX"
+        ]
+      },
+      "group_by": [
+        "factor_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "量→结构→效率→价→汇率连环替代",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_BRIDGE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "attribution_country_summary",
+        "attribution_detail"
+      ]
+    },
+    "EVID_FACTOR_EFFICIENCY": {
+      "evidence_id": "EVID_FACTOR_EFFICIENCY",
+      "metric": "英国履约变动成本差异｜效率因素",
+      "value": "64558.2789",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "factor_id": [
+          "EFFICIENCY"
+        ]
+      },
+      "group_by": [
+        "factor_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "量→结构→效率→价→汇率连环替代",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_BRIDGE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "attribution_country_summary",
+        "attribution_detail"
+      ]
+    },
+    "EVID_FACTOR_PRICE": {
+      "evidence_id": "EVID_FACTOR_PRICE",
+      "metric": "英国履约变动成本差异｜价因素",
+      "value": "79960.1574",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "factor_id": [
+          "PRICE"
+        ]
+      },
+      "group_by": [
+        "factor_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "量→结构→效率→价→汇率连环替代",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_BRIDGE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "attribution_country_summary",
+        "attribution_detail"
+      ]
+    },
+    "EVID_FACTOR_FX": {
+      "evidence_id": "EVID_FACTOR_FX",
+      "metric": "英国履约变动成本差异｜汇率因素",
+      "value": "20508.7803",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "factor_id": [
+          "FX"
+        ]
+      },
+      "group_by": [
+        "factor_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "量→结构→效率→价→汇率连环替代",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_BRIDGE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "attribution_country_summary",
+        "attribution_detail"
+      ]
+    },
+    "EVID_DIAG_ORDERS": {
+      "evidence_id": "EVID_DIAG_ORDERS",
+      "metric": "英国订单量变化",
+      "value": "4132.0000",
+      "unit": "COUNT",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "DIAGNOSTIC_V1"
+      },
+      "calculation_method": "Actual 订单量减 Budget 订单量",
+      "source_result_id": "RESULT_GB_DIAGNOSTICS",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary",
+        "driver_facts"
+      ]
+    },
+    "EVID_DIAG_AIR_SHARE": {
+      "evidence_id": "EVID_DIAG_AIR_SHARE",
+      "metric": "英国空运包裹占比变化",
+      "value": "0.5232",
+      "unit": "RATIO",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "DIAGNOSTIC_V1"
+      },
+      "calculation_method": "Actual 空运包裹占比减 Budget 空运包裹占比",
+      "source_result_id": "RESULT_GB_DIAGNOSTICS",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary",
+        "driver_facts"
+      ]
+    },
+    "EVID_DIAG_CARRIER_C_SHARE": {
+      "evidence_id": "EVID_DIAG_CARRIER_C_SHARE",
+      "metric": "英国Carrier C 包裹占比变化",
+      "value": "0.3596",
+      "unit": "RATIO",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "DIAGNOSTIC_V1"
+      },
+      "calculation_method": "Actual Carrier C 包裹占比减 Budget Carrier C 包裹占比",
+      "source_result_id": "RESULT_GB_DIAGNOSTICS",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary",
+        "driver_facts"
+      ]
+    },
+    "EVID_DIAG_ON_TIME_RATE": {
+      "evidence_id": "EVID_DIAG_ON_TIME_RATE",
+      "metric": "英国准时履约率变化",
+      "value": "0.0205",
+      "unit": "RATIO",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "DIAGNOSTIC_V1"
+      },
+      "calculation_method": "Actual 准时履约率减 Budget 准时履约率",
+      "source_result_id": "RESULT_GB_DIAGNOSTICS",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary",
+        "service_facts"
+      ]
+    },
+    "EVID_DIAG_SERVICE_MATURITY": {
+      "evidence_id": "EVID_DIAG_SERVICE_MATURITY",
+      "metric": "英国服务成熟度",
+      "value": "0.9200",
+      "unit": "RATIO",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "CURRENT_ONLY",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ]
+      },
+      "group_by": [],
+      "versions": {
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "SERVICE_MATURITY_V1"
+      },
+      "calculation_method": "已到承诺截止日期并进入服务评估的 cohort 占比",
+      "source_result_id": "RESULT_GB_DIAGNOSTICS",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "country_summary",
+        "service_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_COMPONENT_BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "432453.0802",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_COMPONENT_FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "40342.7081",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_COMPONENT_FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "53925.0698",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_PACKAGING": {
+      "evidence_id": "EVID_GB_COMPONENT_PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "19267.1044",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_COMPONENT_RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "25538.4208",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_COMPONENT_BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_COMPONENT_BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "2947.8399",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "COMPONENT_VARIANCE_V1"
+      },
+      "calculation_method": "Actual 线路成本减 Budget 线路成本",
+      "source_result_id": "RESULT_GB_COMPONENT_VARIANCE",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "141532.4848",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__BASE_FREIGHT"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "1059.9380",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "20940.4070",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "18071.5763",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__FUEL_SURCHARGE"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__PACKAGING": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "7781.0783",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__PACKAGING"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "9111.4642",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B",
+        "TREE_DE_FC__AIR__CARRIER_B__RETURN_LOGISTICS"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_B": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_B",
+      "metric": "英国履约变动成本差异｜Carrier B",
+      "value": "198496.9486",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ]
+      },
+      "group_by": [
+        "carrier_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_B"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "305645.3976",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__BASE_FREIGHT"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "1665.8466",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__BILLABLE_EXCEPTION"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "36982.4378",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__FRONTLINE_VARIABLE_LABOR"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "23636.5774",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__FUEL_SURCHARGE"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__PACKAGING": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "13836.1243",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__PACKAGING"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C__RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "15884.2131",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C",
+        "TREE_DE_FC__AIR__CARRIER_C__RETURN_LOGISTICS"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR__CARRIER_C": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR__CARRIER_C",
+      "metric": "英国履约变动成本差异｜Carrier C",
+      "value": "397650.5968",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_C"
+        ]
+      },
+      "group_by": [
+        "carrier_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR",
+        "TREE_DE_FC__AIR__CARRIER_C"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__AIR": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__AIR",
+      "metric": "英国履约变动成本差异｜空运",
+      "value": "596147.5454",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ]
+      },
+      "group_by": [
+        "transport_mode_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__AIR"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "-29807.9685",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__BASE_FREIGHT"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "-24.6345",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__BILLABLE_EXCEPTION"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "-6527.6815",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__FRONTLINE_VARIABLE_LABOR"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "-2641.6631",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__FUEL_SURCHARGE"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__PACKAGING": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "-3100.9093",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__PACKAGING"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A__RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "-1352.3274",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A",
+        "TREE_DE_FC__ROAD__CARRIER_A__RETURN_LOGISTICS"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_A",
+      "metric": "英国履约变动成本差异｜Carrier A",
+      "value": "-43455.1844",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_A"
+        ]
+      },
+      "group_by": [
+        "carrier_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_A"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "9605.9301",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__BASE_FREIGHT"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "197.2911",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__BILLABLE_EXCEPTION"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "1829.8016",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__FRONTLINE_VARIABLE_LABOR"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "674.4589",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__FUEL_SURCHARGE"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__PACKAGING": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "434.7604",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__PACKAGING"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B__RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "1336.3284",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B",
+        "TREE_DE_FC__ROAD__CARRIER_B__RETURN_LOGISTICS"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD__CARRIER_B",
+      "metric": "英国履约变动成本差异｜Carrier B",
+      "value": "14078.5705",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ]
+      },
+      "group_by": [
+        "carrier_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD",
+        "TREE_DE_FC__ROAD__CARRIER_B"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC__ROAD": {
+      "evidence_id": "EVID_GB_TREE_DE_FC__ROAD",
+      "metric": "英国履约变动成本差异｜公路",
+      "value": "-29376.6139",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ],
+        "transport_mode_id": [
+          "ROAD"
+        ]
+      },
+      "group_by": [
+        "transport_mode_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC",
+        "TREE_DE_FC__ROAD"
+      ]
+    },
+    "EVID_GB_TREE_DE_FC": {
+      "evidence_id": "EVID_GB_TREE_DE_FC",
+      "metric": "英国履约变动成本差异｜德国仓",
+      "value": "566770.9315",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "DE_FC"
+        ]
+      },
+      "group_by": [
+        "fulfillment_center_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_DE_FC"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BASE_FREIGHT": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BASE_FREIGHT",
+      "metric": "英国履约变动成本差异｜基础运费",
+      "value": "5477.2363",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BASE_FREIGHT"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__BASE_FREIGHT"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION",
+      "metric": "英国履约变动成本差异｜计费异常事件费",
+      "value": "49.3987",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "BILLABLE_EXCEPTION"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__BILLABLE_EXCEPTION"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR",
+      "metric": "英国履约变动成本差异｜一线作业弹性人工",
+      "value": "700.1048",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FRONTLINE_VARIABLE_LABOR"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__FRONTLINE_VARIABLE_LABOR"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FUEL_SURCHARGE": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__FUEL_SURCHARGE",
+      "metric": "英国履约变动成本差异｜燃油附加费",
+      "value": "601.7585",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "FUEL_SURCHARGE"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__FUEL_SURCHARGE"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__PACKAGING": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__PACKAGING",
+      "metric": "英国履约变动成本差异｜包装费",
+      "value": "316.0507",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "PACKAGING"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__PACKAGING"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__RETURN_LOGISTICS": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B__RETURN_LOGISTICS",
+      "metric": "英国履约变动成本差异｜退货物流费",
+      "value": "558.7425",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ],
+        "cost_component_id": [
+          "RETURN_LOGISTICS"
+        ]
+      },
+      "group_by": [
+        "cost_component_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B",
+        "TREE_FR_FC__AIR__CARRIER_B__RETURN_LOGISTICS"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR__CARRIER_B": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR__CARRIER_B",
+      "metric": "英国履约变动成本差异｜Carrier B",
+      "value": "7703.2917",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ],
+        "carrier_id": [
+          "CARRIER_B"
+        ]
+      },
+      "group_by": [
+        "carrier_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR",
+        "TREE_FR_FC__AIR__CARRIER_B"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC__AIR": {
+      "evidence_id": "EVID_GB_TREE_FR_FC__AIR",
+      "metric": "英国履约变动成本差异｜空运",
+      "value": "7703.2917",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ],
+        "transport_mode_id": [
+          "AIR"
+        ]
+      },
+      "group_by": [
+        "transport_mode_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC",
+        "TREE_FR_FC__AIR"
+      ]
+    },
+    "EVID_GB_TREE_FR_FC": {
+      "evidence_id": "EVID_GB_TREE_FR_FC",
+      "metric": "英国履约变动成本差异｜法国仓",
+      "value": "7703.2917",
+      "unit": "CNY",
+      "period": {
+        "from": "2026-08",
+        "to": "2026-08"
+      },
+      "comparison": "ACTUAL_VS_BUDGET",
+      "filters": {
+        "destination_country_id": [
+          "GB"
+        ],
+        "fulfillment_center_id": [
+          "FR_FC"
+        ]
+      },
+      "group_by": [
+        "fulfillment_center_id"
+      ],
+      "versions": {
+        "budget": "BUDGET_2026_V1",
+        "actual": "ACTUAL_2026_08_CLOSE_V1",
+        "calculation": "CHAIN_V1"
+      },
+      "calculation_method": "当前履约变动成本减 Budget 履约变动成本",
+      "source_result_id": "RESULT_GB_ATTRIBUTION_DRILLDOWN",
+      "snapshot_generated_at": "2026-08-14",
+      "source_refs": [
+        "cost_facts",
+        "attribution_detail"
+      ],
+      "row_path": [
+        "TREE_FR_FC"
+      ]
+    }
+  },
+  "evaluation_gate": [
+    {
+      "question_id": "E01",
+      "status": "PASS",
+      "page_location": "归因页成本摘要",
+      "standard_answer": "范围：2026 年 8 月｜英国｜Actual vs Budget。Actual 履约变动成本为 891,643.2815 CNY，Budget 为 317,169.0583 CNY，不利差异为 574,474.2232 CNY。"
+    },
+    {
+      "question_id": "E04",
+      "status": "PASS",
+      "page_location": "驾驶舱年度 KPI",
+      "standard_answer": "范围：2026 全年｜公司｜Latest Outlook vs Budget。Latest Outlook 为 18,327,462.9382 CNY，年度 Budget 为 16,197,761.9712 CNY，不利差异为 2,129,700.9671 CNY。Latest Outlook 由 1—8 月 Actual 与 9—12 月正式 Forecast 组成。"
+    },
+    {
+      "question_id": "E05",
+      "status": "PASS",
+      "page_location": "归因页五因素瀑布图",
+      "standard_answer": "范围：2026 年 8 月｜英国｜Actual vs Budget｜连环替代。量 85,239.1844 CNY；结构 324,207.8221 CNY；效率 64,558.2789 CNY；价 79,960.1574 CNY；汇率 20,508.7803 CNY；五项合计 574,474.2232 CNY，与英国履约变动成本差异一致。固定替代顺序为量→结构→效率→价→汇率。"
+    },
+    {
+      "question_id": "E06",
+      "status": "PASS",
+      "page_location": "归因页结构因素与 AI 结论",
+      "standard_answer": "最大驱动是结构因素，影响 324,207.8221 CNY；其次是量因素 85,239.1844 CNY。结构因素包含目的国、发货仓、承运商、运输方式和平均计费重量的组合变化。"
+    },
+    {
+      "question_id": "E07",
+      "status": "PASS",
+      "page_location": "归因页诊断指标带",
+      "standard_answer": "英国空运包裹占比由 Budget 的 13.69% 升至 Actual 的 66.02%；Carrier C 包裹占比由 2.88% 升至 38.84%。这是已记录管理动作与结构差异的证据，但不能仅据相关性反推出未记录的因果。"
+    },
+    {
+      "question_id": "E08",
+      "status": "PASS",
+      "page_location": "驾驶舱 8 月公司发货仓差异",
+      "standard_answer": "德国仓贡献最大，履约变动成本差异为 589,251.0927 CNY；法国仓为 12,299.5128 CNY。该比较只含可归属线路的履约变动成本，不把固定成本分摊到发货仓以外的维度。"
+    },
+    {
+      "question_id": "E09",
+      "status": "PASS",
+      "page_location": "英国归因页成本类别下钻",
+      "standard_answer": "增量最大的成本类别是基础运费，相对 Budget 增加 432,453.0802 CNY。成本类别比较来自同一组英国线路成本事实。"
+    },
+    {
+      "question_id": "E10",
+      "status": "PASS",
+      "page_location": "归因页服务成熟度与 AI 限制",
+      "standard_answer": "尚未最终成熟。当前英国准时履约率为 96.16%，服务成熟度为 92.00%。未到承诺截止日期的在途包裹不进入准时率分母，因此不得把当前结果表述为最终服务表现。"
+    },
+    {
+      "question_id": "E20",
+      "status": "PASS",
+      "page_location": "AI 限制与粒度保护",
+      "standard_answer": "无法提供。MVP 事实粒度是“月 × 目的国 × 发货仓 × 承运商 × 运输方式”，没有订单级收入、成本或订单—包裹关联。可以提供英国线路层的成本下钻，但不得虚构订单级明细或 Top 10 订单。"
+    }
+  ]
+}
