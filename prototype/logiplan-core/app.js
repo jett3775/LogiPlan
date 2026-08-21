@@ -1,13 +1,4 @@
-/*
- * PROTOTYPE — throwaway UI code.
- * Three structural variants of the LogiPlan AI core desktop flow, switchable via ?variant=.
- */
-
-const VARIANTS = {
-  A: "经营驾驶舱分栏",
-  B: "分析工作台侧轨",
-  C: "管理简报画布",
-};
+/* PROTOTYPE — throwaway UI code for the selected analysis workbench structure. */
 
 const FACTOR_LABELS = {
   VOLUME: "量",
@@ -18,7 +9,6 @@ const FACTOR_LABELS = {
 };
 
 const state = {
-  variant: "A",
   view: "dashboard",
   fixedCostExpanded: false,
   selectedFactor: null,
@@ -31,14 +21,12 @@ let model = null;
 
 function parseUrlState() {
   const params = new URLSearchParams(window.location.search);
-  const variant = (params.get("variant") || "A").toUpperCase();
-  state.variant = VARIANTS[variant] ? variant : "A";
   state.view = params.get("view") === "attribution" ? "attribution" : "dashboard";
 }
 
 function updateUrl({ push = false } = {}) {
   const url = new URL(window.location.href);
-  url.searchParams.set("variant", state.variant);
+  url.searchParams.delete("variant");
   url.searchParams.set("view", state.view);
   window.history[push ? "pushState" : "replaceState"]({}, "", url);
 }
@@ -106,52 +94,11 @@ function renderDataNotice() {
   </div>`;
 }
 
-function renderTopbar() {
-  return `<header class="app-topbar">
-    <div class="brand-lockup">
-      <div class="brand-mark" aria-hidden="true">LP</div>
-      <div><strong>LogiPlan AI</strong><span>物流预算执行与归因</span></div>
-    </div>
-    <div class="top-actions">
-      <span class="status-chip blue-chip">求职作品集演示</span>
-      <button class="btn secondary" type="button" data-action="start-guide">查看演示主线</button>
-    </div>
-  </header>`;
-}
-
 function metricDisplay(metricId, value) {
   if (metricId === "total_cost_rate") return fmtPct(value);
   if (metricId === "unit_variable_cost") return `${fmtMoney(value, 2)} / 单`;
   if (metricId === "transport_cost_per_kg") return `${fmtMoney(value, 2)} / kg`;
   return fmtMoneyCompact(value);
-}
-
-function renderKpiCard(metricId, label, { primary = false, split = false } = {}) {
-  const metric = model.dashboard.kpis[metricId];
-  const splitMarkup = split
-    ? `<div class="cost-split">
-        <span>履约变动成本<strong>¥ ${fmtMoneyCompact(model.dashboard.kpis.variable_cost.current)}</strong></span>
-        <span>运营固定成本<strong>¥ ${fmtMoneyCompact(model.dashboard.kpis.fixed_cost.current)}</strong></span>
-      </div>`
-    : "";
-  return `<article class="kpi-card ${primary ? "primary" : ""}">
-    <div class="kpi-label">${escapeHtml(label)} ${evidenceButton(metric.evidence_id)}</div>
-    <div class="kpi-value num">${metricId === "total_cost_rate" ? "" : "¥ "}${metricDisplay(metricId, metric.current)}</div>
-    <div class="kpi-baseline">Budget：${metricId === "total_cost_rate" ? "" : "¥ "}${metricDisplay(metricId, metric.baseline)}</div>
-    <div class="variance-line"><span class="${semanticClass(metric.variance)}">不利 ${metricId === "total_cost_rate" ? fmtSignedPct(metric.variance, 2) : `¥ ${fmtSignedMoney(metric.variance)}`}</span><span>${fmtSignedPct(metric.variance_rate)}</span></div>
-    ${splitMarkup}
-  </article>`;
-}
-
-function renderKpiGrid() {
-  return `<section class="kpi-grid" data-guide-target="annual">
-    ${renderKpiCard("total_cost", "物流总成本", { primary: true, split: true })}
-    ${renderKpiCard("variable_cost", "履约变动成本")}
-    ${renderKpiCard("fixed_cost", "运营固定成本")}
-    ${renderKpiCard("unit_variable_cost", "单均履约变动成本")}
-    ${renderKpiCard("transport_cost_per_kg", "每公斤运输成本")}
-    ${renderKpiCard("total_cost_rate", "公司物流总成本率")}
-  </section>`;
 }
 
 function renderMetricStrip() {
@@ -170,26 +117,6 @@ function renderMetricStrip() {
         <div class="kpi-label">${escapeHtml(label)} ${evidenceButton(metric.evidence_id)}</div>
         <div class="kpi-value num">${id === "total_cost_rate" ? "" : "¥ "}${metricDisplay(id, metric.current)}</div>
         <div class="${semanticClass(metric.variance)} tiny">${index === 0 ? "全年不利差异 " : "vs Budget "}${id === "total_cost_rate" ? fmtSignedPct(metric.variance) : `¥ ${fmtSignedMoney(metric.variance)}`}</div>
-      </article>`;
-    })
-    .join("")}</section>`;
-}
-
-function renderBriefKpis() {
-  const specs = [
-    ["variable_cost", "履约变动成本"],
-    ["fixed_cost", "运营固定成本"],
-    ["unit_variable_cost", "单均履约变动成本"],
-    ["transport_cost_per_kg", "每公斤运输成本"],
-    ["total_cost_rate", "公司物流总成本率"],
-  ];
-  return `<section class="brief-kpis">${specs
-    .map(([id, label]) => {
-      const metric = model.dashboard.kpis[id];
-      return `<article class="brief-kpi">
-        <div class="kpi-label">${escapeHtml(label)} ${evidenceButton(metric.evidence_id)}</div>
-        <div class="kpi-value num">${id === "total_cost_rate" ? "" : "¥ "}${metricDisplay(id, metric.current)}</div>
-        <div class="tiny ${semanticClass(metric.variance)}">vs Budget ${id === "total_cost_rate" ? fmtSignedPct(metric.variance) : `¥ ${fmtSignedMoney(metric.variance)}`}</div>
       </article>`;
     })
     .join("")}</section>`;
@@ -284,18 +211,6 @@ function renderAnomalyCard({ compact = false } = {}) {
     <div class="section-head"><div><h2>Top 5 不利异常</h2><p>月份 × 目的国 · 履约变动成本</p></div><span class="status-chip adverse-chip">确定性排名</span></div>
     ${renderAnomalyTable({ compact })}
   </section>`;
-}
-
-function renderEditorialAnomalies() {
-  return `<div class="editorial-anomalies" data-guide-target="anomaly">${model.dashboard.top_anomalies
-    .map(
-      (row) => `<article class="editorial-anomaly">
-        <div class="rank">0${row.rank}</div>
-        <div><strong>${escapeHtml(row.month_id.slice(5))} 月 · ${escapeHtml(row.country_label)}</strong><span class="tiny">${row.current_type} vs Budget · 贡献 ${fmtPct(row.adverse_contribution_share, 1)}</span>${row.is_core_entry ? `<br><button class="link-btn" type="button" data-action="nav-attribution">进入英国归因 →</button>` : ""}</div>
-        <div class="value num">¥ ${fmtSignedMoney(row.variance)}<br><span class="tiny">${fmtSignedPct(row.variance_rate)}</span></div>
-      </article>`,
-    )
-    .join("")}</div>`;
 }
 
 function renderFixedCostPanel({ bare = false } = {}) {
@@ -469,7 +384,10 @@ function renderAiAnalysis({ bare = false } = {}) {
         (item) => `<div class="recommendation-item"><p>${escapeHtml(item.text)}</p>${renderEvidenceRefs(item.evidence_ids)}<span class="recommendation-status">尚未进行情景验证 · 可行性未验证</span></div>`,
       )
       .join("")}</section>
-    <section class="ai-section"><h4>限制</h4><p>${escapeHtml(ai.limitations.text)}</p>${renderEvidenceRefs(ai.limitations.evidence_ids)}<div class="recommendation-status">${escapeHtml(model.attribution.order_level_guardrail.code)}</div></section>`;
+    <section class="ai-section"><h4>限制</h4><p>${escapeHtml(ai.limitations.text)}</p>${renderEvidenceRefs(ai.limitations.evidence_ids)}
+      ${(ai.limitations.status_labels || []).map((label) => `<div class="recommendation-status">${escapeHtml(label)}</div>`).join("")}
+      <div class="recommendation-status">${escapeHtml(model.attribution.order_level_guardrail.message_zh)}</div>
+    </section>`;
   return bare ? body : `<aside class="surface ai-card" data-guide-target="ai">${body}</aside>`;
 }
 
@@ -521,25 +439,6 @@ function renderTreeTable({ bare = false } = {}) {
   return bare ? body : `<section class="surface tree-card">${body}</section>`;
 }
 
-function renderDashboardA() {
-  return `${renderTopbar()}${renderDataNotice()}<main class="dashboard-a">
-    <div class="page-title-row"><div><p class="eyebrow">BUDGET PERFORMANCE CONTROL</p><h1>2026 物流预算执行驾驶舱</h1><p>从全年最新预测识别异常，再进入可审计的目的国归因。</p>${renderScopeChips(model.dashboard.scope_label, [model.dashboard.composition_label])}</div><button class="btn" type="button" data-action="start-guide">查看演示主线</button></div>
-    ${renderKpiGrid()}
-    <div class="a-dashboard-main">${renderChartCard()}${renderAnomalyCard({ compact: true })}</div>
-    <div class="dashboard-bottom-grid">${renderFixedCostPanel()}${renderWarehouseContext()}</div>
-    ${renderEvaluationGate()}
-  </main>`;
-}
-
-function renderAttributionA() {
-  return `${renderTopbar()}${renderDataNotice()}<main class="attribution-a">
-    <div class="page-title-row"><div><button class="link-btn" type="button" data-action="back-dashboard">← 返回预算执行驾驶舱</button><p class="eyebrow" style="margin-top:12px">COST ATTRIBUTION</p><h1>英国履约变动成本归因</h1><p>从公司 8 月异常切换到英国目的国口径；固定成本不进入本页。</p>${renderScopeChips(model.attribution.scope_label, ["CHAIN", model.meta.versions.budget, model.meta.versions.actual])}</div><span class="status-chip adverse-chip">不利差异 ¥ ${fmtMoney(model.attribution.summary.variance, 2)}</span></div>
-    ${renderAttributionSummary()}${renderDiagnostics()}
-    <div class="a-attribution-main">${renderWaterfallCard()}${renderAiAnalysis()}</div>
-    ${renderTreeTable()}${renderEvaluationGate()}
-  </main>`;
-}
-
 function renderRail() {
   return `<aside class="side-rail">
     <div class="brand-lockup"><div class="brand-mark">LP</div><div><strong>LogiPlan AI</strong><span>分析工作台</span></div></div>
@@ -573,40 +472,6 @@ function renderAttributionB() {
     <div class="b-attribution-grid" style="margin-top:12px"><div class="b-main-stack">${renderWaterfallCard()}</div><div class="sticky-ai">${renderAiAnalysis()}</div></div>
     ${renderTreeTable()}${renderEvaluationGate()}</div>
   </main></div>`;
-}
-
-function renderBriefMasthead({ attribution = false } = {}) {
-  const title = attribution ? "英国 8 月成本失控主要来自履约结构突变" : "全年物流总成本预计超预算 212.97 万元";
-  const subtitle = attribution
-    ? "英国履约变动成本较 Budget 增加 574,474.2232 CNY；结构因素贡献最大。"
-    : "Latest Outlook 为 18,327,462.9382 CNY，较年度 Budget 不利 13.15%。";
-  return `<header class="brief-masthead">
-    <div><p class="eyebrow">LOGIPLAN AI · MANAGEMENT BRIEF</p><h1>${title}</h1><p>${subtitle}</p>${renderScopeChips(attribution ? model.attribution.scope_label : model.dashboard.scope_label, attribution ? ["CHAIN"] : [model.dashboard.composition_label])}</div>
-    <div class="brief-page-label">求职作品集演示<strong>${attribution ? "归因简报" : "年度经营简报"}</strong><button class="btn secondary" style="margin-top:18px" type="button" data-action="${attribution ? "back-dashboard" : "start-guide"}">${attribution ? "返回驾驶舱" : "查看演示主线"}</button></div>
-  </header>`;
-}
-
-function renderDashboardC() {
-  const total = model.dashboard.kpis.total_cost;
-  return `${renderDataNotice()}<main class="brief-shell">${renderBriefMasthead()}
-    <section class="brief-lede" data-guide-target="annual"><div><span class="brief-section-number">EXECUTIVE SIGNAL</span><div class="big-number adverse num">¥ ${fmtMoney(total.variance, 0)}</div><p>全年不利差异 · ${fmtSignedPct(total.variance_rate)}。8 月英国是最大的单月目的国异常。</p><button class="btn" type="button" data-action="nav-attribution">进入英国异常归因</button></div><div><span class="brief-section-number">COST OUTLOOK</span><div class="big-number num">¥ ${fmtMoneyCompact(total.current)}</div><p>Budget ¥ ${fmtMoneyCompact(total.baseline)}</p><div class="cost-split"><span>变动成本<strong>¥ ${fmtMoneyCompact(model.dashboard.kpis.variable_cost.current)}</strong></span><span>固定成本<strong>¥ ${fmtMoneyCompact(model.dashboard.kpis.fixed_cost.current)}</strong></span></div></div></section>
-    ${renderBriefKpis()}
-    <div class="brief-spread"><section><span class="brief-section-number">01 · YEAR VIEW</span><h2 class="brief-section-title">总成本曲线在 8 月显著偏离基线</h2>${renderChartCard({ bare: true })}</section><aside><span class="brief-section-number">02 · EXCEPTION RANKING</span><h2 class="brief-section-title">不利异常集中在英国</h2>${renderEditorialAnomalies()}</aside></div>
-    <div class="brief-footer-grid"><section><span class="brief-section-number">03 · FIXED COST</span><h2 class="brief-section-title">固定成本保持独立经营视角</h2>${renderFixedCostPanel({ bare: true })}</section><section><span class="brief-section-number">04 · COMPANY WAREHOUSE</span><h2 class="brief-section-title">E08 使用公司发货仓口径</h2>${renderWarehouseContext({ bare: true })}</section></div>
-    ${renderEvaluationGate()}
-  </main>`;
-}
-
-function renderAttributionC() {
-  const summary = model.attribution.summary;
-  return `${renderDataNotice()}<main class="brief-shell">${renderBriefMasthead({ attribution: true })}
-    <section class="brief-lede" data-guide-target="attribution"><div><span class="brief-section-number">EXECUTIVE SIGNAL</span><div class="big-number adverse num">¥ ${fmtMoney(summary.variance, 2)}</div><p>不利差异 · ${fmtSignedPct(summary.variance_rate)} · 不含固定成本</p></div><div><span class="brief-section-number">ACTUAL / BUDGET</span><div class="big-number num" style="font-size:29px">¥ ${fmtMoney(summary.current, 2)}</div><p>Budget ¥ ${fmtMoney(summary.baseline, 2)} ${evidenceButton(summary.evidence_id)}</p></div></section>
-    <div class="brief-attribution-flow">
-      <section><span class="brief-section-number">01 · DIAGNOSTIC SIGNALS</span><h2 class="brief-section-title">量、履约结构与服务成熟度</h2>${renderDiagnostics()}</section>
-      <section><span class="brief-section-number">02 · CAUSAL BRIDGE & MANAGEMENT READOUT</span><h2 class="brief-section-title">结构因素解释最大成本增量</h2><div class="brief-two-column"><div>${renderWaterfallCard({ bare: true })}</div><aside class="ai-card" data-guide-target="ai">${renderAiAnalysis({ bare: true })}</aside></div></section>
-      <section><span class="brief-section-number">03 · AUDITABLE DRILLDOWN</span><h2 class="brief-section-title">从发货仓逐层展开到成本类别</h2>${renderTreeTable({ bare: true })}</section>
-    </div>${renderEvaluationGate()}
-  </main>`;
 }
 
 function renderEvidenceDrawer() {
@@ -658,22 +523,11 @@ function renderGuide() {
   </aside>`;
 }
 
-function renderSwitcher() {
-  return `<nav class="prototype-switcher" aria-label="原型方案切换">
-    <button type="button" data-action="switch-variant" data-direction="-1" aria-label="上一个方案">←</button>
-    <div class="switcher-label"><strong>${state.variant} · ${VARIANTS[state.variant]}</strong><br>原型结构方案 · 可用左右方向键切换</div>
-    <button type="button" data-action="switch-variant" data-direction="1" aria-label="下一个方案">→</button>
-  </nav>`;
-}
-
 function render() {
   if (!model) return;
-  document.body.className = `variant-${state.variant.toLowerCase()} ${state.guideStep ? `guide-step-${state.guideStep}` : ""}`;
-  let content = "";
-  if (state.variant === "A") content = state.view === "dashboard" ? renderDashboardA() : renderAttributionA();
-  if (state.variant === "B") content = state.view === "dashboard" ? renderDashboardB() : renderAttributionB();
-  if (state.variant === "C") content = state.view === "dashboard" ? renderDashboardC() : renderAttributionC();
-  document.getElementById("app").innerHTML = `${content}${renderGuide()}${renderEvidenceDrawer()}${renderSwitcher()}`;
+  document.body.className = `variant-b ${state.guideStep ? `guide-step-${state.guideStep}` : ""}`;
+  const content = state.view === "dashboard" ? renderDashboardB() : renderAttributionB();
+  document.getElementById("app").innerHTML = `${content}${renderGuide()}${renderEvidenceDrawer()}`;
 }
 
 function navigate(view) {
@@ -682,14 +536,6 @@ function navigate(view) {
   updateUrl({ push: true });
   render();
   window.scrollTo({ top: 0, behavior: "auto" });
-}
-
-function cycleVariant(direction) {
-  const keys = Object.keys(VARIANTS);
-  const current = keys.indexOf(state.variant);
-  state.variant = keys[(current + direction + keys.length) % keys.length];
-  updateUrl();
-  render();
 }
 
 function toggleExpanded(rowId) {
@@ -702,7 +548,6 @@ function handleAction(actionElement) {
   const action = actionElement.dataset.action;
   if (action === "nav-attribution") return navigate("attribution");
   if (action === "back-dashboard") return navigate("dashboard");
-  if (action === "switch-variant") return cycleVariant(Number(actionElement.dataset.direction));
   if (action === "toggle-fixed") {
     state.fixedCostExpanded = !state.fixedCostExpanded;
     return render();
@@ -766,14 +611,6 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  const active = document.activeElement;
-  const tag = active?.tagName?.toLowerCase();
-  const isEditing = tag === "input" || tag === "textarea" || active?.isContentEditable;
-  if (!isEditing && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-    event.preventDefault();
-    cycleVariant(event.key === "ArrowLeft" ? -1 : 1);
-    return;
-  }
   if ((event.key === "Enter" || event.key === " ") && event.target.matches('[data-action][role="button"]')) {
     event.preventDefault();
     handleAction(event.target);

@@ -1,0 +1,22 @@
+{
+  "release_version": "LOGIPLAN_2026_DEMO_V1",
+  "data_file": "../../data/generated/logiplan-2026-demo-data.json",
+  "data_sha256": "4d7285a9d3cbe0671e98be3f0409e01847870a824f41e53fe4e4d8532862c674",
+  "generator_file": "../../scripts/generate_demo_data.py",
+  "generator_sha256": "d8b1e7ad997e35d7d00f03c10d52775ed869af8f2d098608540bb5cbb5631d66",
+  "database_schema_version": "0003",
+  "calculation_version": "D-092",
+  "source_description": "LogiPlan 2026 合成演示数据；工作簿审计基线 D-092",
+  "expected_row_counts": {
+    "routes": 10,
+    "driver_facts": 360,
+    "cost_facts": 2160,
+    "fixed_cost_facts": 252,
+    "service_facts": 360,
+    "gmv_facts": 108,
+    "attribution_detail": 12000,
+    "attribution_summary": 200,
+    "attribution_country_summary": 600,
+    "attribution_reconciliation": 20
+  }
+}

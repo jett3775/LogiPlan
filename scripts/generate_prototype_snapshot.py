@@ -776,15 +776,16 @@ def main() -> None:
                     },
                 ],
                 "limitations": {
-                    "text": "准时履约率 96.16%，但服务成熟度仅 92.00%，尚不能表述为最终服务表现。固定成本未分摊到英国；当前事实也不支持订单级 Top 10。",
+                    "text": "准时履约率 96.16%，但服务成熟度仅 92.00%，尚不能表述为最终服务表现。固定成本未分摊到英国；当前事实也不支持订单级 Top 10。结构变化及相关指标只能作为贡献与关联证据，不得据此推断未经记录的经营因果。",
                     "evidence_ids": ["EVID_DIAG_ON_TIME_RATE", "EVID_DIAG_SERVICE_MATURITY"],
+                    "status_labels": ["相关性不等于因果 · 不得推断未记录的经营因果"],
                 },
                 "evidence_snapshot_id": "SNAPSHOT_GB_2026_08_V1",
                 "evaluation_question_ids": ["E01", "E05", "E06", "E07", "E09", "E10", "E20"],
             },
             "order_level_guardrail": {
                 "code": "ORDER_LEVEL_NOT_AVAILABLE",
-                "message_zh": "当前事实粒度为月 × 目的国 × 发货仓 × 承运商 ×运输方式；可提供线路层下钻，不生成订单级 Top 10。",
+                "message_zh": "当前事实粒度为月 × 目的国 × 发货仓 × 承运商 × 运输方式；可提供线路层下钻，不生成订单级 Top 10。",
             },
         },
         "evidence": evidence,

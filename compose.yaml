@@ -1,0 +1,27 @@
+name: logiplan
+
+services:
+  postgres:
+    image: postgres:18.4
+    environment:
+      POSTGRES_DB: logiplan
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-logiplan_local_admin}
+      LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD: ${LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD:-logiplan_local_migrator}
+      LOGIPLAN_DATA_PUBLISHER_PASSWORD: ${LOGIPLAN_DATA_PUBLISHER_PASSWORD:-logiplan_local_publisher}
+      LOGIPLAN_APP_READER_PASSWORD: ${LOGIPLAN_APP_READER_PASSWORD:-logiplan_local_reader}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - logiplan_postgres_data:/var/lib/postgresql
+      - ./database/bootstrap:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d logiplan"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  logiplan_postgres_data:

@@ -1,0 +1,38 @@
+{
+  "baseline_id": "LOGIPLAN_GATE1_CORE_PLANS_PG18_4_V1",
+  "captured_on": "2026-08-20",
+  "database": "PostgreSQL 18.4",
+  "source": "fresh isolated release LOGIPLAN_2026_DEMO_V1",
+  "acceptance": {
+    "single_execution_max_ms": 1000,
+    "temp_written_blocks": 0
+  },
+  "queries": [
+    {
+      "name": "dashboard-variable-cost-by-series",
+      "top_node": "Aggregate",
+      "actual_rows": 3,
+      "required_relations": [
+        "active_data_release",
+        "fulfillment_scenario_fact",
+        "scenario_cost_component_fact"
+      ],
+      "observed_planning_ms": 0.479,
+      "observed_execution_ms": 1.164,
+      "observed_temp_written_blocks": 0
+    },
+    {
+      "name": "august-gb-chain-attribution",
+      "top_node": "Aggregate",
+      "actual_rows": 5,
+      "required_relations": [
+        "active_data_release",
+        "fulfillment_route",
+        "variance_attribution_fact"
+      ],
+      "observed_planning_ms": 0.442,
+      "observed_execution_ms": 0.716,
+      "observed_temp_written_blocks": 0
+    }
+  ]
+}

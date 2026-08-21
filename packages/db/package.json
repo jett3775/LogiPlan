@@ -1,0 +1,28 @@
+{
+  "name": "@logiplan/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "migrate": "node --env-file-if-exists=../../.env --import tsx src/migrate.ts",
+    "verify": "node --env-file-if-exists=../../.env --import tsx src/verify-schema.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "activate-release": "node --env-file-if-exists=../../.env --import tsx src/activate-release.ts",
+    "publish": "node --env-file-if-exists=../../.env --import tsx src/publish-release.ts",
+    "verify-release": "node --env-file-if-exists=../../.env --import tsx src/verify-release-workflow.ts",
+    "verify-plans": "node --env-file-if-exists=../../.env --import tsx src/verify-query-plans.ts"
+  },
+  "dependencies": {
+    "@logiplan/contracts": "workspace:*",
+    "@logiplan/domain": "workspace:*",
+    "pg": "8.23.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.12"
+  }
+}

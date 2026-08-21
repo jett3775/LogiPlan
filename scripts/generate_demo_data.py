@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from decimal import Decimal, getcontext
+from decimal import Decimal, ROUND_HALF_UP, getcontext
 from itertools import combinations
 from math import factorial
 from pathlib import Path
@@ -40,7 +40,7 @@ def d(value: Any) -> Decimal:
 
 
 def q(value: Decimal, places: str = "0.0001") -> str:
-    return format(value.quantize(Decimal(places)), "f")
+    return format(value.quantize(Decimal(places), rounding=ROUND_HALF_UP), "f")
 
 
 def hp(value: Decimal) -> str:

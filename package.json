@@ -1,0 +1,42 @@
+{
+  "name": "logiplan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "build": "pnpm --filter @logiplan/web build",
+    "db:down": "node scripts/run-docker-compose.mjs down",
+    "db:migrate": "pnpm --filter @logiplan/db migrate",
+    "db:up": "node scripts/run-docker-compose.mjs up -d --wait",
+    "db:verify": "pnpm --filter @logiplan/db verify",
+    "dev": "pnpm --filter @logiplan/web dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint apps packages eslint.config.mjs prettier.config.mjs vitest.config.ts --max-warnings 0",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "db:activate-release": "pnpm --filter @logiplan/db run activate-release",
+    "db:publish": "pnpm --filter @logiplan/db run publish",
+    "db:verify-release": "pnpm --filter @logiplan/db run verify-release",
+    "db:verify-plans": "pnpm --filter @logiplan/db run verify-plans"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.13.3",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/coverage-v8": "4.1.11",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.1",
+    "prettier": "3.9.6",
+    "tsx": "4.23.12",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.11"
+  }
+}
