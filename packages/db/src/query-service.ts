@@ -1,13 +1,17 @@
 import type { Pool } from "pg";
+import { createHash } from "node:crypto";
 import {
   queryIntentSchema,
   type AnalysisScope,
   type Comparison,
+  type DecimalValue,
   type EvidenceObject,
   type MoneyValue,
   type QueryIntent,
 } from "@logiplan/contracts";
 import { LogiPlanDecimal } from "@logiplan/domain";
+
+type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
 export type DeterministicResult = {
   result_id: string;
@@ -47,9 +51,43 @@ const money = (n: unknown): MoneyValue => {
     currency: "CNY",
   };
 };
+const ratio = (n: PreciseDecimal): DecimalValue => ({
+  high_precision: n.toFixed(),
+  report: n.toFixed(4),
+  display: n.toFixed(2),
+  unit: "RATIO",
+});
+const varianceRate = (current: PreciseDecimal, baseline: PreciseDecimal) =>
+  baseline.isZero() ? null : ratio(current.minus(baseline).div(baseline));
 const monthDate = (m: string) => `${m}-01`;
+const monthText = (value: unknown) =>
+  value instanceof Date ? value.toISOString().slice(0, 7) : String(value).slice(0, 7);
+const monthIndex = (month: string) => {
+  const [year = 0, value = 0] = month.split("-").map(Number);
+  return year * 12 + value - 1;
+};
+const monthFromIndex = (index: number) =>
+  `${String(Math.floor(index / 12)).padStart(4, "0")}-${String((index % 12) + 1).padStart(2, "0")}`;
+const nextMonth = (month: string) => monthFromIndex(monthIndex(month) + 1);
+const monthRange = (from: string, to: string) => {
+  const start = monthIndex(from);
+  const end = monthIndex(to);
+  const count = end - start + 1;
+  if (count < 1 || count > 120) return [];
+  return Array.from({ length: count }, (_, offset) => monthFromIndex(start + offset));
+};
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
 const resultId = (intent: QueryIntent) =>
-  `Q-${Buffer.from(JSON.stringify(intent)).toString("base64url").slice(0, 20)}`;
+  `Q-${createHash("sha256").update(canonicalJson(intent)).digest("hex")}`;
 const scopeLabel = (s: AnalysisScope) =>
   `${s.period.from}—${s.period.to}｜${s.destination_country_ids?.join(",") || "公司"}｜${s.comparison}`;
 const evidence = (
@@ -58,15 +96,21 @@ const evidence = (
   metric: string,
   value: string,
   method: string,
+  options?: {
+    period?: EvidenceObject["period"];
+    filters?: Record<string, string[]>;
+    group_by?: EvidenceObject["group_by"];
+    source_refs?: string[];
+  },
 ): EvidenceObject => ({
   evidence_id: id,
   metric,
   value,
   unit: "CNY",
-  period: intent.scope.period,
+  period: options?.period ?? { from: intent.scope.period.from, to: intent.scope.period.to },
   comparison: intent.scope.comparison as Comparison,
-  filters: {},
-  group_by: intent.group_by,
+  filters: options?.filters ?? {},
+  group_by: options?.group_by ?? intent.group_by,
   versions: {
     budget: intent.scope.budget_version_id,
     actual: intent.scope.actual_version_id,
@@ -77,8 +121,121 @@ const evidence = (
   calculation_method: method,
   source_result_id: resultId(intent),
   snapshot_generated_at: new Date().toISOString(),
-  source_refs: ["logiplan.active_*"],
+  source_refs: options?.source_refs ?? ["logiplan.active_*"],
 });
+
+async function latestClosedMonth(pool: Pool, scope: AnalysisScope, requestId: string) {
+  const versionIds = [scope.budget_version_id, scope.actual_version_id, scope.forecast_version_id];
+  const result = await pool.query(
+    `SELECT scenario_version_id, scenario_type, latest_closed_month::text AS latest_closed_month
+     FROM logiplan.active_scenario_version
+     WHERE scenario_version_id=ANY($1::text[]) AND calculation_version=$2`,
+    [versionIds, scope.calculation_version],
+  );
+  const expected = [
+    [scope.budget_version_id, "BUDGET"],
+    [scope.actual_version_id, "ACTUAL"],
+    [scope.forecast_version_id, "FORECAST"],
+  ] as const;
+  for (const [versionId, scenarioType] of expected) {
+    if (
+      !result.rows.some(
+        (row) => row.scenario_version_id === versionId && row.scenario_type === scenarioType,
+      )
+    ) {
+      throw error("VERSION_NOT_FOUND", `${scenarioType} 版本不存在或计算版本不匹配`, requestId);
+    }
+  }
+  const latest = result.rows.find(
+    (row) => row.scenario_version_id === scope.forecast_version_id,
+  )?.latest_closed_month;
+  if (!latest || monthText(latest) !== "2026-08") {
+    throw error("VERSION_NOT_FOUND", "Forecast 版本结账边界必须为 2026-08", requestId);
+  }
+  return monthText(latest);
+}
+
+type CanonicalRouteRow = {
+  route_id: string;
+  destination_country_id: string;
+  valid_from: unknown;
+  valid_to: unknown | null;
+};
+
+type VariableCoverageRow = {
+  scenario_version_id: string;
+  month_id: unknown;
+  route_id: string;
+  component_count: number;
+};
+
+async function validateVariableCoverage(
+  pool: Pool,
+  scope: AnalysisScope,
+  latestClosed: string,
+  requestId: string,
+) {
+  const [routeResult, coverageResult] = await Promise.all([
+    pool.query(
+      `/* CANONICAL_ROUTES */
+       SELECT route_id, destination_country_id, valid_from::text AS valid_from,
+              valid_to::text AS valid_to
+       FROM logiplan.active_fulfillment_route
+       WHERE status='ACTIVE'
+       ORDER BY route_id`,
+    ),
+    pool.query(
+      `/* VARIABLE_COVERAGE */
+       SELECT u.scenario_version_id, u.month_id::text AS month_id, u.route_id,
+              COUNT(DISTINCT c.cost_category)::int AS component_count
+       FROM logiplan.active_fulfillment_scenario_fact u
+       JOIN logiplan.active_scenario_cost_component_fact c
+         USING (data_release_id, fulfillment_fact_id)
+       WHERE u.scenario_version_id=ANY($1::text[])
+         AND u.month_id BETWEEN $2::date AND $3::date
+         AND u.calculation_version=$4
+       GROUP BY u.scenario_version_id, u.month_id, u.route_id`,
+      [
+        [scope.budget_version_id, scope.actual_version_id, scope.forecast_version_id],
+        monthDate(scope.period.from),
+        monthDate(scope.period.to),
+        scope.calculation_version,
+      ],
+    ),
+  ]);
+  const routes = routeResult.rows as CanonicalRouteRow[];
+  const coverage = coverageResult.rows as VariableCoverageRow[];
+  for (const month of monthRange(scope.period.from, scope.period.to)) {
+    const effectiveRoutes = routes.filter(
+      (route) =>
+        month >= monthText(route.valid_from) &&
+        (route.valid_to === null || month <= monthText(route.valid_to)),
+    );
+    if (effectiveRoutes.length === 0) {
+      throw error("RECONCILIATION_FAILED", `${month} 没有活动履约线路规范全集`, requestId);
+    }
+    const currentVersion =
+      month <= latestClosed ? scope.actual_version_id : scope.forecast_version_id;
+    for (const version of [scope.budget_version_id, currentVersion]) {
+      for (const route of effectiveRoutes) {
+        const row = coverage.find(
+          (item) =>
+            item.scenario_version_id === version &&
+            monthText(item.month_id) === month &&
+            item.route_id === route.route_id,
+        );
+        if (!row || Number(row.component_count) !== 6) {
+          throw error(
+            "RECONCILIATION_FAILED",
+            `${month} 的 ${version} 线路 ${route.route_id} 六类变动成本事实不完整`,
+            requestId,
+          );
+        }
+      }
+    }
+  }
+  return routes;
+}
 
 function error(
   code: QueryServiceError["code"],
@@ -90,6 +247,77 @@ function error(
 function validateIntent(intent: QueryIntent, request_id: string): QueryServiceError | null {
   if (intent.scope.period.from > intent.scope.period.to)
     return error("INVALID_PERIOD", "查询起始月份不得晚于结束月份", request_id);
+  const dashboardQueries = [
+    "MONTHLY_COST_TREND",
+    "TOP_ADVERSE_ANOMALIES",
+    "FIXED_COST_BREAKDOWN",
+  ] as const;
+  if ((dashboardQueries as readonly string[]).includes(intent.question_type)) {
+    const rules = {
+      MONTHLY_COST_TREND: {
+        metrics: ["LOGISTICS_TOTAL_COST"],
+        groupBy: ["MONTH"],
+        grain: "MONTH",
+      },
+      TOP_ADVERSE_ANOMALIES: {
+        metrics: ["FULFILLMENT_VARIABLE_COST"],
+        groupBy: ["MONTH", "DESTINATION_COUNTRY"],
+        grain: "MONTH",
+      },
+      FIXED_COST_BREAKDOWN: {
+        metrics: ["LOGISTICS_FIXED_COST"],
+        groupBy: ["FIXED_COST_CATEGORY", "FULFILLMENT_CENTER"],
+        grain: "RANGE",
+      },
+    }[intent.question_type as (typeof dashboardQueries)[number]];
+    if (intent.scope.period.from !== "2026-01" || intent.scope.period.to !== "2026-12") {
+      return error("INVALID_PERIOD", "驾驶舱查询仅支持 2026-01 至 2026-12", request_id);
+    }
+    if (intent.scope.period.grain !== rules.grain) {
+      return error("UNSUPPORTED_GRAIN", `该驾驶舱查询仅支持 ${rules.grain} 粒度`, request_id);
+    }
+    if (intent.scope.comparison !== "LATEST_OUTLOOK_VS_BUDGET") {
+      return error("INVALID_FILTER", "驾驶舱查询仅支持 LATEST_OUTLOOK_VS_BUDGET", request_id);
+    }
+    if (!intent.scope.actual_version_id || !intent.scope.forecast_version_id) {
+      return error(
+        "INVALID_FILTER",
+        "驾驶舱查询必须显式提供 Budget、Actual 和 Forecast 版本",
+        request_id,
+      );
+    }
+    const unsupportedFilter = [
+      intent.scope.destination_country_ids,
+      intent.scope.fulfillment_center_ids,
+      intent.scope.transport_mode_ids,
+      intent.scope.carrier_ids,
+      intent.scope.cost_component_ids,
+      intent.scope.factor_id,
+      intent.scope.scenario_version_id,
+    ].some((value) => value !== undefined);
+    if (unsupportedFilter) {
+      return error("INVALID_FILTER", "驾驶舱固定公司范围不支持额外维度或情景筛选", request_id);
+    }
+    if (
+      intent.metrics.length !== rules.metrics.length ||
+      intent.metrics.some((metric, index) => metric !== rules.metrics[index])
+    ) {
+      return error("INVALID_METRIC", `该查询仅支持指标 ${rules.metrics.join(",")}`, request_id);
+    }
+    if (
+      intent.group_by.length !== rules.groupBy.length ||
+      intent.group_by.some((dimension, index) => dimension !== rules.groupBy[index])
+    ) {
+      return error("INVALID_DIMENSION", `该查询仅支持分组 ${rules.groupBy.join(",")}`, request_id);
+    }
+    if (
+      intent.question_type === "TOP_ADVERSE_ANOMALIES"
+        ? intent.top_n !== undefined && intent.top_n !== 5
+        : intent.top_n !== undefined
+    ) {
+      return error("INVALID_FILTER", "驾驶舱异常榜固定为 Top 5，其他查询不支持 top_n", request_id);
+    }
+  }
   if (intent.scope.period.grain === "RANGE" && intent.group_by.includes("MONTH"))
     return error("UNSUPPORTED_GRAIN", "范围粒度不支持按月份分组", request_id);
   if (intent.question_type === "EVIDENCE_LOOKUP")
@@ -128,6 +356,523 @@ async function costByVersion(
     [versionId, monthDate(scope.period.from), monthDate(scope.period.to)],
   );
   return { variable: q(variable.rows[0]?.variable_cost), fixed: q(fixed.rows[0]?.fixed_cost) };
+}
+
+type MonthlyCostRow = {
+  scenario_version_id: string;
+  month_id: unknown;
+  variable_cost: string;
+  fixed_cost: string;
+  variable_present: number;
+  fixed_present: number;
+};
+
+async function monthlyCosts(pool: Pool, scope: AnalysisScope): Promise<MonthlyCostRow[]> {
+  const versions = [
+    scope.budget_version_id,
+    scope.actual_version_id ?? "",
+    scope.forecast_version_id ?? "",
+  ];
+  const result = await pool.query(
+    `/* MONTHLY_COST_TREND */
+     WITH monthly_cost AS (
+       SELECT u.scenario_version_id, u.month_id,
+              SUM(c.model_cny_amount) AS variable_cost, 0::numeric AS fixed_cost,
+              1 AS variable_present, 0 AS fixed_present
+       FROM logiplan.active_scenario_cost_component_fact c
+       JOIN logiplan.active_fulfillment_scenario_fact u
+         USING (data_release_id, fulfillment_fact_id)
+       WHERE u.scenario_version_id=ANY($1::text[])
+         AND u.month_id BETWEEN $2::date AND $3::date
+         AND u.calculation_version=$4
+       GROUP BY u.scenario_version_id, u.month_id
+       UNION ALL
+       SELECT f.scenario_version_id, f.month_id,
+              0::numeric AS variable_cost, SUM(f.cny_amount) AS fixed_cost,
+              0 AS variable_present, 1 AS fixed_present
+       FROM logiplan.active_fixed_cost_scenario_fact f
+       JOIN logiplan.active_scenario_version s
+         USING (data_release_id, scenario_version_id)
+       WHERE f.scenario_version_id=ANY($1::text[])
+         AND f.month_id BETWEEN $2::date AND $3::date
+         AND s.calculation_version=$4
+       GROUP BY f.scenario_version_id, f.month_id
+     )
+     SELECT scenario_version_id, month_id::text AS month_id,
+            SUM(variable_cost)::text AS variable_cost,
+            SUM(fixed_cost)::text AS fixed_cost,
+            MAX(variable_present)::int AS variable_present,
+            MAX(fixed_present)::int AS fixed_present
+     FROM monthly_cost
+     GROUP BY scenario_version_id, month_id
+     ORDER BY month_id, scenario_version_id`,
+    [versions, monthDate(scope.period.from), monthDate(scope.period.to), scope.calculation_version],
+  );
+  return result.rows as MonthlyCostRow[];
+}
+
+const costParts = (row: MonthlyCostRow) => {
+  const variable = new LogiPlanDecimal(row.variable_cost);
+  const fixed = new LogiPlanDecimal(row.fixed_cost);
+  return { variable, fixed, total: variable.plus(fixed) };
+};
+
+async function monthlyCostTrend(pool: Pool, intent: QueryIntent, requestId: string) {
+  const s = intent.scope;
+  const latestClosed = await latestClosedMonth(pool, s, requestId);
+  await validateVariableCoverage(pool, s, latestClosed, requestId);
+  const fixedCostRows = await loadFixedCostRows(pool, s);
+  validateFixedCostCoverage(fixedCostRows, s, latestClosed, requestId);
+  const rows = await monthlyCosts(pool, s);
+  const find = (version: string | undefined, month: string) =>
+    rows.find((row) => row.scenario_version_id === version && monthText(row.month_id) === month);
+  const monthIds = monthRange(s.period.from, s.period.to);
+  for (const month of monthIds) {
+    const currentVersion = month <= latestClosed ? s.actual_version_id : s.forecast_version_id;
+    for (const version of [s.budget_version_id, currentVersion]) {
+      const row = find(version, month);
+      if (!row || Number(row.variable_present) !== 1 || Number(row.fixed_present) !== 1) {
+        throw error(
+          "RECONCILIATION_FAILED",
+          `${month} 的 ${version} 变动成本或固定成本事实不完整`,
+          requestId,
+        );
+      }
+    }
+  }
+  const months = monthIds.map((month) => {
+    const seriesType = month <= latestClosed ? ("ACTUAL" as const) : ("FORECAST" as const);
+    const currentVersion = seriesType === "ACTUAL" ? s.actual_version_id : s.forecast_version_id;
+    const baseline = costParts(find(s.budget_version_id, month)!);
+    const current = costParts(find(currentVersion, month)!);
+    const variance = current.total.minus(baseline.total);
+    return {
+      month_id: month,
+      series_type: seriesType,
+      baseline: {
+        total_cost: money(baseline.total),
+        variable_cost: money(baseline.variable),
+        fixed_cost: money(baseline.fixed),
+      },
+      current: {
+        total_cost: money(current.total),
+        variable_cost: money(current.variable),
+        fixed_cost: money(current.fixed),
+      },
+      variance: money(variance),
+      variance_rate: varianceRate(current.total, baseline.total),
+      evidence_id: `MONTHLY_COST_TREND:${month}`,
+    };
+  });
+  return {
+    payload: {
+      metric: "LOGISTICS_TOTAL_COST" as const,
+      months,
+      closing_boundary: {
+        latest_closed_month: latestClosed,
+        first_forecast_month: nextMonth(latestClosed),
+      },
+    },
+    evidence: months.map((row) =>
+      evidence(
+        row.evidence_id,
+        intent,
+        `${row.month_id} 公司物流总成本差异`,
+        row.variance.high_precision,
+        "按月分别汇总履约变动成本与物流运营固定成本，并按结账边界组合 Actual/Forecast",
+        {
+          period: { from: row.month_id, to: row.month_id },
+          group_by: ["MONTH"],
+          source_refs: [
+            "logiplan.active_scenario_cost_component_fact",
+            "logiplan.active_fulfillment_scenario_fact",
+            "logiplan.active_fixed_cost_scenario_fact",
+            "logiplan.active_scenario_version",
+          ],
+        },
+      ),
+    ),
+    warnings: [
+      { code: "REPORT_ROUNDING" as const, message: "金额保留高精度、报告 4 位和界面 2 位" },
+    ],
+  };
+}
+
+type CountryCostRow = {
+  scenario_version_id: string;
+  month_id: unknown;
+  destination_country_id: string;
+  amount: string;
+};
+
+async function topAdverseAnomalies(pool: Pool, intent: QueryIntent, requestId: string) {
+  const s = intent.scope;
+  const latestClosed = await latestClosedMonth(pool, s, requestId);
+  const canonicalRoutes = await validateVariableCoverage(pool, s, latestClosed, requestId);
+  const params: unknown[] = [
+    [s.budget_version_id, s.actual_version_id ?? "", s.forecast_version_id ?? ""],
+    monthDate(s.period.from),
+    monthDate(s.period.to),
+    s.calculation_version,
+  ];
+  let countryFilter = "";
+  if (s.destination_country_ids?.length) {
+    params.push(s.destination_country_ids);
+    countryFilter = `AND r.destination_country_id=ANY($${params.length}::text[])`;
+  }
+  const result = await pool.query(
+    `/* TOP_ADVERSE_ANOMALIES */
+     SELECT u.scenario_version_id, u.month_id::text AS month_id,
+            r.destination_country_id, SUM(c.model_cny_amount)::text AS amount
+     FROM logiplan.active_scenario_cost_component_fact c
+     JOIN logiplan.active_fulfillment_scenario_fact u
+       USING (data_release_id, fulfillment_fact_id)
+     JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
+     WHERE u.scenario_version_id=ANY($1::text[])
+       AND u.month_id BETWEEN $2::date AND $3::date
+       AND u.calculation_version=$4 ${countryFilter}
+     GROUP BY u.scenario_version_id, u.month_id, r.destination_country_id`,
+    params,
+  );
+  const rows = result.rows as CountryCostRow[];
+  for (const month of monthRange(s.period.from, s.period.to)) {
+    const currentVersion = month <= latestClosed ? s.actual_version_id : s.forecast_version_id;
+    const countrySet = (version: string | undefined) =>
+      new Set(
+        rows
+          .filter((row) => row.scenario_version_id === version && monthText(row.month_id) === month)
+          .map((row) => row.destination_country_id),
+      );
+    const baselineCountries = countrySet(s.budget_version_id);
+    const currentCountries = countrySet(currentVersion);
+    const canonicalCountries = new Set(
+      canonicalRoutes
+        .filter(
+          (route) =>
+            month >= monthText(route.valid_from) &&
+            (route.valid_to === null || month <= monthText(route.valid_to)),
+        )
+        .map((route) => route.destination_country_id),
+    );
+    if (
+      baselineCountries.size !== canonicalCountries.size ||
+      currentCountries.size !== canonicalCountries.size ||
+      [...canonicalCountries].some(
+        (country) => !baselineCountries.has(country) || !currentCountries.has(country),
+      )
+    ) {
+      throw error(
+        "RECONCILIATION_FAILED",
+        `${month} 的月份×目的国 Budget 或当前履约变动成本事实不完整`,
+        requestId,
+      );
+    }
+  }
+  const keys = [
+    ...new Set(rows.map((row) => `${monthText(row.month_id)}|${row.destination_country_id}`)),
+  ];
+  const candidates = keys.flatMap((key) => {
+    const [month = "", destinationCountryId = ""] = key.split("|");
+    const seriesType = month <= latestClosed ? ("ACTUAL" as const) : ("FORECAST" as const);
+    const currentVersion = seriesType === "ACTUAL" ? s.actual_version_id : s.forecast_version_id;
+    const value = (version: string | undefined) =>
+      new LogiPlanDecimal(
+        rows.find(
+          (row) =>
+            row.scenario_version_id === version &&
+            monthText(row.month_id) === month &&
+            row.destination_country_id === destinationCountryId,
+        )?.amount ?? 0,
+      );
+    const baseline = value(s.budget_version_id);
+    const current = value(currentVersion);
+    const variance = current.minus(baseline);
+    return variance.isPositive()
+      ? [{ month, destinationCountryId, seriesType, baseline, current, variance }]
+      : [];
+  });
+  const adverseTotal = candidates.reduce(
+    (sum, row) => sum.plus(row.variance),
+    new LogiPlanDecimal(0),
+  );
+  candidates.sort(
+    (left, right) =>
+      right.variance.comparedTo(left.variance) ||
+      left.month.localeCompare(right.month) ||
+      left.destinationCountryId.localeCompare(right.destinationCountryId),
+  );
+  const anomalies = candidates.slice(0, 5).map((row, index) => ({
+    rank: index + 1,
+    month_id: row.month,
+    destination_country_id: row.destinationCountryId,
+    series_type: row.seriesType,
+    baseline: money(row.baseline),
+    current: money(row.current),
+    variance: money(row.variance),
+    variance_rate: varianceRate(row.current, row.baseline),
+    adverse_contribution_share: adverseTotal.isZero()
+      ? null
+      : ratio(row.variance.div(adverseTotal)),
+    evidence_id: `TOP_ADVERSE_ANOMALIES:${row.month}:${row.destinationCountryId}`,
+  }));
+  return {
+    payload: {
+      metric: "FULFILLMENT_VARIABLE_COST" as const,
+      latest_closed_month: latestClosed,
+      adverse_pool_total: money(adverseTotal),
+      anomalies,
+    },
+    evidence: anomalies.map((row) =>
+      evidence(
+        row.evidence_id,
+        intent,
+        `${row.month_id} ${row.destination_country_id} 履约变动成本不利差异`,
+        row.variance.high_precision,
+        "按月份与目的国汇总履约变动成本；仅保留正差并按未舍入金额降序；贡献分母为全部正差之和",
+        {
+          period: { from: row.month_id, to: row.month_id },
+          filters: { destination_country_id: [row.destination_country_id] },
+          group_by: ["MONTH", "DESTINATION_COUNTRY"],
+          source_refs: [
+            "logiplan.active_scenario_cost_component_fact",
+            "logiplan.active_fulfillment_scenario_fact",
+            "logiplan.active_fulfillment_route",
+            "logiplan.active_scenario_version",
+          ],
+        },
+      ),
+    ),
+    warnings: [
+      { code: "REPORT_ROUNDING" as const, message: "排序和贡献占比使用未展示舍入的高精度金额" },
+    ],
+  };
+}
+
+type FixedCostRow = {
+  scenario_version_id: string;
+  month_id: unknown;
+  cost_scope_type: "FULFILLMENT_CENTER" | "SHARED";
+  fulfillment_center_id: string | null;
+  fixed_cost_category: string;
+  amount: string;
+};
+
+async function loadFixedCostRows(pool: Pool, scope: AnalysisScope): Promise<FixedCostRow[]> {
+  const result = await pool.query(
+    `/* FIXED_COST_FACTS */
+     SELECT f.scenario_version_id, f.month_id::text AS month_id, f.cost_scope_type,
+            f.fulfillment_center_id, f.fixed_cost_category, SUM(f.cny_amount)::text AS amount
+     FROM logiplan.active_fixed_cost_scenario_fact f
+     JOIN logiplan.active_scenario_version s USING (data_release_id, scenario_version_id)
+     WHERE f.scenario_version_id=ANY($1::text[])
+       AND f.month_id BETWEEN $2::date AND $3::date
+       AND s.calculation_version=$4
+     GROUP BY f.scenario_version_id, f.month_id, f.cost_scope_type,
+              f.fulfillment_center_id, f.fixed_cost_category`,
+    [
+      [scope.budget_version_id, scope.actual_version_id, scope.forecast_version_id],
+      monthDate(scope.period.from),
+      monthDate(scope.period.to),
+      scope.calculation_version,
+    ],
+  );
+  return result.rows as FixedCostRow[];
+}
+
+const expectedFixedCostScopes = new Map<string, readonly string[]>([
+  ["WAREHOUSE_RENT", ["DE_FC", "FR_FC"]],
+  ["FRONTLINE_BASE_LABOR", ["DE_FC", "FR_FC"]],
+  ["WAREHOUSE_MANAGEMENT_LABOR", ["DE_FC", "FR_FC"]],
+  ["SYSTEM_COST", ["SHARED"]],
+]);
+
+const fixedScopeId = (row: FixedCostRow) =>
+  row.cost_scope_type === "SHARED" ? "SHARED" : String(row.fulfillment_center_id);
+
+function validateFixedCostCoverage(
+  rows: FixedCostRow[],
+  scope: AnalysisScope,
+  latestClosed: string,
+  requestId: string,
+) {
+  if (
+    rows.some(
+      (row) => !expectedFixedCostScopes.get(row.fixed_cost_category)?.includes(fixedScopeId(row)),
+    )
+  ) {
+    throw error("RECONCILIATION_FAILED", "固定成本包含不支持的类别或虚假归属", requestId);
+  }
+  for (const month of monthRange(scope.period.from, scope.period.to)) {
+    const currentVersion =
+      month <= latestClosed ? scope.actual_version_id : scope.forecast_version_id;
+    for (const [category, expected] of expectedFixedCostScopes) {
+      for (const scopeId of expected) {
+        for (const version of [scope.budget_version_id, currentVersion]) {
+          if (
+            !rows.some(
+              (row) =>
+                row.scenario_version_id === version &&
+                monthText(row.month_id) === month &&
+                row.fixed_cost_category === category &&
+                fixedScopeId(row) === scopeId,
+            )
+          ) {
+            throw error(
+              "RECONCILIATION_FAILED",
+              `${month} 的 ${version} 固定成本类别或归属事实不完整`,
+              requestId,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+const fixedCostCategories = [
+  ["WAREHOUSE_RENT", "仓租"],
+  ["FRONTLINE_BASE_LABOR", "一线作业基础人工"],
+  ["WAREHOUSE_MANAGEMENT_LABOR", "仓库管理人工"],
+  ["SYSTEM_COST", "系统费用"],
+] as const;
+
+async function fixedCostBreakdown(pool: Pool, intent: QueryIntent, requestId: string) {
+  const s = intent.scope;
+  const latestClosed = await latestClosedMonth(pool, s, requestId);
+  const rows = await loadFixedCostRows(pool, s);
+  validateFixedCostCoverage(rows, s, latestClosed, requestId);
+  const scopes = [...new Set(rows.map(fixedScopeId))].sort();
+  const amount = (category: string, scopeId: string, versionKind: "BASELINE" | "CURRENT") =>
+    rows
+      .filter((row) => {
+        const rowScope = fixedScopeId(row);
+        if (row.fixed_cost_category !== category || rowScope !== scopeId) return false;
+        if (versionKind === "BASELINE") return row.scenario_version_id === s.budget_version_id;
+        const month = monthText(row.month_id);
+        return (
+          row.scenario_version_id ===
+          (month <= latestClosed ? s.actual_version_id : s.forecast_version_id)
+        );
+      })
+      .reduce((sum, row) => sum.plus(row.amount), new LogiPlanDecimal(0));
+  const categories = fixedCostCategories.map(([categoryId, label]) => {
+    const allocations = scopes.flatMap((scopeId) => {
+      const categoryExists = rows.some((row) => {
+        const rowScope = fixedScopeId(row);
+        return row.fixed_cost_category === categoryId && rowScope === scopeId;
+      });
+      if (!categoryExists) return [];
+      const baseline = amount(categoryId, scopeId, "BASELINE");
+      const current = amount(categoryId, scopeId, "CURRENT");
+      return [
+        {
+          scope_type: scopeId === "SHARED" ? ("SHARED" as const) : ("FULFILLMENT_CENTER" as const),
+          scope_id: scopeId,
+          fulfillment_center_id: scopeId === "SHARED" ? null : scopeId,
+          baseline: money(baseline),
+          current: money(current),
+          variance: money(current.minus(baseline)),
+          variance_rate: varianceRate(current, baseline),
+          evidence_id: `FIXED_COST_BREAKDOWN:${categoryId}:${scopeId}`,
+        },
+      ];
+    });
+    const baseline = allocations.reduce(
+      (sum, row) => sum.plus(row.baseline.high_precision),
+      new LogiPlanDecimal(0),
+    );
+    const current = allocations.reduce(
+      (sum, row) => sum.plus(row.current.high_precision),
+      new LogiPlanDecimal(0),
+    );
+    return {
+      fixed_cost_category: categoryId,
+      label_zh: label,
+      baseline: money(baseline),
+      current: money(current),
+      variance: money(current.minus(baseline)),
+      variance_rate: varianceRate(current, baseline),
+      allocations,
+      evidence_id: `FIXED_COST_BREAKDOWN:${categoryId}`,
+    };
+  });
+  const baseline = categories.reduce(
+    (sum, row) => sum.plus(row.baseline.high_precision),
+    new LogiPlanDecimal(0),
+  );
+  const current = categories.reduce(
+    (sum, row) => sum.plus(row.current.high_precision),
+    new LogiPlanDecimal(0),
+  );
+  const total = {
+    baseline: money(baseline),
+    current: money(current),
+    variance: money(current.minus(baseline)),
+    variance_rate: varianceRate(current, baseline),
+    evidence_id: "FIXED_COST_BREAKDOWN:TOTAL",
+  };
+  const evidenceSources = {
+    source_refs: ["logiplan.active_fixed_cost_scenario_fact", "logiplan.active_scenario_version"],
+  };
+  return {
+    payload: {
+      metric: "LOGISTICS_FIXED_COST" as const,
+      latest_closed_month: latestClosed,
+      total,
+      categories,
+      reconciliation: {
+        baseline_delta: money(0),
+        current_delta: money(0),
+        variance_delta: money(0),
+      },
+    },
+    evidence: [
+      evidence(
+        total.evidence_id,
+        intent,
+        "公司物流运营固定成本",
+        total.variance.high_precision,
+        "按类别及真实仓级或共享层归属汇总，并按结账边界组合 Actual/Forecast",
+        { ...evidenceSources, group_by: [] },
+      ),
+      ...categories.flatMap((category) => [
+        evidence(
+          category.evidence_id,
+          intent,
+          `${category.label_zh}差异`,
+          category.variance.high_precision,
+          "固定成本类别汇总",
+          {
+            ...evidenceSources,
+            filters: { fixed_cost_category: [category.fixed_cost_category] },
+            group_by: ["FIXED_COST_CATEGORY"],
+          },
+        ),
+        ...category.allocations.map((allocation) =>
+          evidence(
+            allocation.evidence_id,
+            intent,
+            `${category.label_zh}｜${allocation.scope_id}差异`,
+            allocation.variance.high_precision,
+            "固定成本真实归属层汇总；未分摊到目的国、承运商或运输方式",
+            {
+              ...evidenceSources,
+              filters: {
+                fixed_cost_category: [category.fixed_cost_category],
+                ...(allocation.scope_type === "SHARED"
+                  ? { cost_scope_type: ["SHARED"] }
+                  : { fulfillment_center_id: [allocation.scope_id] }),
+              },
+              group_by: ["FIXED_COST_CATEGORY", "FULFILLMENT_CENTER"],
+            },
+          ),
+        ),
+      ]),
+    ],
+    warnings: [
+      { code: "REPORT_ROUNDING" as const, message: "金额保留高精度、报告 4 位和界面 2 位" },
+    ],
+  };
 }
 
 async function dashboard(pool: Pool, intent: QueryIntent) {
@@ -485,22 +1230,28 @@ export async function runDeterministicQuery(
     const out =
       intent.question_type === "DASHBOARD_OVERVIEW"
         ? await dashboard(pool, intent)
-        : intent.question_type === "COUNTRY_VARIANCE_SUMMARY"
-          ? await country(pool, intent)
-          : intent.question_type === "ATTRIBUTION_BRIDGE"
-            ? await bridge(pool, intent)
-            : intent.question_type === "ATTRIBUTION_DRILLDOWN"
-              ? await drilldown(pool, intent)
-              : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
-                ? await warehouseContext(pool, intent)
-                : {
-                    payload: {
-                      status: "SUPPORTED_DATA_ACCESS_PENDING",
-                      question_type: intent.question_type,
-                    },
-                    evidence: [],
-                    warnings: [] as Array<{ code: "REPORT_ROUNDING"; message: string }>,
-                  };
+        : intent.question_type === "MONTHLY_COST_TREND"
+          ? await monthlyCostTrend(pool, intent, request_id)
+          : intent.question_type === "TOP_ADVERSE_ANOMALIES"
+            ? await topAdverseAnomalies(pool, intent, request_id)
+            : intent.question_type === "FIXED_COST_BREAKDOWN"
+              ? await fixedCostBreakdown(pool, intent, request_id)
+              : intent.question_type === "COUNTRY_VARIANCE_SUMMARY"
+                ? await country(pool, intent)
+                : intent.question_type === "ATTRIBUTION_BRIDGE"
+                  ? await bridge(pool, intent)
+                  : intent.question_type === "ATTRIBUTION_DRILLDOWN"
+                    ? await drilldown(pool, intent)
+                    : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
+                      ? await warehouseContext(pool, intent)
+                      : {
+                          payload: {
+                            status: "SUPPORTED_DATA_ACCESS_PENDING",
+                            question_type: intent.question_type,
+                          },
+                          evidence: [],
+                          warnings: [] as Array<{ code: "REPORT_ROUNDING"; message: string }>,
+                        };
     return {
       result_id: resultId(intent),
       query_intent: intent,
