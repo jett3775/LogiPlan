@@ -15,7 +15,7 @@ import {
 
 const publishingLockKey = "logiplan-data-publishing-v1";
 const defaultManifestPath = fileURLToPath(
-  new URL("../../../database/releases/LOGIPLAN_2026_DEMO_V1.json", import.meta.url),
+  new URL("../../../database/releases/LOGIPLAN_2026_DEMO_V2.json", import.meta.url),
 );
 
 function requiredEnvironment(name: string): string {

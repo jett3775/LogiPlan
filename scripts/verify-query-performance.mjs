@@ -73,6 +73,21 @@ const queries = [
     output_locale: "zh-CN",
     context_sources: ["FIXED_TEMPLATE"],
   },
+  {
+    question_type: "DIAGNOSTIC_METRICS",
+    scope: {
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" },
+      comparison: "ACTUAL_VS_BUDGET",
+      destination_country_ids: ["GB"],
+      budget_version_id: "BUDGET_2026_V1",
+      actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+      calculation_version: "D-092",
+    },
+    metrics: ["ORDERS", "AIR_SHARE", "CARRIER_C_SHARE", "ON_TIME_RATE", "SERVICE_MATURITY"],
+    group_by: [],
+    output_locale: "zh-CN",
+    context_sources: ["FIXED_TEMPLATE"],
+  },
 ];
 
 function assertServerRunning(state, logs) {
@@ -106,6 +121,23 @@ async function requestQuery(query, state, logs) {
       Array.isArray(body.evidence),
     `${query.question_type} 未返回真实确定性查询 payload`,
   );
+  if (query.question_type === "DIAGNOSTIC_METRICS") {
+    const diagnostics = body.payload.diagnostics;
+    const metric = (id) => diagnostics.find((item) => item.diagnostic_id === id);
+    assert(
+      metric("AIR_SHARE")?.current?.display === "66.02" &&
+        metric("AIR_SHARE")?.delta?.display === "52.32" &&
+        metric("CARRIER_C_SHARE")?.current?.display === "38.84" &&
+        metric("CARRIER_C_SHARE")?.delta?.display === "35.96" &&
+        metric("ON_TIME_RATE")?.current?.display === "96.16" &&
+        metric("SERVICE_MATURITY")?.current?.display === "92.00",
+      "DIAGNOSTIC_METRICS 固定值不一致",
+    );
+    assert(
+      body.warnings?.some((warning) => warning.code === "SERVICE_NOT_MATURE"),
+      "DIAGNOSTIC_METRICS 缺少服务未成熟警告",
+    );
+  }
   return performance.now() - startedAt;
 }
 

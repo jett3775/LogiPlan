@@ -9,6 +9,7 @@ const decimalText = z.string().regex(/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/u);
 const monthText = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/u);
 const dateText = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/u);
 const sha256Text = z.string().regex(/^[0-9a-f]{64}$/u);
+type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
 export const gate1ScenarioTypeSchema = z.enum(["BUDGET", "ACTUAL", "FORECAST"]);
 export const costCategorySchema = z.enum([
@@ -378,6 +379,22 @@ export type GmvFact = z.infer<typeof gmvFactSchema>;
 export type AttributionDetail = z.infer<typeof attributionDetailSchema>;
 export type AttributionSummary = z.infer<typeof attributionSummarySchema>;
 
+export interface BudgetCountryOrderFact {
+  readonly scenario_version_id: string;
+  readonly month_id: string;
+  readonly destination_country_id: string;
+  readonly order_qty: string;
+}
+
+export interface ActualCountryWarehouseOrderFact extends BudgetCountryOrderFact {
+  readonly fulfillment_center_id: string;
+}
+
+export interface CountryOrderFacts {
+  readonly budget: readonly BudgetCountryOrderFact[];
+  readonly actual: readonly ActualCountryWarehouseOrderFact[];
+}
+
 export interface LoadedReleaseBundle {
   readonly manifest: ReleaseManifest;
   readonly package: ReleasePackage;
@@ -437,6 +454,100 @@ function assertExactProduct(left: string, right: string, expected: string, label
 function assertReportValue(value: string, report: string, label: string): void {
   const expected = new LogiPlanDecimal(value).toDecimalPlaces(4).toFixed(4);
   assert(expected === report, `${label}四位报告值不一致：${report} != ${expected}`);
+}
+
+export function deriveCountryOrderFacts(data: ReleasePackage): CountryOrderFacts {
+  const supportedTypes = new Set(["BUDGET", "ACTUAL"] as const);
+  const summaries = new Map<string, (typeof data.country_summary)[number]>();
+  for (const row of data.country_summary) {
+    if (!supportedTypes.has(row.series_id as "BUDGET" | "ACTUAL")) {
+      continue;
+    }
+    const key = `${row.series_id}|${row.month_id}|${row.destination_country_id}`;
+    assert(!summaries.has(key), `目的国订单汇总存在重复键：${key}`);
+    summaries.set(key, row);
+  }
+
+  const driverGroups = new Map<string, DriverFact[]>();
+  for (const row of data.driver_facts) {
+    if (row.data_type !== "BUDGET" && row.data_type !== "ACTUAL") {
+      continue;
+    }
+    const key = `${row.data_type}|${row.month_id}|${row.destination_country_id}`;
+    const group = driverGroups.get(key) ?? [];
+    group.push(row);
+    driverGroups.set(key, group);
+  }
+
+  assert(driverGroups.size === summaries.size, "目的国订单汇总与 Budget/Actual 驱动范围不一致");
+  const budget: BudgetCountryOrderFact[] = [];
+  const actual: ActualCountryWarehouseOrderFact[] = [];
+  for (const [key, drivers] of driverGroups) {
+    const summary = summaries.get(key);
+    assert(summary !== undefined, `目的国真实订单汇总缺失：${key}`);
+    const first = drivers[0];
+    assert(first !== undefined, `目的国订单驱动为空：${key}`);
+    const totalCompanyOrders = new LogiPlanDecimal(first.total_company_orders);
+    const destinationOrderShare = new LogiPlanDecimal(first.destination_order_share);
+    const sourceCountryOrders = new LogiPlanDecimal(summary.orders);
+    assert(
+      totalCompanyOrders.times(destinationOrderShare).equals(sourceCountryOrders),
+      `目的国真实订单与公司订单及目的国占比不一致：${key}`,
+    );
+
+    let equivalentOrderTotal = new LogiPlanDecimal(0);
+    const warehouseShares = new Map<string, PreciseDecimal>();
+    for (const row of drivers) {
+      assert(
+        new LogiPlanDecimal(row.total_company_orders).equals(totalCompanyOrders) &&
+          new LogiPlanDecimal(row.destination_order_share).equals(destinationOrderShare),
+        `目的国订单驱动输入不一致：${key}`,
+      );
+      equivalentOrderTotal = equivalentOrderTotal.plus(row.equivalent_orders);
+      const share = new LogiPlanDecimal(row.warehouse_order_share);
+      const existingShare = warehouseShares.get(row.fulfillment_center_id);
+      assert(
+        existingShare === undefined || existingShare.equals(share),
+        `同仓订单分配占比不一致：${key}|${row.fulfillment_center_id}`,
+      );
+      warehouseShares.set(row.fulfillment_center_id, share);
+    }
+    assert(
+      equivalentOrderTotal.equals(sourceCountryOrders),
+      `线路等效订单未勾稽到目的国真实订单：${key}`,
+    );
+    const warehouseShareTotal = [...warehouseShares.values()].reduce(
+      (sum, share) => sum.plus(share),
+      new LogiPlanDecimal(0),
+    );
+    assert(warehouseShareTotal.equals(1), `目的国仓级订单分配占比不等于 1：${key}`);
+
+    const scenarioVersionId = first.version_id;
+    if (first.data_type === "BUDGET") {
+      budget.push({
+        scenario_version_id: scenarioVersionId,
+        month_id: first.month_id,
+        destination_country_id: first.destination_country_id,
+        order_qty: sourceCountryOrders.toFixed(),
+      });
+      continue;
+    }
+    for (const [fulfillmentCenterId, share] of warehouseShares) {
+      actual.push({
+        scenario_version_id: scenarioVersionId,
+        month_id: first.month_id,
+        destination_country_id: first.destination_country_id,
+        fulfillment_center_id: fulfillmentCenterId,
+        order_qty: sourceCountryOrders.times(share).toFixed(),
+      });
+    }
+  }
+
+  const sortKey = (row: BudgetCountryOrderFact) =>
+    `${row.scenario_version_id}|${row.month_id}|${row.destination_country_id}|${"fulfillment_center_id" in row ? row.fulfillment_center_id : ""}`;
+  budget.sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
+  actual.sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
+  return { budget, actual };
 }
 
 export async function loadReleaseBundle(manifestPath: string): Promise<LoadedReleaseBundle> {
@@ -533,6 +644,7 @@ export function validateReleasePackage(bundle: LoadedReleaseBundle): PackageVali
   const attributionSummary = data.attribution_summary.filter((row) =>
     isGate1Comparison(row.comparison_id),
   );
+  const countryOrderFacts = deriveCountryOrderFacts(data);
 
   const driverKey = (row: { version_id: string; month_id: string; route_id: string }): string =>
     `${row.version_id}|${row.month_id}|${row.route_id}`;
@@ -640,6 +752,8 @@ export function validateReleasePackage(bundle: LoadedReleaseBundle): PackageVali
       cost_component_facts: costs.length,
       fixed_cost_facts: fixedCosts.length,
       gmv_facts: gmv.length,
+      budget_country_order_facts: countryOrderFacts.budget.length,
+      actual_country_warehouse_order_facts: countryOrderFacts.actual.length,
       attribution_facts: attribution.length,
       attribution_summary_rows: attributionSummary.length,
     },
@@ -651,6 +765,7 @@ export function validateReleasePackage(bundle: LoadedReleaseBundle): PackageVali
       "unique_business_keys",
       "cost_fx_recalculation",
       "four_place_reporting",
+      "country_order_source_reconciliation",
       "chain_and_shapley_reconciliation",
       "gate1_scope_boundary",
     ],

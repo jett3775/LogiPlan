@@ -11,6 +11,7 @@ const activeViews = [
   "active_fulfillment_route",
   "active_business_event_note",
   "active_scenario_version",
+  "active_country_order_fact",
   "active_fulfillment_scenario_fact",
   "active_scenario_cost_component_fact",
   "active_scenario_gmv_fact",
@@ -86,7 +87,7 @@ async function verify(): Promise<void> {
     const migration = await migrator.query<{ version: string }>(
       "SELECT version FROM public._schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    assert(migration.rows[0]?.version === "0003", "数据库未应用 Gate 1 当前迁移");
+    assert(migration.rows[0]?.version === "0004", "数据库未应用 Gate 1 当前迁移");
 
     const precision = await migrator.query<{ numeric_precision: number; numeric_scale: number }>(`
       SELECT numeric_precision, numeric_scale
@@ -141,7 +142,7 @@ async function verify(): Promise<void> {
     try {
       await publisher.query(
         `SELECT logiplan.create_data_release_candidate(
-           $1, $1, repeat('0', 64), '0003', 'verify', 'verify', '权限验收', clock_timestamp()
+           $1, $1, repeat('0', 64), '0004', 'verify', 'verify', '权限验收', clock_timestamp()
          )`,
         [probeId],
       );
@@ -172,7 +173,7 @@ async function verify(): Promise<void> {
     try {
       await publisher.query(
         `SELECT logiplan.create_data_release_candidate(
-           $1, $1, repeat('0', 64), '0003', 'verify', 'verify', '失败关闭验收', clock_timestamp()
+           $1, $1, repeat('0', 64), '0004', 'verify', 'verify', '失败关闭验收', clock_timestamp()
          )`,
         [failedProbeId],
       );
@@ -192,13 +193,37 @@ async function verify(): Promise<void> {
       await publisher.query("ROLLBACK");
     }
 
-    const readerPrivileges = await reader.query<{ base_select: boolean; view_select: boolean }>(`
+    const readerPrivileges = await reader.query<{
+      base_select: boolean;
+      budget_order_select: boolean;
+      actual_order_select: boolean;
+      view_select: boolean;
+      order_view_select: boolean;
+    }>(`
       SELECT
         has_table_privilege(current_user, 'logiplan.data_release', 'SELECT') AS base_select,
-        has_table_privilege(current_user, 'logiplan.active_release', 'SELECT') AS view_select
+        has_table_privilege(
+          current_user, 'logiplan.budget_country_month', 'SELECT'
+        ) AS budget_order_select,
+        has_table_privilege(
+          current_user, 'logiplan.actual_country_warehouse_fulfillment', 'SELECT'
+        ) AS actual_order_select,
+        has_table_privilege(current_user, 'logiplan.active_release', 'SELECT') AS view_select,
+        has_table_privilege(
+          current_user, 'logiplan.active_country_order_fact', 'SELECT'
+        ) AS order_view_select
     `);
     assert(readerPrivileges.rows[0]?.base_select === false, "运行角色不应读取候选发布基础表");
+    assert(
+      readerPrivileges.rows[0]?.budget_order_select === false &&
+        readerPrivileges.rows[0]?.actual_order_select === false,
+      "运行角色不应直接读取目的国订单源表",
+    );
     assert(readerPrivileges.rows[0]?.view_select === true, "运行角色缺少活动版本视图权限");
+    assert(
+      readerPrivileges.rows[0]?.order_view_select === true,
+      "运行角色缺少活动目的国订单事实视图权限",
+    );
 
     for (const view of activeViews) {
       await reader.query(`SELECT 1 FROM logiplan.${view} LIMIT 0`);
@@ -207,6 +232,16 @@ async function verify(): Promise<void> {
       reader,
       "SELECT 1 FROM logiplan.data_release LIMIT 0",
       "运行角色读取候选发布基础表",
+    );
+    await expectPermissionDenied(
+      reader,
+      "SELECT 1 FROM logiplan.budget_country_month LIMIT 0",
+      "运行角色读取 Budget 目的国订单源表",
+    );
+    await expectPermissionDenied(
+      reader,
+      "SELECT 1 FROM logiplan.actual_country_warehouse_fulfillment LIMIT 0",
+      "运行角色读取 Actual 目的国仓级订单源表",
     );
     await expectPermissionDenied(
       reader,

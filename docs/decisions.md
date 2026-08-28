@@ -2103,3 +2103,13 @@
 - 精确解析：`@typescript/typescript6` 包本身精确锁定 6.0.2，其内部 `@typescript/old` 解析由唯一锁文件固定；该兼容 API 的任何变化与 TypeScript 7 升级都必须重新执行 D-183，不使用宽范围重新解析替代锁文件。
 - 验证结果：Node.js 24.15.0 与 pnpm 10.34.5 下，严格冻结安装无 peer 冲突，ESLint 零警告通过，4 个 workspace 的 TypeScript 7 独立检查通过，Vitest 3 个文件共 4 项测试通过，Next.js 生产构建通过且 `/`、`/attribution` 均为动态服务端路由。
 - 失败组合：TypeScript 7.0.2 直接作为 typescript-eslint API、以及 ESLint 10.8.1 配合当前 Next.js 传递插件的组合均已验证失败并禁止冻结；未来只有上游明确支持且重新通过 D-183 后才能移除兼容层或升级 ESLint 主版本。
+
+## D-185：冻结第一闸门覆盖率边界与验证责任
+
+- 状态：已确认
+- 日期：2026-08-27
+- Vitest 边界：Vitest coverage 只把当前 Node/Vitest/Rolldown 工具链可直接解析并执行的正式 `packages/*/src/**/*.ts` 纳入分母；保留 D-178 已确认的 contracts、domain、db 包级阈值，并将可由 Vitest seam 完整执行的 `packages/db/src/diagnostic-metrics.ts` 单独设为行、语句、函数和分支 100%。不通过降低阈值、ignore 注释或空测试制造通过。
+- Web 边界：Next.js App Router 页面入口和 Route Handler 不强行纳入 Node 环境 Vitest 的源码分母。页面语义、键盘、axe、真实 HTTP 查询和生产构建结果由已锁定的 Playwright Gate 1 验收；这不是降低 D-178 Web 行/语句 85%、分支 80% 要求，而是将不适用的执行工具边界显式记录并由浏览器验收负责。
+- 核心查询：`packages/db/src/diagnostic-metrics.ts` 通过窄接口承载诊断 SQL、Decimal 计算、payload、证据和告警，并执行行、语句、函数和分支 100% 的严格门槛；`packages/db/src/query-service.ts` 保留统一校验、分派和错误包装，由 D-178 db 包级门槛及分派/校验测试约束，不再额外施加整文件 100% 门槛。测试必须断言查询 payload、错误契约、版本/事实缺失、范围勾稽和证据绑定等行为，不使用 coverage ignore 或静态占位响应。
+- 数据库责任：迁移、发布装载、发布激活、只读权限、核心 9 题和查询计划不以 Vitest mock 覆盖替代真实验证；统一由从零 PostgreSQL 迁移、正式发布、角色权限、核心查询和 `EXPLAIN`/计划脚本集成验收覆盖。发布脚本的纯辅助映射可以使用行为单测补充，但不能将单测结果表述为数据库发布通过。
+- 追溯要求：CI 与本地回报必须区分 Vitest coverage、真实 PostgreSQL 集成、生产构建和 Playwright 结果；任一边界未执行或受环境阻塞时明确标记未执行，不得合并为一个“覆盖率通过”结论。

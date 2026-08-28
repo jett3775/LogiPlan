@@ -1,0 +1,171 @@
+name: Gate 1
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  gate1:
+    name: Gate 1 deterministic validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+      TZ: UTC
+      LANG: C.UTF-8
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+
+      - name: Enable pnpm 10.34.5
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm --version
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Test with coverage
+        run: pnpm test:coverage
+
+      - name: Install Chromium and Firefox
+        run: pnpm exec playwright install --with-deps chromium firefox
+
+      - name: Run isolated Gate 1 validation
+        run: pnpm verify:gate1:isolated
+
+      - name: Check Playwright failure artifact content
+        id: playwright_artifact_scan
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          scan_directory="$(mktemp -d)"
+          trap 'rm -rf "$scan_directory"' EXIT
+
+          artifact_paths=()
+          for artifact_path in playwright-report test-results; do
+            if [[ -d "$artifact_path" ]]; then
+              artifact_paths+=("$artifact_path")
+            fi
+          done
+
+          if (( ${#artifact_paths[@]} == 0 )); then
+            exit 0
+          fi
+
+          archive_index=0
+          while IFS= read -r -d '' archive_path; do
+            archive_index=$((archive_index + 1))
+            unzip -p "$archive_path" > "$scan_directory/archive-${archive_index}.bin"
+          done < <(find "${artifact_paths[@]}" -type f -name '*.zip' -print0)
+
+          scan_paths=("${artifact_paths[@]}" "$scan_directory")
+          prohibited_status=0
+          grep -RalsE -- 'postgres(ql)?://|MIGRATION_DATABASE_URL|PUBLISHER_DATABASE_URL|POSTGRES_SUPERUSER_PASSWORD|LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD|LOGIPLAN_DATA_PUBLISHER_PASSWORD|LOGIPLAN_APP_READER_PASSWORD|RELEASE_MANIFEST|MIGRATION_DIRECTORY' "${scan_paths[@]}" > /dev/null || prohibited_status=$?
+          if (( prohibited_status == 0 )); then
+            echo '::error::Playwright failure artifacts contain prohibited database credential markers.'
+            exit 1
+          fi
+          if (( prohibited_status > 1 )); then
+            echo '::error::Playwright failure artifact credential scan could not complete.'
+            exit 1
+          fi
+
+          contains_literal() {
+            local needle="$1"
+            local artifact_file="$2"
+            local grep_status=0
+            grep -aqF -- "$needle" "$artifact_file" || grep_status=$?
+            if (( grep_status > 1 )); then
+              echo '::error::Playwright failure artifact response scan could not complete.'
+              exit 2
+            fi
+            return "$grep_status"
+          }
+
+          full_response_found=false
+          while IFS= read -r -d '' artifact_file; do
+            if contains_literal '"result_id":"Q-' "$artifact_file" \
+              && contains_literal '"query_intent":{"question_type"' "$artifact_file" \
+              && contains_literal '"payload":{' "$artifact_file" \
+              && contains_literal '"evidence":[' "$artifact_file"; then
+              full_response_found=true
+              break
+            fi
+          done < <(find "${scan_paths[@]}" -type f -print0)
+
+          if [[ "$full_response_found" == true ]]; then
+            echo '::error::Playwright failure artifacts contain a complete deterministic query response.'
+            exit 1
+          fi
+
+      - name: Upload Playwright failure artifacts
+        if: failure() && steps.playwright_artifact_scan.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gate1-playwright-failure
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 3
+
+  dependency-review:
+    name: Pull request dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+
+  codeql:
+    name: CodeQL JavaScript and TypeScript
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938
+        with:
+          languages: javascript-typescript
+
+      - name: Analyze with CodeQL
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938

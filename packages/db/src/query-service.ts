@@ -1,15 +1,17 @@
 import type { Pool } from "pg";
-import { createHash } from "node:crypto";
 import {
   queryIntentSchema,
   type AnalysisScope,
-  type Comparison,
   type DecimalValue,
   type EvidenceObject,
   type MoneyValue,
   type QueryIntent,
+  type ResultWarning,
 } from "@logiplan/contracts";
 import { LogiPlanDecimal } from "@logiplan/domain";
+
+import { runDiagnosticMetrics } from "./diagnostic-metrics";
+import { evidence, resultId } from "./query-result";
 
 type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
@@ -23,7 +25,7 @@ export type DeterministicResult = {
   precision: { calculation: "HIGH_PRECISION_DECIMAL"; report_places: 4; display_places: 2 };
   payload: unknown;
   evidence: EvidenceObject[];
-  warnings: Array<{ code: "REPORT_ROUNDING"; message: string }>;
+  warnings: ResultWarning[];
 };
 export type QueryServiceError = {
   error_id: string;
@@ -76,53 +78,8 @@ const monthRange = (from: string, to: string) => {
   if (count < 1 || count > 120) return [];
   return Array.from({ length: count }, (_, offset) => monthFromIndex(start + offset));
 };
-const canonicalJson = (value: unknown): string => {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
-      left.localeCompare(right),
-    );
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-};
-const resultId = (intent: QueryIntent) =>
-  `Q-${createHash("sha256").update(canonicalJson(intent)).digest("hex")}`;
 const scopeLabel = (s: AnalysisScope) =>
   `${s.period.from}—${s.period.to}｜${s.destination_country_ids?.join(",") || "公司"}｜${s.comparison}`;
-const evidence = (
-  id: string,
-  intent: QueryIntent,
-  metric: string,
-  value: string,
-  method: string,
-  options?: {
-    period?: EvidenceObject["period"];
-    filters?: Record<string, string[]>;
-    group_by?: EvidenceObject["group_by"];
-    source_refs?: string[];
-  },
-): EvidenceObject => ({
-  evidence_id: id,
-  metric,
-  value,
-  unit: "CNY",
-  period: options?.period ?? { from: intent.scope.period.from, to: intent.scope.period.to },
-  comparison: intent.scope.comparison as Comparison,
-  filters: options?.filters ?? {},
-  group_by: options?.group_by ?? intent.group_by,
-  versions: {
-    budget: intent.scope.budget_version_id,
-    actual: intent.scope.actual_version_id,
-    forecast: intent.scope.forecast_version_id,
-    scenario: intent.scope.scenario_version_id,
-    calculation: intent.scope.calculation_version,
-  },
-  calculation_method: method,
-  source_result_id: resultId(intent),
-  snapshot_generated_at: new Date().toISOString(),
-  source_refs: options?.source_refs ?? ["logiplan.active_*"],
-});
 
 async function latestClosedMonth(pool: Pool, scope: AnalysisScope, requestId: string) {
   const versionIds = [scope.budget_version_id, scope.actual_version_id, scope.forecast_version_id];
@@ -244,9 +201,61 @@ function error(
 ): QueryServiceError {
   return { error_id: `ERR-${request_id}`, code, message_zh, request_id };
 }
+
+const diagnosticMetricIds = [
+  "ORDERS",
+  "AIR_SHARE",
+  "CARRIER_C_SHARE",
+  "ON_TIME_RATE",
+  "SERVICE_MATURITY",
+] as const;
+
 function validateIntent(intent: QueryIntent, request_id: string): QueryServiceError | null {
   if (intent.scope.period.from > intent.scope.period.to)
     return error("INVALID_PERIOD", "查询起始月份不得晚于结束月份", request_id);
+  if (intent.question_type === "DIAGNOSTIC_METRICS") {
+    const scope = intent.scope;
+    if (scope.period.from !== "2026-08" || scope.period.to !== "2026-08") {
+      return error("INVALID_PERIOD", "诊断指标仅支持 2026-08 单月范围", request_id);
+    }
+    if (scope.period.grain !== "MONTH") {
+      return error("UNSUPPORTED_GRAIN", "诊断指标仅支持 MONTH 粒度", request_id);
+    }
+    if (scope.comparison !== "ACTUAL_VS_BUDGET") {
+      return error("INVALID_FILTER", "诊断指标仅支持 ACTUAL_VS_BUDGET", request_id);
+    }
+    if (scope.destination_country_ids?.length !== 1 || scope.destination_country_ids[0] !== "GB") {
+      return error("INVALID_FILTER", "诊断指标必须且只能指定目的国 GB", request_id);
+    }
+    if (!scope.actual_version_id) {
+      return error("INVALID_FILTER", "诊断指标必须显式提供 Budget 和 Actual 版本", request_id);
+    }
+    const unsupportedFilter = [
+      scope.fulfillment_center_ids,
+      scope.transport_mode_ids,
+      scope.carrier_ids,
+      scope.cost_component_ids,
+      scope.factor_id,
+      scope.forecast_version_id,
+      scope.scenario_version_id,
+    ].some((value) => value !== undefined);
+    if (unsupportedFilter || intent.top_n !== undefined) {
+      return error("INVALID_FILTER", "诊断指标不支持额外维度、情景或 top_n 筛选", request_id);
+    }
+    if (
+      intent.metrics.length !== diagnosticMetricIds.length ||
+      intent.metrics.some((metric, index) => metric !== diagnosticMetricIds[index])
+    ) {
+      return error(
+        "INVALID_METRIC",
+        `诊断指标必须完整包含 ${diagnosticMetricIds.join(",")}`,
+        request_id,
+      );
+    }
+    if (intent.group_by.length !== 0) {
+      return error("INVALID_DIMENSION", "目的国诊断指标不支持额外分组", request_id);
+    }
+  }
   const dashboardQueries = [
     "MONTHLY_COST_TREND",
     "TOP_ADVERSE_ANOMALIES",
@@ -322,7 +331,11 @@ function validateIntent(intent: QueryIntent, request_id: string): QueryServiceEr
     return error("UNSUPPORTED_GRAIN", "范围粒度不支持按月份分组", request_id);
   if (intent.question_type === "EVIDENCE_LOOKUP")
     return error("EVIDENCE_NOT_FOUND", "V1.0 查询服务暂不接受未绑定结果的证据 ID", request_id);
-  if (intent.metrics.some((metric) => /ORDER_LEVEL|ORDER|TOP_ORDER/i.test(metric)))
+  if (
+    intent.metrics.some((metric) =>
+      /ORDER_LEVEL|ORDER_DETAIL|ORDER_ID|TOP_ORDER|ORDER_COST/i.test(metric),
+    )
+  )
     return error(
       "ORDER_LEVEL_NOT_AVAILABLE",
       "当前事实仅支持线路层下钻，无法生成订单级 Top 结果",
@@ -1238,20 +1251,22 @@ export async function runDeterministicQuery(
               ? await fixedCostBreakdown(pool, intent, request_id)
               : intent.question_type === "COUNTRY_VARIANCE_SUMMARY"
                 ? await country(pool, intent)
-                : intent.question_type === "ATTRIBUTION_BRIDGE"
-                  ? await bridge(pool, intent)
-                  : intent.question_type === "ATTRIBUTION_DRILLDOWN"
-                    ? await drilldown(pool, intent)
-                    : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
-                      ? await warehouseContext(pool, intent)
-                      : {
-                          payload: {
-                            status: "SUPPORTED_DATA_ACCESS_PENDING",
-                            question_type: intent.question_type,
-                          },
-                          evidence: [],
-                          warnings: [] as Array<{ code: "REPORT_ROUNDING"; message: string }>,
-                        };
+                : intent.question_type === "DIAGNOSTIC_METRICS"
+                  ? await runDiagnosticMetrics(pool, intent, request_id)
+                  : intent.question_type === "ATTRIBUTION_BRIDGE"
+                    ? await bridge(pool, intent)
+                    : intent.question_type === "ATTRIBUTION_DRILLDOWN"
+                      ? await drilldown(pool, intent)
+                      : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
+                        ? await warehouseContext(pool, intent)
+                        : {
+                            payload: {
+                              status: "SUPPORTED_DATA_ACCESS_PENDING",
+                              question_type: intent.question_type,
+                            },
+                            evidence: [],
+                            warnings: [] as ResultWarning[],
+                          };
     return {
       result_id: resultId(intent),
       query_intent: intent,

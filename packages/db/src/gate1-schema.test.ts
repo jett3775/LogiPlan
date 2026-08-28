@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const migrationUrl = new URL("../../../database/migrations/0001_gate1_schema.sql", import.meta.url);
+const countryOrderMigrationUrl = new URL(
+  "../../../database/migrations/0004_active_country_order_fact.sql",
+  import.meta.url,
+);
 
 describe("Gate 1 schema migration", () => {
   it("contains the frozen release, source and analysis structures", async () => {
@@ -41,6 +45,19 @@ describe("Gate 1 schema migration", () => {
     expect(sql).toContain("CREATE FUNCTION logiplan.activate_data_release");
     expect(sql).toContain("TO app_reader;");
     expect(sql).not.toMatch(/GRANT SELECT ON ALL TABLES[^;]+app_reader/su);
+  });
+
+  it("exposes true destination orders through one controlled active view", async () => {
+    const sql = await readFile(countryOrderMigrationUrl, "utf8");
+
+    expect(sql).toContain("CREATE VIEW logiplan.active_country_order_fact");
+    expect(sql).toContain("FROM logiplan.budget_country_month AS b");
+    expect(sql).toContain("FROM logiplan.actual_country_warehouse_fulfillment AS a");
+    expect(sql).toContain("GRANT SELECT ON logiplan.active_country_order_fact TO app_reader");
+    expect(sql).not.toMatch(/GRANT SELECT ON[\s\S]+budget_country_month[\s\S]+TO app_reader/u);
+    expect(sql).not.toMatch(
+      /GRANT SELECT ON[\s\S]+actual_country_warehouse_fulfillment[\s\S]+TO app_reader/u,
+    );
   });
 
   it("does not create Gate 2 state or model-control tables", async () => {

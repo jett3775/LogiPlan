@@ -106,6 +106,24 @@ function dashboardIntent(
   };
 }
 
+function diagnosticIntent(): QueryIntent {
+  return {
+    question_type: "DIAGNOSTIC_METRICS",
+    scope: {
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" },
+      comparison: "ACTUAL_VS_BUDGET",
+      destination_country_ids: ["GB"],
+      budget_version_id: "BUDGET_2026_V1",
+      actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+      calculation_version: "D-092",
+    },
+    metrics: ["ORDERS", "AIR_SHARE", "CARRIER_C_SHARE", "ON_TIME_RATE", "SERVICE_MATURITY"],
+    group_by: [],
+    output_locale: "zh-CN",
+    context_sources: ["FIXED_TEMPLATE"],
+  };
+}
+
 const serviceBaselines: readonly ServiceQueryBaseline[] = [
   {
     name: "monthly-cost-trend",
@@ -139,6 +157,20 @@ const serviceBaselines: readonly ServiceQueryBaseline[] = [
     requiredRelations: ["active_data_release", "fixed_cost_scenario_fact", "scenario_version"],
     intent: dashboardIntent("FIXED_COST_BREAKDOWN"),
   },
+  {
+    name: "diagnostic-metrics",
+    marker: "/* DIAGNOSTIC_METRICS */",
+    expectedRows: 2,
+    requiredRelations: [
+      "active_data_release",
+      "actual_country_warehouse_fulfillment",
+      "budget_country_month",
+      "fulfillment_route",
+      "fulfillment_scenario_fact",
+      "scenario_version",
+    ],
+    intent: diagnosticIntent(),
+  },
 ];
 
 function requiredEnvironment(name: string): string {
@@ -153,6 +185,23 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function diagnosticDisplay(payload: unknown, diagnosticId: string, field: "current" | "delta") {
+  assert(isRecord(payload), "诊断指标 payload 不是对象");
+  const diagnostics = payload.diagnostics;
+  assert(Array.isArray(diagnostics), "诊断指标 payload 缺少 diagnostics");
+  const diagnostic = diagnostics.find(
+    (item) => isRecord(item) && item.diagnostic_id === diagnosticId,
+  );
+  assert(isRecord(diagnostic), `诊断指标缺少 ${diagnosticId}`);
+  const value = diagnostic[field];
+  assert(isRecord(value) && typeof value.display === "string", `${diagnosticId}.${field} 无效`);
+  return value.display;
 }
 
 function flattenPlan(node: PlanNode): readonly PlanNode[] {
@@ -247,6 +296,36 @@ async function verify(): Promise<void> {
         result.query_intent.question_type === baseline.intent.question_type,
         `${baseline.name} 未返回预期查询类型`,
       );
+      if (baseline.name === "diagnostic-metrics") {
+        assert(
+          diagnosticDisplay(result.payload, "AIR_SHARE", "current") === "66.02",
+          "E07 Actual 空运占比错误",
+        );
+        assert(
+          diagnosticDisplay(result.payload, "AIR_SHARE", "delta") === "52.32",
+          "E07 空运百分点变化错误",
+        );
+        assert(
+          diagnosticDisplay(result.payload, "CARRIER_C_SHARE", "current") === "38.84",
+          "E07 Actual Carrier C 占比错误",
+        );
+        assert(
+          diagnosticDisplay(result.payload, "CARRIER_C_SHARE", "delta") === "35.96",
+          "E07 Carrier C 百分点变化错误",
+        );
+        assert(
+          diagnosticDisplay(result.payload, "ON_TIME_RATE", "current") === "96.16",
+          "E10 当前准时履约率错误",
+        );
+        assert(
+          diagnosticDisplay(result.payload, "SERVICE_MATURITY", "current") === "92.00",
+          "E10 服务成熟度错误",
+        );
+        assert(
+          result.warnings.some((warning) => warning.code === "SERVICE_NOT_MATURE"),
+          "E10 缺少服务未成熟警告",
+        );
+      }
       assert(captures === 1, `${baseline.name} 应且仅应捕获一次参数化主 SQL`);
     }
     process.stdout.write(`${JSON.stringify(summaries)}\n`);
