@@ -78,7 +78,7 @@ async function verify(): Promise<void> {
     assert(before.rowCount === 1 && active?.status === "ACTIVE", "验证前必须存在唯一活动发布");
     assert(
       active.data_release_id === upgradedV2ReleaseId,
-      `0004 升级后活动发布应为 ${upgradedV2ReleaseId}`,
+      `兼容结构验证后活动发布应为 ${upgradedV2ReleaseId}`,
     );
 
     const releaseMetadata = await publisher.query<{
@@ -161,7 +161,7 @@ async function verify(): Promise<void> {
     try {
       await publisher.query(
         `SELECT logiplan.create_data_release_candidate(
-           $1, $1, repeat('0', 64), '0004', 'verify', 'verify', '回切事务验收', clock_timestamp()
+           $1, $1, repeat('0', 64), '0009', 'verify', 'verify', '回切事务验收', clock_timestamp()
          )`,
         [probeId],
       );
@@ -204,7 +204,7 @@ async function verify(): Promise<void> {
 
 await verify()
   .then(() => {
-    process.stdout.write("0003→0004 不可变发布升级、活动订单事实和诊断查询验证通过\n");
+    process.stdout.write("0003→0009 不可变发布升级、活动订单事实和诊断查询验证通过\n");
   })
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "未知发布流程验证错误";

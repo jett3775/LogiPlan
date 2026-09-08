@@ -328,6 +328,7 @@ async function verify() {
   const readerRuntimeEnv = {
     ...guardedEnvironment,
     DATABASE_URL: readerUrl,
+    SNAPSHOT_TEST_SUPERUSER_URL: roleUrl("postgres", localPasswords.superuser),
   };
 
   let temporaryMigrationDirectory;
@@ -346,9 +347,14 @@ async function verify() {
 
     await runCompose("启动隔离 PostgreSQL 18.4", ["up", "-d", "--wait"], composeEnv);
     await runPnpm("从零执行 0001—0003 迁移", ["db:migrate"], v1MigrationEnv);
-    await runPnpm("发布 0003 基线 V1 数据", ["db:publish"], v1PublisherEnv);
-    await runPnpm("升级执行完整 0001—0004 迁移", ["db:migrate"], migrationEnv);
-    await runPnpm("发布 0004 V2 数据", ["db:publish"], publisherEnv);
+    await runProcess(
+      "使用测试专用 harness 发布 0003 基线 V1 数据",
+      process.execPath,
+      ["--import", "tsx", "scripts/publish-gate1-v1-baseline.ts"],
+      v1PublisherEnv,
+    );
+    await runPnpm("从 0003 升级执行完整迁移", ["db:migrate"], migrationEnv);
+    await runPnpm("发布 V2 数据", ["db:publish"], publisherEnv);
     await runPnpm("重复发布幂等验证", ["db:publish"], publisherEnv);
     await runPnpm("结构、精度与三角色权限验证", ["db:verify"], verificationEnv);
     await runPnpm("不可变发布升级与核心查询验证", ["db:verify-release"], releaseVerificationEnv);

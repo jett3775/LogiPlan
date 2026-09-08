@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
-import { evidenceObjectSchema, type QueryIntent } from "@logiplan/contracts";
+import { evidenceObjectSchema, type MoneyValue, type QueryIntent } from "@logiplan/contracts";
+import { LogiPlanDecimal } from "@logiplan/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { runDiagnosticMetrics } from "./diagnostic-metrics";
@@ -168,6 +169,7 @@ const poolFor = (
 ) =>
   ({
     query: vi.fn(async (sql: string) => {
+      if (sql.includes("FROM logiplan.evidence_snapshot")) return { rows: [], rowCount: 0 };
       if (sql.includes(marker)) return { rows, rowCount: rows.length };
       if (sql.includes("FROM logiplan.active_scenario_version\n")) {
         return { rows: metadata, rowCount: metadata.length };
@@ -621,40 +623,47 @@ describe("remaining deterministic query paths", () => {
     variable: [{ variable_cost: "10.25" }],
     fixed: [{ fixed_cost: "2.75" }],
     bridge: [
-      { factor: "VOLUME", amount: "3.5" },
+      { factor: "VOLUME", amount: "3.5001" },
       { factor: "PRICE", amount: "-1.25" },
     ],
     drilldownCosts: [
       {
         scenario_version_id: versions.budget,
         fulfillment_center_id: "DE_FC",
+        transport_mode_id: "AIR",
+        carrier_id: "CARRIER_C",
         cost_category: "BASE_FREIGHT",
         amount: "10",
       },
       {
         scenario_version_id: versions.actual,
         fulfillment_center_id: "DE_FC",
+        transport_mode_id: "AIR",
+        carrier_id: "CARRIER_C",
         cost_category: "BASE_FREIGHT",
-        amount: "13",
+        amount: "13.0001",
       },
     ],
     drilldownFactors: [
       {
         fulfillment_center_id: "DE_FC",
+        transport_mode_id: "AIR",
+        carrier_id: "CARRIER_C",
         cost_category: "BASE_FREIGHT",
         factor: "MIX",
-        amount: "3",
+        amount: "3.0001",
       },
     ],
     warehouse: [
       { scenario_version_id: versions.budget, fulfillment_center_id: "DE_FC", amount: "10" },
-      { scenario_version_id: versions.actual, fulfillment_center_id: "DE_FC", amount: "13" },
+      { scenario_version_id: versions.actual, fulfillment_center_id: "DE_FC", amount: "13.0001" },
     ],
   };
 
-  const pathPool = ({ empty = false } = {}) =>
-    ({
-      query: vi.fn(async (sql: string) => {
+  const pathPool = ({ empty = false } = {}) => {
+    const pool = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("FROM logiplan.evidence_snapshot")) return { rows: [], rowCount: 0 };
         if (empty) return { rows: [], rowCount: 0 };
         if (sql.includes("GROUP BY factor")) {
           return { rows: serviceRows.bridge, rowCount: serviceRows.bridge.length };
@@ -665,15 +674,127 @@ describe("remaining deterministic query paths", () => {
         if (sql.includes("cost_category")) {
           return { rows: serviceRows.drilldownCosts, rowCount: serviceRows.drilldownCosts.length };
         }
-        if (sql.includes("fulfillment_center_id") && sql.includes("SUM(c.model_cny_amount)")) {
+        if (sql.includes("ORDER BY r.fulfillment_center_id")) {
           return { rows: serviceRows.warehouse, rowCount: serviceRows.warehouse.length };
         }
         if (sql.includes("model_cny_amount")) {
-          return { rows: serviceRows.variable, rowCount: 1 };
+          const variable =
+            params?.[0] === versions.actual ? [{ variable_cost: "12.5001" }] : serviceRows.variable;
+          return { rows: variable, rowCount: 1 };
         }
         return { rows: serviceRows.fixed, rowCount: 1 };
       }),
-    }) as unknown as Pool;
+    };
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [], rowCount: 0 };
+        if (sql.includes("SELECT data_release_id FROM logiplan.active_release"))
+          return { rows: [{ data_release_id: "release-test" }], rowCount: 1 };
+        if (sql.includes("persist_query_evidence_snapshot")) {
+          const result = JSON.parse(String(params?.[0]));
+          delete result._data_release_id;
+          result.evidence = result.evidence.map((item: object) => ({
+            ...item,
+            evidence_snapshot_id: "ES-00000000-0000-4000-8000-000000000001",
+            data_release_id: "release-test",
+          }));
+          if (result.query_intent.question_type === "EVIDENCE_LOOKUP")
+            result.payload.evidence = result.evidence[0];
+          return { rows: [{ result }], rowCount: 1 };
+        }
+        return pool.query(sql, params);
+      }),
+      release: vi.fn(),
+    };
+    return { ...pool, connect: vi.fn(async () => client) } as unknown as Pool;
+  };
+  it.each([undefined, "VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"] as const)(
+    "preserves source factor %s independently of evidence metric in exact legacy lookup",
+    async (factor) => {
+      const query = {
+        contract_version: "V1.1" as const,
+        question_type: "ATTRIBUTION_DRILLDOWN" as const,
+        scope: {
+          period: { from: "2026-08", to: "2026-08", grain: "MONTH" as const },
+          comparison: "ACTUAL_VS_BUDGET" as const,
+          destination_country_ids: ["GB"],
+          budget_version_id: versions.budget,
+          actual_version_id: versions.actual,
+          calculation_version: "D-092",
+          ...(factor ? { factor_id: factor } : {}),
+        },
+        metrics: ["FULFILLMENT_VARIABLE_COST"],
+        group_by: [
+          "FULFILLMENT_CENTER",
+          "TRANSPORT_MODE",
+          "CARRIER",
+          "COST_COMPONENT",
+        ] as QueryIntent["group_by"],
+        output_locale: "zh-CN" as const,
+        context_sources: ["FIXED_TEMPLATE"] as QueryIntent["context_sources"],
+      };
+      const result = payloadOf(await runDeterministicQuery(pathPool(), query, "factor-query"));
+      expect(result.query_intent.scope).toEqual(query.scope);
+      expect(result.payload).toMatchObject({ primary_contribution: factor ?? "VARIANCE" });
+      const baseId = "ATTRIBUTION_DRILLDOWN:FC:DE_FC";
+      // A MIX source snapshot also proves PRICE, Budget, Actual and total variance.
+      for (const id of [
+        baseId,
+        `${baseId}:BASELINE`,
+        `${baseId}:CURRENT`,
+        ...["VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"].map((f) => `${baseId}:FACTOR:${f}`),
+      ]) {
+        const original = result.evidence.find((item) => item.evidence_id === id)!;
+        const restored = payloadOf(
+          await runDeterministicQuery(
+            pathPool(),
+            {
+              ...query,
+              question_type: "EVIDENCE_LOOKUP",
+              evidence_id: id,
+              metrics: [],
+              group_by: [],
+            },
+            "factor-lookup",
+          ),
+        );
+        expect(restored.query_intent.scope).toEqual(query.scope);
+        expect(restored.evidence[0]).toMatchObject({
+          evidence_id: id,
+          value: original.value,
+          metric: original.metric,
+          source_result_id: result.result_id,
+        });
+      }
+      expect(
+        await runDeterministicQuery(
+          pathPool(),
+          {
+            ...query,
+            question_type: "EVIDENCE_LOOKUP",
+            evidence_id: `${baseId}:FACTOR:missing`,
+            metrics: [],
+            group_by: [],
+          },
+          "missing-factor-evidence",
+        ),
+      ).toMatchObject({ code: "EVIDENCE_NOT_FOUND" });
+      expect(
+        await runDeterministicQuery(
+          pathPool(),
+          {
+            ...query,
+            scope: { ...query.scope, carrier_ids: ["CARRIER_C"] },
+            question_type: "EVIDENCE_LOOKUP",
+            evidence_id: baseId,
+            metrics: [],
+            group_by: [],
+          },
+          "unsupported-source",
+        ),
+      ).toMatchObject({ code: "INVALID_FILTER" });
+    },
+  );
 
   it("returns country, bridge, drilldown and warehouse payloads", async () => {
     const countryIntent: QueryIntent = {
@@ -683,22 +804,34 @@ describe("remaining deterministic query paths", () => {
         destination_country_ids: ["GB"],
       },
     };
+    const countryPool = pathPool();
     const countryResult = payloadOf(
-      await runDeterministicQuery(pathPool(), countryIntent, "country-path"),
+      await runDeterministicQuery(countryPool, countryIntent, "country-path"),
     );
     expect(countryResult.payload).toMatchObject({
       destination_country_id: "GB",
       baseline: { high_precision: "10.25" },
-      current: { high_precision: "10.25" },
-      variance: { high_precision: "0" },
+      current: { high_precision: "12.5001" },
+      variance: { high_precision: "2.2501" },
     });
+    expect(
+      vi
+        .mocked(countryPool.query)
+        .mock.calls.some(
+          ([sql]) =>
+            String(sql).includes("SUM(c.model_cny_amount)") &&
+            !String(sql).includes("report_cny_amount"),
+        ),
+    ).toBe(true);
 
     const bridgeResult = payloadOf(
       await runDeterministicQuery(pathPool(), intent("ATTRIBUTION_BRIDGE", []), "bridge-path"),
     );
     expect(bridgeResult.payload).toMatchObject({
       method: "CHAIN",
-      current: { high_precision: "2.25" },
+      baseline: { high_precision: "10.25" },
+      current: { high_precision: "12.5001" },
+      reconciliation_delta: { high_precision: "0" },
     });
     expect(bridgeResult.evidence[0]?.source_result_id).toBe(bridgeResult.result_id);
 
@@ -712,7 +845,15 @@ describe("remaining deterministic query paths", () => {
     const drilldownRows = (drilldownResult.payload as { rows: Array<Record<string, unknown>> })
       .rows;
     expect(drilldownRows.some((row) => row.row_id === "FC:DE_FC")).toBe(true);
-
+    expect(drilldownRows.some((row) => row.row_id === "FC:DE_FC/MODE:AIR")).toBe(true);
+    expect(drilldownRows.some((row) => row.row_id === "FC:DE_FC/MODE:AIR/CARRIER:CARRIER_C")).toBe(
+      true,
+    );
+    expect(
+      drilldownRows.some(
+        (row) => row.row_id === "FC:DE_FC/MODE:AIR/CARRIER:CARRIER_C/COST:BASE_FREIGHT",
+      ),
+    ).toBe(true);
     const warehouseResult = payloadOf(
       await runDeterministicQuery(
         pathPool(),
@@ -722,7 +863,71 @@ describe("remaining deterministic query paths", () => {
     );
     expect(warehouseResult.payload).toMatchObject({
       scope: "COMPANY_VARIABLE_COST_ONLY",
-      company_total: { variance: { high_precision: "3" } },
+      company_total: { variance: { high_precision: "3.0001" } },
+    });
+  });
+
+  it("looks up exact evidence IDs, rejects unknown IDs and mismatched scopes", async () => {
+    const lookupScope = {
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" as const },
+      comparison: "ACTUAL_VS_BUDGET" as const,
+      destination_country_ids: ["GB"],
+      budget_version_id: "BUDGET_2026_V1",
+      actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+      calculation_version: "D-092",
+    };
+    const lookup = (evidence_id: string, scope = lookupScope): QueryIntent => ({
+      contract_version: "V1.1",
+      question_type: "EVIDENCE_LOOKUP",
+      scope,
+      metrics: [],
+      group_by: [],
+      output_locale: "zh-CN",
+      context_sources: ["PAGE_VISIBLE_STATE"],
+      evidence_id,
+    });
+
+    const first = payloadOf(
+      await runDeterministicQuery(pathPool(), lookup("E01-country"), "evidence-first"),
+    );
+    const second = payloadOf(
+      await runDeterministicQuery(pathPool(), lookup("E01-country"), "evidence-second"),
+    );
+    const firstEvidence = first.evidence[0];
+    const secondEvidence = second.evidence[0];
+    expect(first.contract_version).toBe("V1.1");
+    expect(firstEvidence).toMatchObject({
+      evidence_id: "E01-country",
+      filters: { destination_country_id: ["GB"] },
+      value: "2.2501",
+    });
+    expect(secondEvidence).toMatchObject({
+      evidence_id: firstEvidence?.evidence_id,
+      source_result_id: firstEvidence?.source_result_id,
+      value: firstEvidence?.value,
+      versions: firstEvidence?.versions,
+    });
+    expect(firstEvidence?.snapshot_generated_at).not.toBe(firstEvidence?.source_result_id);
+
+    const unknown = await runDeterministicQuery(
+      pathPool(),
+      lookup("E01-country:typo"),
+      "evidence-unknown",
+    );
+    expect(unknown).toMatchObject({
+      code: "EVIDENCE_NOT_FOUND",
+      request_id: "evidence-unknown",
+    });
+
+    const mismatched = await runDeterministicQuery(
+      pathPool(),
+      lookup("E01-country", { ...lookupScope, destination_country_ids: ["DE"] }),
+      "evidence-scope",
+    );
+    expect(mismatched).toMatchObject({
+      code: "INVALID_FILTER",
+      message_zh: expect.stringContaining("范围不匹配"),
+      request_id: "evidence-scope",
     });
   });
 
@@ -784,6 +989,299 @@ describe("remaining deterministic query paths", () => {
       });
     }
     expect(noAccessPool.query).not.toHaveBeenCalled();
+  });
+});
+
+describe("ATTRIBUTION_DRILLDOWN high-precision reconciliation", () => {
+  const factors = ["VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"] as const;
+  const queryIntent: QueryIntent = {
+    contract_version: "V1.1",
+    question_type: "ATTRIBUTION_DRILLDOWN",
+    scope: {
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" },
+      comparison: "ACTUAL_VS_BUDGET",
+      destination_country_ids: ["GB"],
+      budget_version_id: versions.budget,
+      actual_version_id: versions.actual,
+      calculation_version: "D-092",
+    },
+    metrics: ["FULFILLMENT_VARIABLE_COST"],
+    group_by: ["FULFILLMENT_CENTER", "TRANSPORT_MODE", "CARRIER", "COST_COMPONENT"],
+    output_locale: "zh-CN",
+    context_sources: ["PAGE_VISIBLE_STATE", "FIXED_TEMPLATE"],
+  };
+  // First cost pair reproduces R_GB_DE_B_AIR|BASE_FREIGHT. The other pairs and
+  // factor allocations are synthetic, with branching at every parent level.
+  const atoms = [
+    ["DE_FC", "AIR", "CARRIER_B", "BASE_FREIGHT"],
+    ["DE_FC", "AIR", "CARRIER_B", "FUEL_SURCHARGE"],
+    ["DE_FC", "AIR", "CARRIER_C", "BASE_FREIGHT"],
+    ["DE_FC", "ROAD", "CARRIER_A", "BASE_FREIGHT"],
+    ["FR_FC", "ROAD", "CARRIER_A", "BASE_FREIGHT"],
+  ].map(([center, mode, carrier, category], index) => ({
+    fulfillment_center_id: center!,
+    transport_mode_id: mode!,
+    carrier_id: carrier!,
+    cost_category: category!,
+    baseline: index === 0 ? "18949.1871744" : "10.000000000000000000000001",
+    current: index === 0 ? "160481.6719439568864768" : "13.000060000000000000000003",
+    contributions:
+      index === 0
+        ? ["100000", "40000", "1000", "500", "32.4847695568864768"]
+        : ["1", "2", "0.00001", "-0.00002", "0.000070000000000000000002"],
+  }));
+  const sum = (values: string[]) =>
+    values.reduce((total, value) => total.plus(value), new LogiPlanDecimal("0"));
+
+  const fixturePool = (factorErrors: readonly string[] = []) => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("persist_query_evidence_snapshot")) {
+        const result = JSON.parse(String(params?.[0]));
+        delete result._data_release_id;
+        result.evidence = result.evidence.map((item: object) => ({
+          ...item,
+          evidence_snapshot_id: "ES-00000000-0000-4000-8000-000000000002",
+          data_release_id: "LOGIPLAN_2026_DEMO_V2",
+        }));
+        return { rows: [{ result }], rowCount: 1 };
+      }
+      if (sql.includes("FROM logiplan.evidence_snapshot") || /^(BEGIN|COMMIT|ROLLBACK)/.test(sql))
+        return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT data_release_id FROM logiplan.active_release"))
+        return { rows: [{ data_release_id: "LOGIPLAN_2026_DEMO_V2" }], rowCount: 1 };
+      if (sql.includes("AS variable_cost")) {
+        expect(params?.[3]).toEqual(["GB"]);
+        const amount = sum(
+          atoms.map((atom) =>
+            params?.[0] === versions.budget
+              ? atom.baseline
+              : sql.includes("c.report_cny_amount")
+                ? new LogiPlanDecimal(atom.current).toFixed(4)
+                : atom.current,
+          ),
+        );
+        return { rows: [{ variable_cost: amount.toFixed() }], rowCount: 1 };
+      }
+      if (sql.includes("FROM logiplan.active_fixed_cost_scenario_fact"))
+        return { rows: [{ fixed_cost: "0" }], rowCount: 1 };
+      if (sql.includes("FROM logiplan.active_scenario_cost_component_fact")) {
+        // Emulate the projected numeric column: the pre-fix SQL selects Actual
+        // report values quantized per row, not the model values used by factors.
+        const rows = atoms.flatMap((atom) => [
+          { ...atom, scenario_version_id: versions.budget, amount: atom.baseline },
+          {
+            ...atom,
+            scenario_version_id: versions.actual,
+            amount: sql.includes("c.report_cny_amount")
+              ? new LogiPlanDecimal(atom.current).toFixed(4)
+              : atom.current,
+          },
+        ]);
+        return { rows, rowCount: rows.length };
+      }
+      if (sql.includes("FROM logiplan.active_variance_attribution_fact")) {
+        const rows = atoms.flatMap((atom, atomIndex) =>
+          factors.map((factor, factorIndex) => ({
+            ...atom,
+            factor,
+            amount: new LogiPlanDecimal(atom.contributions[factorIndex]!)
+              .plus(factorIndex === 0 ? (factorErrors[atomIndex] ?? "0") : "0")
+              .toFixed(),
+          })),
+        );
+        if (sql.includes("GROUP BY factor")) {
+          expect(params?.[4]).toEqual(["GB"]);
+          return {
+            rows: factors.map((factor) => ({
+              factor,
+              amount: sum(
+                rows.filter((row) => row.factor === factor).map((row) => row.amount),
+              ).toFixed(),
+            })),
+            rowCount: factors.length,
+          };
+        }
+        return { rows, rowCount: rows.length };
+      }
+      throw new Error(`未模拟 SQL：${sql}`);
+    });
+    const client = { query, release: vi.fn() };
+    return { query, connect: vi.fn(async () => client) } as unknown as Pool;
+  };
+
+  it("reconciles model costs and all five factors at every level despite per-row report quantization", async () => {
+    const baseline = sum(atoms.map((atom) => atom.baseline));
+    const current = sum(atoms.map((atom) => atom.current));
+    const rowReports = sum(atoms.map((atom) => new LogiPlanDecimal(atom.current).toFixed(4)));
+    const contribution = sum(atoms.flatMap((atom) => atom.contributions));
+    expect(rowReports.equals(current)).toBe(false);
+    expect(rowReports.toFixed(4)).not.toBe(current.toFixed(4));
+    expect(current.minus(baseline).equals(contribution)).toBe(true);
+
+    const pool = fixturePool();
+    const result = payloadOf(await runDeterministicQuery(pool, queryIntent, "quantized-report"));
+    type Row = {
+      row_id: string;
+      parent_row_id: string | null;
+      children_available: boolean;
+      baseline_cost: MoneyValue;
+      current_cost: MoneyValue;
+      variance: MoneyValue;
+      factor_contributions: Record<(typeof factors)[number], MoneyValue>;
+    };
+    const { rows } = result.payload as { rows: Row[] };
+    const roots = rows.filter((row) => row.parent_row_id === null);
+    expect(roots).toHaveLength(2);
+    expect(rows.filter((row) => !row.children_available)).toHaveLength(atoms.length);
+    expect(sum(roots.map((row) => row.baseline_cost.high_precision)).equals(baseline)).toBe(true);
+    expect(sum(roots.map((row) => row.current_cost.high_precision)).equals(current)).toBe(true);
+    expect(sum(roots.map((row) => row.variance.high_precision)).equals(contribution)).toBe(true);
+
+    for (const row of rows) {
+      expect(
+        new LogiPlanDecimal(row.current_cost.high_precision)
+          .minus(row.baseline_cost.high_precision)
+          .equals(row.variance.high_precision),
+      ).toBe(true);
+      expect(
+        sum(factors.map((factor) => row.factor_contributions[factor].high_precision)).equals(
+          row.variance.high_precision,
+        ),
+      ).toBe(true);
+      const children = rows.filter((child) => child.parent_row_id === row.row_id);
+      const values: Array<[string, (item: Row) => MoneyValue]> = [
+        ["", (item) => item.variance],
+        [":BASELINE", (item) => item.baseline_cost],
+        [":CURRENT", (item) => item.current_cost],
+        ...factors.map((factor): [string, (item: Row) => MoneyValue] => [
+          `:FACTOR:${factor}`,
+          (item) => item.factor_contributions[factor],
+        ]),
+      ];
+      if (row.children_available) expect(children.length).toBeGreaterThan(0);
+      for (const [suffix, getValue] of values) {
+        const value = getValue(row);
+        if (row.children_available) {
+          expect(sum(children.map((child) => getValue(child).high_precision)).toFixed()).toBe(
+            value.high_precision,
+          );
+        }
+        expect(value.report).toBe(new LogiPlanDecimal(value.high_precision).toFixed(4));
+        expect(value.display).toBe(new LogiPlanDecimal(value.high_precision).toFixed(2));
+        const item = result.evidence.find(
+          (item) => item.evidence_id === `ATTRIBUTION_DRILLDOWN:${row.row_id}${suffix}`,
+        );
+        expect(item?.value).toBe(value.high_precision);
+        expect(item?.calculation_method).not.toContain("report_cny_amount");
+      }
+    }
+    expect(pool.query).toHaveBeenCalledWith("COMMIT");
+    expect(pool.query).not.toHaveBeenCalledWith("ROLLBACK");
+  });
+
+  it.each(["1", "0.000000000000000000000001"])(
+    "rejects a real model/factor mismatch of %s CNY without a report-level tolerance",
+    async (factorError) => {
+      const pool = fixturePool([factorError]);
+      const result = await runDeterministicQuery(pool, queryIntent, "inconsistent-factors");
+      expect(result).toMatchObject({
+        code: "RECONCILIATION_FAILED",
+        message_zh: "下钻顶层总差异未与五因素贡献合计勾稽",
+        request_id: "inconsistent-factors",
+      });
+      expect(pool.query).toHaveBeenCalledWith("ROLLBACK");
+      expect(pool.query).not.toHaveBeenCalledWith("COMMIT");
+    },
+  );
+
+  it("keeps country summary and waterfall equal to the unrounded drilldown totals", async () => {
+    const drilldown = payloadOf(
+      await runDeterministicQuery(fixturePool(), queryIntent, "aligned-drilldown"),
+    );
+    const country = payloadOf(
+      await runDeterministicQuery(
+        fixturePool(),
+        {
+          ...queryIntent,
+          question_type: "COUNTRY_VARIANCE_SUMMARY",
+          group_by: [],
+        },
+        "aligned-country",
+      ),
+    );
+    const bridge = payloadOf(
+      await runDeterministicQuery(
+        fixturePool(),
+        {
+          ...queryIntent,
+          question_type: "ATTRIBUTION_BRIDGE",
+          group_by: [],
+        },
+        "aligned-bridge",
+      ),
+    );
+    const roots = (
+      drilldown.payload as {
+        rows: Array<{
+          parent_row_id: string | null;
+          baseline_cost: MoneyValue;
+          current_cost: MoneyValue;
+          variance: MoneyValue;
+          factor_contributions: Record<(typeof factors)[number], MoneyValue>;
+        }>;
+      }
+    ).rows.filter((row) => row.parent_row_id === null);
+    const c = country.payload as {
+      baseline: MoneyValue;
+      current: MoneyValue;
+      variance: MoneyValue;
+    };
+    const b = bridge.payload as {
+      baseline: MoneyValue;
+      current: MoneyValue;
+      factors: Array<{ factor_id: string; amount: MoneyValue }>;
+      reconciliation_delta: MoneyValue;
+    };
+    for (const [value, expected] of [
+      [c.baseline, sum(roots.map((row) => row.baseline_cost.high_precision))],
+      [c.current, sum(roots.map((row) => row.current_cost.high_precision))],
+      [c.variance, sum(roots.map((row) => row.variance.high_precision))],
+    ] as const) {
+      expect(value.high_precision).toBe(expected.toFixed());
+      expect(value.report).toBe(expected.toFixed(4));
+      expect(value.display).toBe(expected.toFixed(2));
+    }
+    expect(b.baseline).toEqual(c.baseline);
+    expect(b.current).toEqual(c.current);
+    expect(b.reconciliation_delta.high_precision).toBe("0");
+    expect(sum(b.factors.map((factor) => factor.amount.high_precision)).toFixed()).toBe(
+      c.variance.high_precision,
+    );
+    for (const factor of factors) {
+      expect(b.factors.find((item) => item.factor_id === factor)?.amount.high_precision).toBe(
+        sum(roots.map((row) => row.factor_contributions[factor].high_precision)).toFixed(),
+      );
+    }
+    expect(country.evidence[0]?.value).toBe(c.variance.high_precision);
+    expect(bridge.evidence[0]?.value).toBe(c.variance.high_precision);
+  });
+
+  it("rolls back opposite atomic errors even when they cancel within the same carrier", async () => {
+    const errors = ["1", "-1"];
+    expect(sum(errors).toFixed()).toBe("0");
+    const pool = fixturePool(errors);
+    const result = await runDeterministicQuery(pool, queryIntent, "opposite-atomic-errors");
+    expect("code" in result).toBe(true);
+    expect(result).toMatchObject({
+      code: "RECONCILIATION_FAILED",
+      request_id: "opposite-atomic-errors",
+    });
+    expect(result).toHaveProperty(
+      "message_zh",
+      expect.stringContaining("FC:DE_FC/MODE:AIR/CARRIER:CARRIER_B/COST:BASE_FREIGHT"),
+    );
+    expect(pool.query).toHaveBeenCalledWith("ROLLBACK");
+    expect(pool.query).not.toHaveBeenCalledWith("COMMIT");
   });
 });
 

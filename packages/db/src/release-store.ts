@@ -164,7 +164,13 @@ export async function assertDatabaseSchemaVersion(
   const result = await client.query<{ version: string }>(
     "SELECT logiplan.current_schema_version() AS version",
   );
-  assert(result.rows[0]?.version === expectedVersion, `数据库结构版本不是 ${expectedVersion}`);
+  const actualVersion = result.rows[0]?.version;
+  const backwardCompatible =
+    expectedVersion === "0004" && (actualVersion === "0009" || actualVersion === "0010");
+  assert(
+    actualVersion === expectedVersion || backwardCompatible,
+    `数据库结构版本不是 ${expectedVersion}（当前为 ${actualVersion ?? "UNKNOWN"}）`,
+  );
 }
 
 export async function getReleaseStatus(

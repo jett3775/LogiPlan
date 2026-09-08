@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { type Comparison, type EvidenceObject, type QueryIntent } from "@logiplan/contracts";
 
-const canonicalJson = (value: unknown): string => {
+export const canonicalJson = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>

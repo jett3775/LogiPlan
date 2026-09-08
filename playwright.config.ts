@@ -14,6 +14,7 @@ if (!isCi && !hasExplicitDatabaseUrl) {
 
 export default defineConfig({
   testDir: "./apps/web/tests",
+  testMatch: "**/*.spec.ts",
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,
@@ -46,7 +47,16 @@ export default defineConfig({
   webServer: {
     command: `"${process.execPath}" node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 4173`,
     cwd: "apps/web",
-    env: process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {},
+    env: {
+      DATABASE_URL: process.env.DATABASE_URL ?? "",
+      MIGRATION_DATABASE_URL: "",
+      PUBLISHER_DATABASE_URL: "",
+      SNAPSHOT_TEST_SUPERUSER_URL: "",
+      POSTGRES_SUPERUSER_PASSWORD: "",
+      LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD: "",
+      LOGIPLAN_DATA_PUBLISHER_PASSWORD: "",
+      LOGIPLAN_APP_READER_PASSWORD: "",
+    },
     url: "http://127.0.0.1:4173/api/health/live",
     reuseExistingServer: false,
     timeout: 30_000,

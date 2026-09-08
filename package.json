@@ -20,7 +20,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:gate1": "playwright test --project=chromium-1440 --project=chromium-1280",
+    "test:e2e:gate1": "playwright test --project=chromium-1440 --project=chromium-1280 --workers=1",
     "test:e2e:firefox-smoke": "playwright test --project=firefox-smoke --grep @firefox-smoke",
     "typecheck": "pnpm -r --if-present typecheck",
     "verify:gate1:isolated": "node scripts/verify-gate1-isolated.mjs",

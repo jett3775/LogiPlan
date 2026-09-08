@@ -1,8 +1,9 @@
-import type { Pool } from "pg";
+import type { Client, Pool } from "pg";
 import {
   queryIntentSchema,
   type AnalysisScope,
   type DecimalValue,
+  type QueryContractVersion,
   type EvidenceObject,
   type MoneyValue,
   type QueryIntent,
@@ -12,10 +13,18 @@ import { LogiPlanDecimal } from "@logiplan/domain";
 
 import { runDiagnosticMetrics } from "./diagnostic-metrics";
 import { evidence, resultId } from "./query-result";
+import {
+  lookupEvidenceSnapshot,
+  persistEvidenceSnapshot,
+  persistQueryEvidenceSnapshot,
+} from "./evidence-snapshot";
+
+type QueryDatabase = Pick<Pool, "query">;
 
 type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
 export type DeterministicResult = {
+  contract_version: QueryContractVersion;
   result_id: string;
   query_intent: QueryIntent;
   scope_label: string;
@@ -61,6 +70,12 @@ const ratio = (n: PreciseDecimal): DecimalValue => ({
 });
 const varianceRate = (current: PreciseDecimal, baseline: PreciseDecimal) =>
   baseline.isZero() ? null : ratio(current.minus(baseline).div(baseline));
+const contractVersion = (intent: QueryIntent): QueryContractVersion =>
+  "contract_version" in intent ? "V1.1" : "V1.0";
+// D-015/D-091/D-167: all internal variable-cost aggregates use unrounded facts.
+// money() generates report/display values only after the complete aggregation.
+const variableAmountSql = "c.model_cny_amount";
+
 const monthDate = (m: string) => `${m}-01`;
 const monthText = (value: unknown) =>
   value instanceof Date ? value.toISOString().slice(0, 7) : String(value).slice(0, 7);
@@ -81,7 +96,114 @@ const monthRange = (from: string, to: string) => {
 const scopeLabel = (s: AnalysisScope) =>
   `${s.period.from}—${s.period.to}｜${s.destination_country_ids?.join(",") || "公司"}｜${s.comparison}`;
 
-async function latestClosedMonth(pool: Pool, scope: AnalysisScope, requestId: string) {
+const canonicalScope = (scope: AnalysisScope): string => {
+  const canonical = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (value !== null && typeof value === "object") {
+      return `{${Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+  };
+  return canonical(scope);
+};
+
+const evidenceDashboardRangeScope: AnalysisScope = {
+  period: { from: "2026-01", to: "2026-12", grain: "RANGE" },
+  comparison: "LATEST_OUTLOOK_VS_BUDGET",
+  budget_version_id: "BUDGET_2026_V1",
+  actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+  forecast_version_id: "FORECAST_2026_08_V1",
+  calculation_version: "D-092",
+};
+const evidenceDashboardMonthScope: AnalysisScope = {
+  ...evidenceDashboardRangeScope,
+  period: { from: "2026-01", to: "2026-12", grain: "MONTH" },
+};
+const evidenceWarehouseScope: AnalysisScope = {
+  period: { from: "2026-08", to: "2026-08", grain: "MONTH" },
+  comparison: "ACTUAL_VS_BUDGET",
+  budget_version_id: "BUDGET_2026_V1",
+  actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+  calculation_version: "D-092",
+};
+const evidenceAttributionScope: AnalysisScope = {
+  period: { from: "2026-08", to: "2026-08", grain: "MONTH" },
+  comparison: "ACTUAL_VS_BUDGET",
+  destination_country_ids: ["GB"],
+  budget_version_id: "BUDGET_2026_V1",
+  actual_version_id: "ACTUAL_2026_08_CLOSE_V1",
+  calculation_version: "D-092",
+};
+
+const publishIntent = (
+  question_type: QueryIntent["question_type"],
+  scope: AnalysisScope,
+  metrics: string[],
+  group_by: QueryIntent["group_by"],
+  top_n?: number,
+): QueryIntent => ({
+  contract_version: "V1.1",
+  question_type,
+  scope,
+  metrics,
+  group_by,
+  ...(top_n === undefined ? {} : { top_n }),
+  output_locale: "zh-CN",
+  context_sources: ["PAGE_VISIBLE_STATE", "FIXED_TEMPLATE"],
+});
+
+export const releaseEvidenceSnapshotIntents: readonly QueryIntent[] = [
+  publishIntent("DASHBOARD_OVERVIEW", evidenceDashboardRangeScope, ["COST"], []),
+  publishIntent(
+    "MONTHLY_COST_TREND",
+    evidenceDashboardMonthScope,
+    ["LOGISTICS_TOTAL_COST"],
+    ["MONTH"],
+  ),
+  publishIntent(
+    "TOP_ADVERSE_ANOMALIES",
+    evidenceDashboardMonthScope,
+    ["FULFILLMENT_VARIABLE_COST"],
+    ["MONTH", "DESTINATION_COUNTRY"],
+    5,
+  ),
+  publishIntent(
+    "FIXED_COST_BREAKDOWN",
+    evidenceDashboardRangeScope,
+    ["LOGISTICS_FIXED_COST"],
+    ["FIXED_COST_CATEGORY", "FULFILLMENT_CENTER"],
+  ),
+  publishIntent(
+    "WAREHOUSE_VARIANCE_CONTEXT",
+    evidenceWarehouseScope,
+    ["FULFILLMENT_VARIABLE_COST"],
+    ["FULFILLMENT_CENTER"],
+  ),
+  publishIntent(
+    "COUNTRY_VARIANCE_SUMMARY",
+    evidenceAttributionScope,
+    ["FULFILLMENT_VARIABLE_COST"],
+    [],
+  ),
+  publishIntent("ATTRIBUTION_BRIDGE", evidenceAttributionScope, ["FULFILLMENT_VARIABLE_COST"], []),
+  publishIntent(
+    "DIAGNOSTIC_METRICS",
+    evidenceAttributionScope,
+    ["ORDERS", "AIR_SHARE", "CARRIER_C_SHARE", "ON_TIME_RATE", "SERVICE_MATURITY"],
+    [],
+  ),
+  publishIntent(
+    "ATTRIBUTION_DRILLDOWN",
+    evidenceAttributionScope,
+    ["FULFILLMENT_VARIABLE_COST"],
+    ["FULFILLMENT_CENTER", "TRANSPORT_MODE", "CARRIER", "COST_COMPONENT"],
+  ),
+];
+
+async function latestClosedMonth(pool: QueryDatabase, scope: AnalysisScope, requestId: string) {
   const versionIds = [scope.budget_version_id, scope.actual_version_id, scope.forecast_version_id];
   const result = await pool.query(
     `SELECT scenario_version_id, scenario_type, latest_closed_month::text AS latest_closed_month
@@ -127,7 +249,7 @@ type VariableCoverageRow = {
 };
 
 async function validateVariableCoverage(
-  pool: Pool,
+  pool: QueryDatabase,
   scope: AnalysisScope,
   latestClosed: string,
   requestId: string,
@@ -329,8 +451,20 @@ function validateIntent(intent: QueryIntent, request_id: string): QueryServiceEr
   }
   if (intent.scope.period.grain === "RANGE" && intent.group_by.includes("MONTH"))
     return error("UNSUPPORTED_GRAIN", "范围粒度不支持按月份分组", request_id);
-  if (intent.question_type === "EVIDENCE_LOOKUP")
-    return error("EVIDENCE_NOT_FOUND", "V1.0 查询服务暂不接受未绑定结果的证据 ID", request_id);
+  if (
+    intent.question_type === "EVIDENCE_LOOKUP" &&
+    !("contract_version" in intent && intent.evidence_id)
+  )
+    return error("EVIDENCE_NOT_FOUND", "V1.0 不支持按 evidence_id 查询证据", request_id);
+  if (intent.question_type === "EVIDENCE_LOOKUP") {
+    if (intent.metrics.length !== 0 || intent.group_by.length !== 0 || intent.top_n !== undefined) {
+      return error(
+        "INVALID_FILTER",
+        "EVIDENCE_LOOKUP 只接受顶层 evidence_id，不接受指标、分组或 top_n",
+        request_id,
+      );
+    }
+  }
   if (
     intent.metrics.some((metric) =>
       /ORDER_LEVEL|ORDER_DETAIL|ORDER_ID|TOP_ORDER|ORDER_COST/i.test(metric),
@@ -347,7 +481,7 @@ function validateIntent(intent: QueryIntent, request_id: string): QueryServiceEr
 }
 
 async function costByVersion(
-  pool: Pool,
+  pool: QueryDatabase,
   scope: AnalysisScope,
   versionId: string,
   countryIds?: string[],
@@ -358,8 +492,9 @@ async function costByVersion(
     params.push(countryIds);
     country = `AND r.destination_country_id = ANY($${params.length}::text[])`;
   }
-  const sql = `SELECT COALESCE(SUM(c.model_cny_amount),0)::text AS variable_cost, COALESCE(SUM(f.cny_amount) FILTER (WHERE f.cost_scope_type IN ('FULFILLMENT_CENTER','SHARED')),0)::text AS fixed_cost
+  const sql = `SELECT COALESCE(SUM(${variableAmountSql}),0)::text AS variable_cost, COALESCE(SUM(f.cny_amount) FILTER (WHERE f.cost_scope_type IN ('FULFILLMENT_CENTER','SHARED')),0)::text AS fixed_cost
     FROM logiplan.active_scenario_cost_component_fact c JOIN logiplan.active_fulfillment_scenario_fact u USING (data_release_id, fulfillment_fact_id)
+    JOIN logiplan.active_scenario_version v USING (data_release_id, scenario_version_id)
     JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
     LEFT JOIN logiplan.active_fixed_cost_scenario_fact f ON false
     WHERE u.scenario_version_id=$1 AND u.month_id BETWEEN $2::date AND $3::date ${country}`;
@@ -371,6 +506,70 @@ async function costByVersion(
   return { variable: q(variable.rows[0]?.variable_cost), fixed: q(fixed.rows[0]?.fixed_cost) };
 }
 
+type DashboardOperatingRow = {
+  order_qty: string;
+  package_qty: string;
+  chargeable_weight_kg: string;
+  variable_cost: string;
+  transport_cost: string;
+  gmv: string;
+};
+
+async function dashboardOperatingByVersion(
+  pool: QueryDatabase,
+  scope: AnalysisScope,
+  versionId: string,
+): Promise<DashboardOperatingRow> {
+  const result = await pool.query(
+    `/* DASHBOARD_OPERATING_METRICS */
+     WITH operations AS (
+       SELECT COALESCE(SUM(equivalent_order_qty), 0)::text AS order_qty,
+              COALESCE(SUM(package_qty), 0)::text AS package_qty,
+              COALESCE(SUM(chargeable_weight_kg), 0)::text AS chargeable_weight_kg
+       FROM logiplan.active_fulfillment_scenario_fact
+       WHERE scenario_version_id=$1
+         AND month_id BETWEEN $2::date AND $3::date
+         AND calculation_version=$4
+     ), costs AS (
+       SELECT COALESCE(SUM(${variableAmountSql}), 0)::text AS variable_cost,
+              COALESCE(SUM(${variableAmountSql}) FILTER (
+                WHERE c.cost_category IN ('BASE_FREIGHT','FUEL_SURCHARGE','BILLABLE_EXCEPTION')
+              ), 0)::text AS transport_cost
+       FROM logiplan.active_scenario_cost_component_fact c
+       JOIN logiplan.active_fulfillment_scenario_fact u
+         USING (data_release_id, fulfillment_fact_id)
+       JOIN logiplan.active_scenario_version v
+         USING (data_release_id, scenario_version_id)
+       WHERE u.scenario_version_id=$1
+         AND u.month_id BETWEEN $2::date AND $3::date
+         AND u.calculation_version=$4
+     ), gmv AS (
+       SELECT COALESCE(SUM(cny_amount), 0)::text AS gmv
+       FROM logiplan.active_scenario_gmv_fact
+       WHERE scenario_version_id=$1
+         AND month_id BETWEEN $2::date AND $3::date
+     )
+     SELECT operations.order_qty, operations.package_qty, operations.chargeable_weight_kg,
+            costs.variable_cost, costs.transport_cost, gmv.gmv
+     FROM operations CROSS JOIN costs CROSS JOIN gmv`,
+    [
+      versionId,
+      monthDate(scope.period.from),
+      monthDate(scope.period.to),
+      scope.calculation_version,
+    ],
+  );
+  const row = result.rows[0] as Partial<DashboardOperatingRow> | undefined;
+  return {
+    order_qty: q(row?.order_qty),
+    package_qty: q(row?.package_qty),
+    chargeable_weight_kg: q(row?.chargeable_weight_kg),
+    variable_cost: q(row?.variable_cost),
+    transport_cost: q(row?.transport_cost),
+    gmv: q(row?.gmv),
+  };
+}
+
 type MonthlyCostRow = {
   scenario_version_id: string;
   month_id: unknown;
@@ -380,7 +579,7 @@ type MonthlyCostRow = {
   fixed_present: number;
 };
 
-async function monthlyCosts(pool: Pool, scope: AnalysisScope): Promise<MonthlyCostRow[]> {
+async function monthlyCosts(pool: QueryDatabase, scope: AnalysisScope): Promise<MonthlyCostRow[]> {
   const versions = [
     scope.budget_version_id,
     scope.actual_version_id ?? "",
@@ -390,11 +589,13 @@ async function monthlyCosts(pool: Pool, scope: AnalysisScope): Promise<MonthlyCo
     `/* MONTHLY_COST_TREND */
      WITH monthly_cost AS (
        SELECT u.scenario_version_id, u.month_id,
-              SUM(c.model_cny_amount) AS variable_cost, 0::numeric AS fixed_cost,
+              SUM(${variableAmountSql}) AS variable_cost, 0::numeric AS fixed_cost,
               1 AS variable_present, 0 AS fixed_present
        FROM logiplan.active_scenario_cost_component_fact c
        JOIN logiplan.active_fulfillment_scenario_fact u
          USING (data_release_id, fulfillment_fact_id)
+       JOIN logiplan.active_scenario_version v
+         USING (data_release_id, scenario_version_id)
        WHERE u.scenario_version_id=ANY($1::text[])
          AND u.month_id BETWEEN $2::date AND $3::date
          AND u.calculation_version=$4
@@ -430,7 +631,7 @@ const costParts = (row: MonthlyCostRow) => {
   return { variable, fixed, total: variable.plus(fixed) };
 };
 
-async function monthlyCostTrend(pool: Pool, intent: QueryIntent, requestId: string) {
+async function monthlyCostTrend(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
   const latestClosed = await latestClosedMonth(pool, s, requestId);
   await validateVariableCoverage(pool, s, latestClosed, requestId);
@@ -518,7 +719,7 @@ type CountryCostRow = {
   amount: string;
 };
 
-async function topAdverseAnomalies(pool: Pool, intent: QueryIntent, requestId: string) {
+async function topAdverseAnomalies(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
   const latestClosed = await latestClosedMonth(pool, s, requestId);
   const canonicalRoutes = await validateVariableCoverage(pool, s, latestClosed, requestId);
@@ -535,15 +736,20 @@ async function topAdverseAnomalies(pool: Pool, intent: QueryIntent, requestId: s
   }
   const result = await pool.query(
     `/* TOP_ADVERSE_ANOMALIES */
+     WITH scoped_fulfillment AS MATERIALIZED (
+       SELECT data_release_id, fulfillment_fact_id, scenario_version_id, month_id, route_id
+       FROM logiplan.active_fulfillment_scenario_fact
+       WHERE scenario_version_id=ANY($1::text[])
+         AND month_id BETWEEN $2::date AND $3::date
+         AND calculation_version=$4
+     )
      SELECT u.scenario_version_id, u.month_id::text AS month_id,
-            r.destination_country_id, SUM(c.model_cny_amount)::text AS amount
-     FROM logiplan.active_scenario_cost_component_fact c
-     JOIN logiplan.active_fulfillment_scenario_fact u
+            r.destination_country_id, SUM(${variableAmountSql})::text AS amount
+     FROM scoped_fulfillment u
+     JOIN logiplan.active_scenario_cost_component_fact c
        USING (data_release_id, fulfillment_fact_id)
      JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
-     WHERE u.scenario_version_id=ANY($1::text[])
-       AND u.month_id BETWEEN $2::date AND $3::date
-       AND u.calculation_version=$4 ${countryFilter}
+     WHERE true ${countryFilter}
      GROUP BY u.scenario_version_id, u.month_id, r.destination_country_id`,
     params,
   );
@@ -670,7 +876,10 @@ type FixedCostRow = {
   amount: string;
 };
 
-async function loadFixedCostRows(pool: Pool, scope: AnalysisScope): Promise<FixedCostRow[]> {
+async function loadFixedCostRows(
+  pool: QueryDatabase,
+  scope: AnalysisScope,
+): Promise<FixedCostRow[]> {
   const result = await pool.query(
     `/* FIXED_COST_FACTS */
      SELECT f.scenario_version_id, f.month_id::text AS month_id, f.cost_scope_type,
@@ -749,7 +958,7 @@ const fixedCostCategories = [
   ["SYSTEM_COST", "系统费用"],
 ] as const;
 
-async function fixedCostBreakdown(pool: Pool, intent: QueryIntent, requestId: string) {
+async function fixedCostBreakdown(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
   const latestClosed = await latestClosedMonth(pool, s, requestId);
   const rows = await loadFixedCostRows(pool, s);
@@ -888,32 +1097,100 @@ async function fixedCostBreakdown(pool: Pool, intent: QueryIntent, requestId: st
   };
 }
 
-async function dashboard(pool: Pool, intent: QueryIntent) {
+async function dashboard(pool: QueryDatabase, intent: QueryIntent) {
   const s = intent.scope;
-  const budget = await costByVersion(pool, s, s.budget_version_id);
-  const actual = s.actual_version_id
-    ? await costByVersion(pool, s, s.actual_version_id)
-    : { variable: "0", fixed: "0" };
-  const forecast = s.forecast_version_id
-    ? await costByVersion(pool, s, s.forecast_version_id)
-    : { variable: "0", fixed: "0" };
+  const emptyOperating: DashboardOperatingRow = {
+    order_qty: "0",
+    package_qty: "0",
+    chargeable_weight_kg: "0",
+    variable_cost: "0",
+    transport_cost: "0",
+    gmv: "0",
+  };
+  const [budget, actual, forecast, budgetOperating, actualOperating, forecastOperating] =
+    await Promise.all([
+      costByVersion(pool, s, s.budget_version_id),
+      s.actual_version_id
+        ? costByVersion(pool, s, s.actual_version_id)
+        : Promise.resolve({ variable: "0", fixed: "0" }),
+      s.forecast_version_id
+        ? costByVersion(pool, s, s.forecast_version_id)
+        : Promise.resolve({ variable: "0", fixed: "0" }),
+      dashboardOperatingByVersion(pool, s, s.budget_version_id),
+      s.actual_version_id
+        ? dashboardOperatingByVersion(pool, s, s.actual_version_id)
+        : Promise.resolve(emptyOperating),
+      s.forecast_version_id
+        ? dashboardOperatingByVersion(pool, s, s.forecast_version_id)
+        : Promise.resolve(emptyOperating),
+    ]);
   const latest = {
     variable: new LogiPlanDecimal(actual.variable).plus(forecast.variable),
     fixed: new LogiPlanDecimal(actual.fixed).plus(forecast.fixed),
   };
   const total = (x: { variable: string | unknown; fixed: string | unknown }) =>
     new LogiPlanDecimal(String(x.variable)).plus(String(x.fixed));
-  const b = total(budget),
-    l = total(latest),
-    variance = l.minus(b);
+  const budgetTotal = total(budget);
+  const latestTotal = total(latest);
+  const variance = latestTotal.minus(budgetTotal);
+  const combineOperating = (left: DashboardOperatingRow, right: DashboardOperatingRow) => ({
+    order_qty: new LogiPlanDecimal(left.order_qty).plus(right.order_qty),
+    package_qty: new LogiPlanDecimal(left.package_qty).plus(right.package_qty),
+    chargeable_weight_kg: new LogiPlanDecimal(left.chargeable_weight_kg).plus(
+      right.chargeable_weight_kg,
+    ),
+    variable_cost: new LogiPlanDecimal(left.variable_cost).plus(right.variable_cost),
+    transport_cost: new LogiPlanDecimal(left.transport_cost).plus(right.transport_cost),
+    gmv: new LogiPlanDecimal(left.gmv).plus(right.gmv),
+  });
+  const budgetOps = combineOperating(budgetOperating, emptyOperating);
+  const latestOps = combineOperating(actualOperating, forecastOperating);
+  const safeMoneyRatio = (numerator: PreciseDecimal, denominator: PreciseDecimal) =>
+    denominator.isZero() ? null : money(numerator.div(denominator));
+  const safeRatio = (numerator: PreciseDecimal, denominator: PreciseDecimal) =>
+    denominator.isZero() ? null : ratio(numerator.div(denominator));
   const payload = {
     kpis: {
-      budget: money(b),
-      latest_outlook: money(l),
+      budget: money(budgetTotal),
+      latest_outlook: money(latestTotal),
       variance: money(variance),
+      variance_rate: varianceRate(latestTotal, budgetTotal),
       variable_cost_budget: money(budget.variable),
       variable_cost_latest_outlook: money(latest.variable),
+      variable_cost_variance: money(latest.variable.minus(budget.variable)),
       fixed_cost_latest_outlook: money(latest.fixed),
+      fulfillment_cost_per_order_budget: safeMoneyRatio(
+        budgetOps.variable_cost,
+        budgetOps.order_qty,
+      ),
+      fulfillment_cost_per_order_latest_outlook: safeMoneyRatio(
+        latestOps.variable_cost,
+        latestOps.order_qty,
+      ),
+      transport_cost_per_kg_budget: safeMoneyRatio(
+        budgetOps.transport_cost,
+        budgetOps.chargeable_weight_kg,
+      ),
+      transport_cost_per_kg_latest_outlook: safeMoneyRatio(
+        latestOps.transport_cost,
+        latestOps.chargeable_weight_kg,
+      ),
+      logistics_total_cost_rate_budget: safeRatio(budgetTotal, budgetOps.gmv),
+      logistics_total_cost_rate_latest_outlook: safeRatio(latestTotal, latestOps.gmv),
+    },
+    operating_totals: {
+      budget: {
+        order_qty: q(budgetOps.order_qty),
+        package_qty: q(budgetOps.package_qty),
+        chargeable_weight_kg: q(budgetOps.chargeable_weight_kg),
+        gmv: money(budgetOps.gmv),
+      },
+      latest_outlook: {
+        order_qty: q(latestOps.order_qty),
+        package_qty: q(latestOps.package_qty),
+        chargeable_weight_kg: q(latestOps.chargeable_weight_kg),
+        gmv: money(latestOps.gmv),
+      },
     },
     series: {
       budget: { variable_cost: money(budget.variable), fixed_cost: money(budget.fixed) },
@@ -937,7 +1214,7 @@ async function dashboard(pool: Pool, intent: QueryIntent) {
   };
 }
 
-async function country(pool: Pool, intent: QueryIntent) {
+async function country(pool: QueryDatabase, intent: QueryIntent) {
   const id = intent.scope.destination_country_ids?.[0];
   if (!id) throw error("INVALID_FILTER", "国家查询必须显式指定 destination_country_ids", "");
   const s = intent.scope;
@@ -962,37 +1239,52 @@ async function country(pool: Pool, intent: QueryIntent) {
         "国家履约变动成本差异",
         variance.toFixed(),
         "按国家过滤活动履约变动成本",
+        { filters: { destination_country_id: [id] } },
       ),
     ],
     warnings: [],
   };
 }
 
-async function bridge(pool: Pool, intent: QueryIntent) {
+async function bridge(pool: QueryDatabase, intent: QueryIntent) {
   const s = intent.scope;
-  const rows = await pool.query(
-    `SELECT factor, COALESCE(SUM(attribution_cny),0)::text AS amount FROM logiplan.active_variance_attribution_fact f JOIN logiplan.active_variance_comparison c USING (data_release_id, comparison_id) JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id) WHERE c.budget_version_id=$1 AND c.comparison_scenario_version_id=$2 AND f.attribution_method='CHAIN_SUBSTITUTION' AND f.month_id BETWEEN $3::date AND $4::date AND ($5::text[] IS NULL OR r.destination_country_id=ANY($5::text[])) GROUP BY factor`,
-    [
-      s.budget_version_id,
-      s.actual_version_id ?? s.forecast_version_id,
-      monthDate(s.period.from),
-      monthDate(s.period.to),
-      s.destination_country_ids ?? null,
-    ],
-  );
+  const [rows, baselineCost, currentCost] = await Promise.all([
+    pool.query(
+      `SELECT factor, COALESCE(SUM(attribution_cny),0)::text AS amount FROM logiplan.active_variance_attribution_fact f JOIN logiplan.active_variance_comparison c USING (data_release_id, comparison_id) JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id) WHERE c.budget_version_id=$1 AND c.comparison_scenario_version_id=$2 AND f.attribution_method='CHAIN_SUBSTITUTION' AND f.month_id BETWEEN $3::date AND $4::date AND ($5::text[] IS NULL OR r.destination_country_id=ANY($5::text[])) GROUP BY factor`,
+      [
+        s.budget_version_id,
+        s.actual_version_id ?? s.forecast_version_id,
+        monthDate(s.period.from),
+        monthDate(s.period.to),
+        s.destination_country_ids ?? null,
+      ],
+    ),
+    costByVersion(pool, s, s.budget_version_id, s.destination_country_ids),
+    costByVersion(
+      pool,
+      s,
+      s.actual_version_id ?? s.forecast_version_id ?? "",
+      s.destination_country_ids,
+    ),
+  ]);
   const factors = ["VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"].map((factor, i) => ({
     factor_id: factor,
     label_zh: { VOLUME: "量", MIX: "结构", EFFICIENCY: "效率", PRICE: "价", FX: "汇率" }[factor],
-    amount: money(rows.rows.find((r) => r.factor === factor)?.amount ?? "0"),
+    amount: money(rows.rows.find((row) => row.factor === factor)?.amount ?? "0"),
     sequence: i + 1,
   }));
-  const total = factors.reduce((x, f) => x.plus(f.amount.high_precision), new LogiPlanDecimal(0));
+  const total = factors.reduce(
+    (sum, factor) => sum.plus(factor.amount.high_precision),
+    new LogiPlanDecimal(0),
+  );
+  const baseline = new LogiPlanDecimal(baselineCost.variable);
+  const current = new LogiPlanDecimal(currentCost.variable);
   return {
     payload: {
-      baseline: money(0),
+      baseline: money(baseline),
       factors,
-      current: money(total),
-      reconciliation_delta: money(0),
+      current: money(current),
+      reconciliation_delta: money(current.minus(baseline).minus(total)),
       method: "CHAIN" as const,
     },
     evidence: [
@@ -1003,6 +1295,16 @@ async function bridge(pool: Pool, intent: QueryIntent) {
         total.toFixed(),
         "CHAIN_SUBSTITUTION 活动归因事实",
       ),
+      ...factors.map((factor) =>
+        evidence(
+          `ATTRIBUTION_BRIDGE:${factor.factor_id}`,
+          intent,
+          `${factor.label_zh}因素`,
+          factor.amount.high_precision,
+          "CHAIN_SUBSTITUTION 活动归因事实",
+          { filters: { factor_id: [factor.factor_id] } },
+        ),
+      ),
     ],
     warnings: [],
   };
@@ -1011,7 +1313,14 @@ async function bridge(pool: Pool, intent: QueryIntent) {
 const factorIds = ["VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"] as const;
 const factorMap = (rows: Array<{ factor: string; amount: string }>) =>
   Object.fromEntries(
-    factorIds.map((f) => [f, money(rows.find((r) => r.factor === f)?.amount ?? "0")]),
+    factorIds.map((factor) => [
+      factor,
+      money(
+        rows
+          .filter((row) => row.factor === factor)
+          .reduce((sum, row) => sum.plus(row.amount), new LogiPlanDecimal(0)),
+      ),
+    ]),
   ) as Record<(typeof factorIds)[number], MoneyValue>;
 const zhCost: Record<string, string> = {
   BASE_FREIGHT: "基础运费",
@@ -1022,32 +1331,91 @@ const zhCost: Record<string, string> = {
   RETURN_LOGISTICS: "退货物流",
 };
 
-async function drilldown(pool: Pool, intent: QueryIntent) {
+type DrilldownCostRow = {
+  scenario_version_id: string;
+  fulfillment_center_id: string;
+  transport_mode_id: string;
+  carrier_id: string;
+  cost_category: string;
+  amount: string;
+};
+
+type DrilldownFactorRow = {
+  fulfillment_center_id: string;
+  transport_mode_id: string;
+  carrier_id: string;
+  cost_category: string;
+  factor: string;
+  amount: string;
+};
+
+type DrilldownPayloadRow = {
+  row_id: string;
+  parent_row_id: string | null;
+  level: "FULFILLMENT_CENTER" | "TRANSPORT_MODE" | "CARRIER" | "COST_COMPONENT";
+  dimension_id: string;
+  label_zh: string;
+  baseline_cost: MoneyValue;
+  current_cost: MoneyValue;
+  variance: MoneyValue;
+  variance_rate: DecimalValue | null;
+  adverse_contribution_share: DecimalValue | null;
+  saving_contribution_share: DecimalValue | null;
+  factor_contributions: Record<(typeof factorIds)[number], MoneyValue>;
+  children_available: boolean;
+  evidence_ids: string[];
+};
+
+const drilldownLabels = {
+  fulfillmentCenter: { DE_FC: "德国仓", FR_FC: "法国仓" } as Record<string, string>,
+  transportMode: { AIR: "空运", ROAD: "公路" } as Record<string, string>,
+  carrier: {
+    CARRIER_A: "Carrier A",
+    CARRIER_B: "Carrier B",
+    CARRIER_C: "Carrier C",
+  } as Record<string, string>,
+};
+
+async function drilldown(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
   const countryIds = s.destination_country_ids ?? ["GB"];
-  const versions = [s.budget_version_id, s.actual_version_id ?? ""];
-  const params: unknown[] = [
-    versions,
-    monthDate(s.period.from),
-    monthDate(s.period.to),
-    countryIds,
-  ];
-  const costs = await pool.query(
-    `SELECT u.scenario_version_id, r.fulfillment_center_id, c.cost_category, SUM(c.model_cny_amount)::text AS amount
-    FROM logiplan.active_scenario_cost_component_fact c
-    JOIN logiplan.active_fulfillment_scenario_fact u USING (data_release_id, fulfillment_fact_id)
-    JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
-    WHERE u.scenario_version_id = ANY($1::text[]) AND u.month_id BETWEEN $2::date AND $3::date AND r.destination_country_id = ANY($4::text[])
-    GROUP BY u.scenario_version_id, r.fulfillment_center_id, c.cost_category`,
-    params,
+  // D-015/D-091/D-167: reconcile against the same unrounded model facts as
+  // attribution. Per-row report_cny_amount is already quantized to four places;
+  // report/display values are generated by money() only after aggregation.
+  const costsResult = await pool.query(
+    `SELECT u.scenario_version_id, r.fulfillment_center_id, r.transport_mode_id,
+            r.carrier_id, c.cost_category, SUM(c.model_cny_amount)::text AS amount
+     FROM logiplan.active_scenario_cost_component_fact c
+     JOIN logiplan.active_fulfillment_scenario_fact u
+       USING (data_release_id, fulfillment_fact_id)
+     JOIN logiplan.active_scenario_version v
+       USING (data_release_id, scenario_version_id)
+     JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
+     WHERE u.scenario_version_id = ANY($1::text[])
+       AND u.month_id BETWEEN $2::date AND $3::date
+       AND r.destination_country_id = ANY($4::text[])
+     GROUP BY u.scenario_version_id, r.fulfillment_center_id, r.transport_mode_id,
+              r.carrier_id, c.cost_category`,
+    [
+      [s.budget_version_id, s.actual_version_id ?? ""],
+      monthDate(s.period.from),
+      monthDate(s.period.to),
+      countryIds,
+    ],
   );
-  const factors = await pool.query(
-    `SELECT r.fulfillment_center_id, f.cost_category, f.factor, SUM(f.attribution_cny)::text AS amount
-    FROM logiplan.active_variance_attribution_fact f
-    JOIN logiplan.active_variance_comparison c USING (data_release_id, comparison_id)
-    JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
-    WHERE c.budget_version_id=$1 AND c.comparison_scenario_version_id=$2 AND f.attribution_method='CHAIN_SUBSTITUTION' AND f.month_id BETWEEN $3::date AND $4::date AND r.destination_country_id=ANY($5::text[])
-    GROUP BY r.fulfillment_center_id, f.cost_category, f.factor`,
+  const factorsResult = await pool.query(
+    `SELECT r.fulfillment_center_id, r.transport_mode_id, r.carrier_id,
+            f.cost_category, f.factor, SUM(f.attribution_cny)::text AS amount
+     FROM logiplan.active_variance_attribution_fact f
+     JOIN logiplan.active_variance_comparison c USING (data_release_id, comparison_id)
+     JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
+     WHERE c.budget_version_id=$1
+       AND c.comparison_scenario_version_id=$2
+       AND f.attribution_method='CHAIN_SUBSTITUTION'
+       AND f.month_id BETWEEN $3::date AND $4::date
+       AND r.destination_country_id=ANY($5::text[])
+     GROUP BY r.fulfillment_center_id, r.transport_mode_id, r.carrier_id,
+              f.cost_category, f.factor`,
     [
       s.budget_version_id,
       s.actual_version_id ?? s.forecast_version_id,
@@ -1056,113 +1424,319 @@ async function drilldown(pool: Pool, intent: QueryIntent) {
       countryIds,
     ],
   );
-  const centers = [...new Set(costs.rows.map((r) => String(r.fulfillment_center_id)))].sort();
-  const rows: Array<{
-    evidence_ids: string[];
-    label_zh: string;
-    variance: MoneyValue;
-    [key: string]: unknown;
-  }> = [];
-  for (const center of centers) {
-    const centerCosts = costs.rows.filter((r) => String(r.fulfillment_center_id) === center);
-    const b = centerCosts
-      .filter((r) => r.scenario_version_id === s.budget_version_id)
-      .reduce((x, r) => x.plus(String(r.amount)), new LogiPlanDecimal(0));
-    const a = centerCosts
-      .filter((r) => r.scenario_version_id === s.actual_version_id)
-      .reduce((x, r) => x.plus(String(r.amount)), new LogiPlanDecimal(0));
-    const centerFactors = factors.rows
-      .filter((r) => String(r.fulfillment_center_id) === center)
-      .reduce(
-        (m, r) => {
-          m.push({ factor: String(r.factor), amount: String(r.amount) });
-          return m;
-        },
-        [] as Array<{ factor: string; amount: string }>,
-      );
+  const costs = costsResult.rows as DrilldownCostRow[];
+  const factors = factorsResult.rows as DrilldownFactorRow[];
+  const rows: DrilldownPayloadRow[] = [];
+
+  const matches = (
+    row: {
+      fulfillment_center_id: string;
+      transport_mode_id: string;
+      carrier_id: string;
+      cost_category: string;
+    },
+    center: string,
+    mode?: string,
+    carrier?: string,
+    category?: string,
+  ) =>
+    row.fulfillment_center_id === center &&
+    (mode === undefined || row.transport_mode_id === mode) &&
+    (carrier === undefined || row.carrier_id === carrier) &&
+    (category === undefined || row.cost_category === category);
+
+  const appendRow = (
+    level: DrilldownPayloadRow["level"],
+    dimensionId: string,
+    label: string,
+    rowId: string,
+    parentRowId: string | null,
+    center: string,
+    mode?: string,
+    carrier?: string,
+    category?: string,
+  ) => {
+    const matchingCosts = costs.filter((row) => matches(row, center, mode, carrier, category));
+    const baseline = matchingCosts
+      .filter((row) => row.scenario_version_id === s.budget_version_id)
+      .reduce((sum, row) => sum.plus(row.amount), new LogiPlanDecimal(0));
+    const current = matchingCosts
+      .filter((row) => row.scenario_version_id === s.actual_version_id)
+      .reduce((sum, row) => sum.plus(row.amount), new LogiPlanDecimal(0));
+    const matchingFactors = factors
+      .filter((row) => matches(row, center, mode, carrier, category))
+      .map((row) => ({ factor: row.factor, amount: row.amount }));
+    const evidenceId = `ATTRIBUTION_DRILLDOWN:${rowId}`;
+    const factorContributions = factorMap(matchingFactors);
+    const evidenceIds = [
+      evidenceId,
+      `${evidenceId}:BASELINE`,
+      `${evidenceId}:CURRENT`,
+      ...factorIds.map((factor) => `${evidenceId}:FACTOR:${factor}`),
+    ];
     rows.push({
-      row_id: `FC:${center}`,
-      parent_row_id: null,
-      level: "FULFILLMENT_CENTER",
-      dimension_id: center,
-      label_zh: center,
-      baseline_cost: money(b),
-      current_cost: money(a),
-      variance: money(a.minus(b)),
-      variance_rate: b.isZero()
-        ? null
-        : {
-            high_precision: a.minus(b).div(b).toFixed(),
-            report: a.minus(b).div(b).toFixed(4),
-            display: a.minus(b).div(b).toFixed(2),
-            unit: "RATIO",
-          },
+      row_id: rowId,
+      parent_row_id: parentRowId,
+      level,
+      dimension_id: dimensionId,
+      label_zh: label,
+      baseline_cost: money(baseline),
+      current_cost: money(current),
+      variance: money(current.minus(baseline)),
+      variance_rate: varianceRate(current, baseline),
       adverse_contribution_share: null,
       saving_contribution_share: null,
-      factor_contributions: factorMap(centerFactors),
-      children_available: true,
-      evidence_ids: [`E09-${center}`],
+      factor_contributions: factorContributions,
+      children_available: level !== "COST_COMPONENT",
+      evidence_ids: evidenceIds,
     });
-    const categories = [...new Set(centerCosts.map((r) => String(r.cost_category)))].sort();
-    for (const category of categories) {
-      const bcat = centerCosts
-        .filter(
-          (r) => r.scenario_version_id === s.budget_version_id && r.cost_category === category,
-        )
-        .reduce((x, r) => x.plus(String(r.amount)), new LogiPlanDecimal(0));
-      const acat = centerCosts
-        .filter(
-          (r) => r.scenario_version_id === s.actual_version_id && r.cost_category === category,
-        )
-        .reduce((x, r) => x.plus(String(r.amount)), new LogiPlanDecimal(0));
-      const catFactors = factors.rows
-        .filter((r) => String(r.fulfillment_center_id) === center && r.cost_category === category)
-        .map((r) => ({ factor: String(r.factor), amount: String(r.amount) }));
-      rows.push({
-        row_id: `FC:${center}/COST:${category}`,
-        parent_row_id: `FC:${center}`,
-        level: "COST_COMPONENT",
-        dimension_id: category,
-        label_zh: zhCost[category] ?? category,
-        baseline_cost: money(bcat),
-        current_cost: money(acat),
-        variance: money(acat.minus(bcat)),
-        variance_rate: bcat.isZero()
-          ? null
-          : {
-              high_precision: acat.minus(bcat).div(bcat).toFixed(),
-              report: acat.minus(bcat).div(bcat).toFixed(4),
-              display: acat.minus(bcat).div(bcat).toFixed(2),
-              unit: "RATIO",
-            },
-        adverse_contribution_share: null,
-        saving_contribution_share: null,
-        factor_contributions: factorMap(catFactors),
-        children_available: false,
-        evidence_ids: [`E09-${center}-${category}`],
-      });
+  };
+
+  const centers = [...new Set(costs.map((row) => row.fulfillment_center_id))].sort();
+  for (const center of centers) {
+    const centerId = `FC:${center}`;
+    appendRow(
+      "FULFILLMENT_CENTER",
+      center,
+      drilldownLabels.fulfillmentCenter[center] ?? center,
+      centerId,
+      null,
+      center,
+    );
+    const modes = [
+      ...new Set(
+        costs
+          .filter((row) => row.fulfillment_center_id === center)
+          .map((row) => row.transport_mode_id),
+      ),
+    ].sort();
+    for (const mode of modes) {
+      const modeId = `${centerId}/MODE:${mode}`;
+      appendRow(
+        "TRANSPORT_MODE",
+        mode,
+        drilldownLabels.transportMode[mode] ?? mode,
+        modeId,
+        centerId,
+        center,
+        mode,
+      );
+      const carriers = [
+        ...new Set(
+          costs
+            .filter((row) => row.fulfillment_center_id === center && row.transport_mode_id === mode)
+            .map((row) => row.carrier_id),
+        ),
+      ].sort();
+      for (const carrier of carriers) {
+        const carrierId = `${modeId}/CARRIER:${carrier}`;
+        appendRow(
+          "CARRIER",
+          carrier,
+          drilldownLabels.carrier[carrier] ?? carrier,
+          carrierId,
+          modeId,
+          center,
+          mode,
+          carrier,
+        );
+        const categories = [
+          ...new Set(
+            costs
+              .filter(
+                (row) =>
+                  row.fulfillment_center_id === center &&
+                  row.transport_mode_id === mode &&
+                  row.carrier_id === carrier,
+              )
+              .map((row) => row.cost_category),
+          ),
+        ].sort();
+        for (const category of categories) {
+          appendRow(
+            "COST_COMPONENT",
+            category,
+            zhCost[category] ?? category,
+            `${carrierId}/COST:${category}`,
+            carrierId,
+            center,
+            mode,
+            carrier,
+            category,
+          );
+        }
+      }
     }
   }
+
+  const siblingGroups = new Map<string | null, DrilldownPayloadRow[]>();
+  for (const row of rows) {
+    const siblings = siblingGroups.get(row.parent_row_id) ?? [];
+    siblings.push(row);
+    siblingGroups.set(row.parent_row_id, siblings);
+  }
+  const sumMoney = (children: DrilldownPayloadRow[], value: (row: DrilldownPayloadRow) => string) =>
+    children.reduce((sum, row) => sum.plus(value(row)), new LogiPlanDecimal(0));
+  const assertReconciled = (
+    parent: DrilldownPayloadRow,
+    children: DrilldownPayloadRow[],
+    label: string,
+    parentValue: string,
+    childValue: (row: DrilldownPayloadRow) => string,
+  ) => {
+    if (!sumMoney(children, childValue).equals(parentValue)) {
+      throw error(
+        "RECONCILIATION_FAILED",
+        `${parent.row_id} 的直接子行${label}未与父行勾稽`,
+        requestId,
+      );
+    }
+  };
+  for (const parent of rows.filter((row) => row.children_available)) {
+    const children = siblingGroups.get(parent.row_id) ?? [];
+    if (children.length === 0) {
+      throw error("RECONCILIATION_FAILED", `${parent.row_id} 缺少直接子行`, requestId);
+    }
+    assertReconciled(
+      parent,
+      children,
+      "Budget",
+      parent.baseline_cost.high_precision,
+      (row) => row.baseline_cost.high_precision,
+    );
+    assertReconciled(
+      parent,
+      children,
+      "Actual",
+      parent.current_cost.high_precision,
+      (row) => row.current_cost.high_precision,
+    );
+    assertReconciled(
+      parent,
+      children,
+      "总差异",
+      parent.variance.high_precision,
+      (row) => row.variance.high_precision,
+    );
+    for (const factor of factorIds) {
+      assertReconciled(
+        parent,
+        children,
+        `${factor}因素贡献`,
+        parent.factor_contributions[factor].high_precision,
+        (row) => row.factor_contributions[factor].high_precision,
+      );
+    }
+  }
+  for (const siblings of siblingGroups.values()) {
+    const adverseTotal = siblings
+      .filter((row) => new LogiPlanDecimal(row.variance.high_precision).isPositive())
+      .reduce((sum, row) => sum.plus(row.variance.high_precision), new LogiPlanDecimal(0));
+    const savingTotal = siblings
+      .filter((row) => new LogiPlanDecimal(row.variance.high_precision).isNegative())
+      .reduce(
+        (sum, row) => sum.plus(new LogiPlanDecimal(row.variance.high_precision).abs()),
+        new LogiPlanDecimal(0),
+      );
+    for (const row of siblings) {
+      const variance = new LogiPlanDecimal(row.variance.high_precision);
+      row.adverse_contribution_share =
+        variance.isPositive() && !adverseTotal.isZero() ? ratio(variance.div(adverseTotal)) : null;
+      row.saving_contribution_share =
+        variance.isNegative() && !savingTotal.isZero()
+          ? ratio(variance.abs().div(savingTotal))
+          : null;
+    }
+  }
+
+  const rootRows = siblingGroups.get(null) ?? [];
+  const rootVariance = sumMoney(rootRows, (row) => row.variance.high_precision);
+  const rootFactorTotal = factorIds.reduce(
+    (total, factor) =>
+      total.plus(sumMoney(rootRows, (row) => row.factor_contributions[factor].high_precision)),
+    new LogiPlanDecimal(0),
+  );
+  if (!rootVariance.equals(rootFactorTotal)) {
+    throw error("RECONCILIATION_FAILED", "下钻顶层总差异未与五因素贡献合计勾稽", requestId);
+  }
+  // Each leaf is the SQL cost key: center × mode × carrier × category.
+  // A reconciled root cannot rule out opposite errors in two different keys.
+  for (const row of rows.filter((row) => row.level === "COST_COMPONENT")) {
+    const factorTotal = factorIds.reduce(
+      (total, factor) => total.plus(row.factor_contributions[factor].high_precision),
+      new LogiPlanDecimal("0"),
+    );
+    if (!factorTotal.equals(row.variance.high_precision)) {
+      throw error(
+        "RECONCILIATION_FAILED",
+        `${row.row_id} 的模型成本差异未与五因素贡献合计勾稽`,
+        requestId,
+      );
+    }
+  }
+
   return {
     payload: { rows, primary_contribution: s.factor_id ?? "VARIANCE", method: "CHAIN" as const },
-    evidence: rows.map((row) =>
-      evidence(
-        row.evidence_ids[0] ?? "",
-        intent,
-        row.label_zh,
-        row.variance.high_precision,
-        "按线路归属仓库和成本组件汇总；因素来自 CHAIN_SUBSTITUTION",
-      ),
-    ),
+    evidence: rows.flatMap((row) => {
+      const common = {
+        filters: { destination_country_id: countryIds, row_id: [row.row_id] },
+        group_by: [row.level],
+        source_refs: [
+          "logiplan.active_scenario_cost_component_fact",
+          "logiplan.active_variance_attribution_fact",
+          "logiplan.active_fulfillment_route",
+        ],
+      };
+      const baseId = `ATTRIBUTION_DRILLDOWN:${row.row_id}`;
+      return [
+        evidence(
+          baseId,
+          intent,
+          `${row.label_zh}总差异`,
+          row.variance.high_precision,
+          "Actual model_cny_amount − Budget model_cny_amount；逐层高精度勾稽",
+          common,
+        ),
+        evidence(
+          `${baseId}:BASELINE`,
+          intent,
+          `${row.label_zh} Budget 履约变动成本`,
+          row.baseline_cost.high_precision,
+          "Budget model_cny_amount 逐层汇总",
+          common,
+        ),
+        evidence(
+          `${baseId}:CURRENT`,
+          intent,
+          `${row.label_zh} Actual 履约变动成本`,
+          row.current_cost.high_precision,
+          "Actual model_cny_amount 逐层高精度汇总；汇总后生成报告值",
+          common,
+        ),
+        ...factorIds.map((factor) =>
+          evidence(
+            `${baseId}:FACTOR:${factor}`,
+            intent,
+            `${row.label_zh} ${factor}因素贡献`,
+            row.factor_contributions[factor].high_precision,
+            "CHAIN_SUBSTITUTION 归因事实；与原始成本和总差异使用相同范围",
+            {
+              ...common,
+              filters: { ...common.filters, factor_id: [factor] },
+            },
+          ),
+        ),
+      ];
+    }),
     warnings: [],
   };
 }
-
-async function warehouseContext(pool: Pool, intent: QueryIntent) {
+async function warehouseContext(pool: QueryDatabase, intent: QueryIntent) {
   const s = intent.scope;
   const rows = await pool.query(
-    `SELECT u.scenario_version_id, r.fulfillment_center_id, SUM(c.model_cny_amount)::text AS amount
+    `SELECT u.scenario_version_id, r.fulfillment_center_id, SUM(${variableAmountSql})::text AS amount
     FROM logiplan.active_scenario_cost_component_fact c JOIN logiplan.active_fulfillment_scenario_fact u USING (data_release_id, fulfillment_fact_id) JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id)
+    JOIN logiplan.active_scenario_version v USING (data_release_id, scenario_version_id)
     WHERE u.scenario_version_id = ANY($1::text[]) AND u.month_id BETWEEN $2::date AND $3::date GROUP BY u.scenario_version_id, r.fulfillment_center_id ORDER BY r.fulfillment_center_id`,
     [
       [s.budget_version_id, s.actual_version_id ?? ""],
@@ -1228,14 +1802,188 @@ async function warehouseContext(pool: Pool, intent: QueryIntent) {
     warnings: [],
   };
 }
+async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
+  if (!("contract_version" in intent) || !intent.evidence_id) {
+    throw error("EVIDENCE_NOT_FOUND", "V1.1 证据查询缺少 evidence_id", requestId);
+  }
+  const id = intent.evidence_id;
+  const sourceIntent = (
+    question_type: QueryIntent["question_type"],
+    scope: AnalysisScope,
+    metrics: string[],
+    group_by: QueryIntent["group_by"],
+  ): QueryIntent => ({
+    contract_version: "V1.1",
+    question_type,
+    scope,
+    metrics,
+    group_by,
+    output_locale: intent.output_locale,
+    context_sources: intent.context_sources,
+  });
+  type EvidenceQueryOutput = { evidence: EvidenceObject[]; warnings: ResultWarning[] };
+  type EvidenceSource = { scope: AnalysisScope; execute: () => Promise<EvidenceQueryOutput> };
+  let source: EvidenceSource | null = null;
 
-export async function runDeterministicQuery(
-  pool: Pool,
+  if (id === "E04-total") {
+    source = {
+      scope: evidenceDashboardRangeScope,
+      execute: () =>
+        dashboard(
+          pool,
+          sourceIntent("DASHBOARD_OVERVIEW", evidenceDashboardRangeScope, ["COST"], []),
+        ),
+    };
+  } else if (id.startsWith("MONTHLY_COST_TREND:")) {
+    source = {
+      scope: evidenceDashboardMonthScope,
+      execute: () =>
+        monthlyCostTrend(
+          pool,
+          sourceIntent(
+            "MONTHLY_COST_TREND",
+            evidenceDashboardMonthScope,
+            ["LOGISTICS_TOTAL_COST"],
+            ["MONTH"],
+          ),
+          requestId,
+        ),
+    };
+  } else if (id.startsWith("TOP_ADVERSE_ANOMALIES:")) {
+    source = {
+      scope: evidenceDashboardMonthScope,
+      execute: () =>
+        topAdverseAnomalies(
+          pool,
+          {
+            ...sourceIntent(
+              "TOP_ADVERSE_ANOMALIES",
+              evidenceDashboardMonthScope,
+              ["FULFILLMENT_VARIABLE_COST"],
+              ["MONTH", "DESTINATION_COUNTRY"],
+            ),
+            top_n: 5,
+          },
+          requestId,
+        ),
+    };
+  } else if (id.startsWith("FIXED_COST_BREAKDOWN:")) {
+    source = {
+      scope: evidenceDashboardRangeScope,
+      execute: () =>
+        fixedCostBreakdown(
+          pool,
+          sourceIntent(
+            "FIXED_COST_BREAKDOWN",
+            evidenceDashboardRangeScope,
+            ["LOGISTICS_FIXED_COST"],
+            ["FIXED_COST_CATEGORY", "FULFILLMENT_CENTER"],
+          ),
+          requestId,
+        ),
+    };
+  } else if (id.startsWith("E08-")) {
+    source = {
+      scope: evidenceWarehouseScope,
+      execute: () =>
+        warehouseContext(
+          pool,
+          sourceIntent(
+            "WAREHOUSE_VARIANCE_CONTEXT",
+            evidenceWarehouseScope,
+            ["FULFILLMENT_VARIABLE_COST"],
+            ["FULFILLMENT_CENTER"],
+          ),
+        ),
+    };
+  } else if (id === "E01-country") {
+    source = {
+      scope: evidenceAttributionScope,
+      execute: () =>
+        country(
+          pool,
+          sourceIntent(
+            "COUNTRY_VARIANCE_SUMMARY",
+            evidenceAttributionScope,
+            ["FULFILLMENT_VARIABLE_COST"],
+            [],
+          ),
+        ),
+    };
+  } else if (id === "E05-bridge" || id.startsWith("ATTRIBUTION_BRIDGE:")) {
+    source = {
+      scope: evidenceAttributionScope,
+      execute: () =>
+        bridge(
+          pool,
+          sourceIntent(
+            "ATTRIBUTION_BRIDGE",
+            evidenceAttributionScope,
+            ["FULFILLMENT_VARIABLE_COST"],
+            [],
+          ),
+        ),
+    };
+  } else if (id.startsWith("DIAGNOSTIC_METRICS:")) {
+    source = {
+      scope: evidenceAttributionScope,
+      execute: () =>
+        runDiagnosticMetrics(
+          // This existing module uses query only; preserve its public signature.
+          pool as Pool,
+          sourceIntent(
+            "DIAGNOSTIC_METRICS",
+            evidenceAttributionScope,
+            ["ORDERS", "AIR_SHARE", "CARRIER_C_SHARE", "ON_TIME_RATE", "SERVICE_MATURITY"],
+            [],
+          ),
+          requestId,
+        ),
+    };
+  } else if (id.startsWith("ATTRIBUTION_DRILLDOWN:")) {
+    // Validate the frozen business range while preserving the source query's
+    // optional factor. The metric named by an evidence ID is independent of it.
+    const scope: AnalysisScope = {
+      ...evidenceAttributionScope,
+      ...(intent.scope.factor_id ? { factor_id: intent.scope.factor_id } : {}),
+    };
+    source = {
+      scope,
+      execute: () =>
+        drilldown(
+          pool,
+          sourceIntent(
+            "ATTRIBUTION_DRILLDOWN",
+            scope,
+            ["FULFILLMENT_VARIABLE_COST"],
+            ["FULFILLMENT_CENTER", "TRANSPORT_MODE", "CARRIER", "COST_COMPONENT"],
+          ),
+          requestId,
+        ),
+    };
+  }
+  if (source === null) {
+    throw error("EVIDENCE_NOT_FOUND", `未找到精确匹配的证据：${id}`, requestId);
+  }
+  if (canonicalScope(intent.scope) !== canonicalScope(source.scope)) {
+    throw error("INVALID_FILTER", "evidence_id 与请求范围不匹配，拒绝返回其他范围证据", requestId);
+  }
+  const out = await source.execute();
+  const found = out.evidence.find((item) => item.evidence_id === id);
+  if (!found) {
+    throw error("EVIDENCE_NOT_FOUND", `未找到精确匹配的证据：${id}`, requestId);
+  }
+  return { payload: { evidence: found }, evidence: [found], warnings: out.warnings };
+}
+
+async function executeQuery(
+  pool: QueryDatabase,
   rawIntent: unknown,
   request_id: string,
 ): Promise<DeterministicResult | QueryServiceError> {
   const parsed = queryIntentSchema.safeParse(rawIntent);
-  if (!parsed.success) return error("INVALID_FILTER", "查询意图不符合 V1.0 契约", request_id);
+  if (!parsed.success)
+    return error("INVALID_FILTER", "查询意图不符合 V1.0/V1.1 严格契约", request_id);
   const intent = parsed.data;
   const validation = validateIntent(intent, request_id);
   if (validation) return validation;
@@ -1252,22 +2000,25 @@ export async function runDeterministicQuery(
               : intent.question_type === "COUNTRY_VARIANCE_SUMMARY"
                 ? await country(pool, intent)
                 : intent.question_type === "DIAGNOSTIC_METRICS"
-                  ? await runDiagnosticMetrics(pool, intent, request_id)
+                  ? await runDiagnosticMetrics(pool as Pool, intent, request_id)
                   : intent.question_type === "ATTRIBUTION_BRIDGE"
                     ? await bridge(pool, intent)
                     : intent.question_type === "ATTRIBUTION_DRILLDOWN"
-                      ? await drilldown(pool, intent)
-                      : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
-                        ? await warehouseContext(pool, intent)
-                        : {
-                            payload: {
-                              status: "SUPPORTED_DATA_ACCESS_PENDING",
-                              question_type: intent.question_type,
-                            },
-                            evidence: [],
-                            warnings: [] as ResultWarning[],
-                          };
+                      ? await drilldown(pool, intent, request_id)
+                      : intent.question_type === "EVIDENCE_LOOKUP"
+                        ? await evidenceLookup(pool, intent, request_id)
+                        : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
+                          ? await warehouseContext(pool, intent)
+                          : {
+                              payload: {
+                                status: "SUPPORTED_DATA_ACCESS_PENDING",
+                                question_type: intent.question_type,
+                              },
+                              evidence: [],
+                              warnings: [] as ResultWarning[],
+                            };
     return {
+      contract_version: contractVersion(intent),
       result_id: resultId(intent),
       query_intent: intent,
       scope_label: scopeLabel(intent.scope),
@@ -1278,13 +2029,94 @@ export async function runDeterministicQuery(
       ...out,
     };
   } catch (cause) {
-    if (cause && typeof cause === "object" && "code" in cause) return cause as QueryServiceError;
+    if (cause && typeof cause === "object" && "error_id" in cause && "request_id" in cause)
+      return cause as QueryServiceError;
     throw cause;
   }
 }
 
-export async function checkReadiness(
+export async function runDeterministicQuery(
   pool: Pool,
+  rawIntent: unknown,
+  request_id: string,
+): Promise<DeterministicResult | QueryServiceError> {
+  const parsed = queryIntentSchema.safeParse(rawIntent);
+  if (!parsed.success)
+    return error("INVALID_FILTER", "查询意图不符合 V1.0/V1.1 严格契约", request_id);
+  const intent = parsed.data;
+  const validation = validateIntent(intent, request_id);
+  if (validation) return validation;
+  if (!("contract_version" in intent)) return executeQuery(pool, intent, request_id);
+  if (intent.question_type === "EVIDENCE_LOOKUP" && intent.evidence_snapshot_id) {
+    return lookupEvidenceSnapshot(pool, intent, request_id);
+  }
+  const client = await pool.connect();
+  let commitStarted = false;
+  let discardClient: Error | undefined;
+  try {
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    // Establish the snapshot before any concurrent release activation.
+    const release = await client.query("SELECT data_release_id FROM logiplan.active_release");
+    if (release.rowCount !== 1) {
+      await client.query("ROLLBACK");
+      return error("VERSION_NOT_FOUND", "活动正式版本数量不是 1", request_id);
+    }
+    const result = await executeQuery(client, intent, request_id);
+    if ("code" in result) {
+      await client.query("ROLLBACK");
+      return result;
+    }
+    const saved = await persistQueryEvidenceSnapshot(
+      client,
+      result,
+      release.rows[0]?.data_release_id,
+    );
+    // A successful response is only available once its snapshot is committed.
+    commitStarted = true;
+    await client.query("COMMIT");
+    return saved;
+  } catch (cause) {
+    // A lost COMMIT acknowledgement has an unknown outcome. Attempt cleanup,
+    // discard the connection, and propagate failure without claiming rollback.
+    if (commitStarted) discardClient = new Error("Snapshot COMMIT outcome is unconfirmed");
+    await client.query("ROLLBACK").catch(() => {
+      discardClient = new Error("Snapshot transaction cleanup failed");
+    });
+    throw cause;
+  } finally {
+    client.release(discardClient);
+  }
+}
+
+export async function materializeEvidenceSnapshots(
+  client: Pick<Client, "query">,
+  intents: readonly QueryIntent[],
+  requestPrefix = "publish-materialization",
+): Promise<void> {
+  const isolation = await client.query("SHOW transaction_isolation");
+  if (String(isolation.rows[0]?.transaction_isolation) !== "repeatable read") {
+    throw new Error("证据快照物化必须在 REPEATABLE READ 事务内执行");
+  }
+  const release = await client.query(
+    `SELECT a.data_release_id
+     FROM logiplan.active_data_release AS a
+     JOIN logiplan.data_release AS r USING (data_release_id)
+     WHERE a.singleton AND r.status = 'ACTIVE'`,
+  );
+  if (release.rowCount !== 1) throw new Error("物化证据快照时活动发布数量不是 1");
+  const releaseId = String(release.rows[0].data_release_id);
+  for (const intent of intents) {
+    if (!("contract_version" in intent) || intent.question_type === "EVIDENCE_LOOKUP") {
+      throw new Error("发布物化入口只接受 V1.1 确定性查询");
+    }
+    const result = await executeQuery(client, intent, `${requestPrefix}:${resultId(intent)}`);
+    if ("code" in result) throw new Error(result.message_zh);
+    await persistEvidenceSnapshot(client, result, releaseId);
+  }
+}
+
+export async function checkReadiness(
+  pool: QueryDatabase,
 ): Promise<{ schema_version: string; active_release: string }> {
   const [schema, release] = await Promise.all([
     pool.query("SELECT logiplan.current_schema_version() AS version"),

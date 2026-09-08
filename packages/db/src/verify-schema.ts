@@ -87,7 +87,35 @@ async function verify(): Promise<void> {
     const migration = await migrator.query<{ version: string }>(
       "SELECT version FROM public._schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    assert(migration.rows[0]?.version === "0004", "数据库未应用 Gate 1 当前迁移");
+    assert(migration.rows[0]?.version === "0010", "数据库未应用当前迁移");
+
+    const snapshotFunction = await reader.query(`
+      SELECT p.prosecdef AS security_definer, p.proconfig,
+        has_function_privilege(current_user, p.oid, 'EXECUTE') AS reader_execute,
+        has_function_privilege('data_publisher', p.oid, 'EXECUTE') AS publisher_execute,
+        EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl, acldefault('f',p.proowner))) a
+          WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute
+      FROM pg_proc p WHERE p.oid='logiplan.persist_query_evidence_snapshot(jsonb)'::regprocedure
+    `);
+    const snapshotPermissions = snapshotFunction.rows[0];
+    assert(
+      snapshotPermissions?.security_definer === true &&
+        snapshotPermissions.proconfig?.includes("search_path=pg_catalog"),
+      "实时快照函数安全上下文不正确",
+    );
+    assert(
+      snapshotPermissions.reader_execute === true &&
+        snapshotPermissions.publisher_execute === false &&
+        snapshotPermissions.public_execute === false,
+      "实时快照函数执行权限不正确",
+    );
+    for (const operation of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+      const permission = await reader.query(
+        "SELECT has_table_privilege(current_user, 'logiplan.evidence_snapshot', $1) AS allowed",
+        [operation],
+      );
+      assert(permission.rows[0]?.allowed === false, `运行角色不应有快照表 ${operation} 权限`);
+    }
 
     const precision = await migrator.query<{ numeric_precision: number; numeric_scale: number }>(`
       SELECT numeric_precision, numeric_scale
@@ -142,7 +170,7 @@ async function verify(): Promise<void> {
     try {
       await publisher.query(
         `SELECT logiplan.create_data_release_candidate(
-           $1, $1, repeat('0', 64), '0004', 'verify', 'verify', '权限验收', clock_timestamp()
+           $1, $1, repeat('0', 64), '0009', 'verify', 'verify', '权限验收', clock_timestamp()
          )`,
         [probeId],
       );
@@ -173,7 +201,7 @@ async function verify(): Promise<void> {
     try {
       await publisher.query(
         `SELECT logiplan.create_data_release_candidate(
-           $1, $1, repeat('0', 64), '0004', 'verify', 'verify', '失败关闭验收', clock_timestamp()
+           $1, $1, repeat('0', 64), '0009', 'verify', 'verify', '失败关闭验收', clock_timestamp()
          )`,
         [failedProbeId],
       );
@@ -251,7 +279,7 @@ async function verify(): Promise<void> {
          source_description, generated_at
        ) VALUES (
          'permission-probe', 'permission-probe', 'CANDIDATE', repeat('0', 64),
-         '0001', 'probe', 'probe', 'probe', clock_timestamp()
+         '0009', 'probe', 'probe', 'probe', clock_timestamp()
        )`,
       "运行角色写入候选发布基础表",
     );

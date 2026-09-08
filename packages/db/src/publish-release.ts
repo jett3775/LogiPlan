@@ -12,11 +12,29 @@ import {
   validateCandidateInDatabase,
   validationSummaryJson,
 } from "./release-store";
+import { materializeEvidenceSnapshots, releaseEvidenceSnapshotIntents } from "./query-service";
 
 const publishingLockKey = "logiplan-data-publishing-v1";
 const defaultManifestPath = fileURLToPath(
   new URL("../../../database/releases/LOGIPLAN_2026_DEMO_V2.json", import.meta.url),
 );
+
+async function activateAndMaterialize(
+  client: Client,
+  releaseId: string,
+  activate = true,
+): Promise<void> {
+  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+  try {
+    if (activate) await activateRelease(client, releaseId);
+    await materializeEvidenceSnapshots(client, releaseEvidenceSnapshotIntents);
+    await assertActiveRelease(client, releaseId);
+    await client.query("COMMIT");
+  } catch (error: unknown) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -44,7 +62,7 @@ async function publish(): Promise<void> {
 
     if (initialStatus === "ACTIVE") {
       await validateCandidateInDatabase(client, bundle, packageSummary);
-      await assertActiveRelease(client, releaseId);
+      await activateAndMaterialize(client, releaseId, false);
       process.stdout.write(`发布 ${releaseId} 已处于活动状态；校验通过，未重复写入\n`);
       return;
     }
@@ -103,8 +121,7 @@ async function publish(): Promise<void> {
     if (validatedStatus !== "VALIDATED") {
       throw new Error(`发布 ${releaseId} 未进入 VALIDATED 状态：${validatedStatus ?? "NOT_FOUND"}`);
     }
-    await activateRelease(client, releaseId);
-    await assertActiveRelease(client, releaseId);
+    await activateAndMaterialize(client, releaseId);
     process.stdout.write(`发布 ${releaseId} 已完成校验并原子激活\n`);
   } finally {
     await client

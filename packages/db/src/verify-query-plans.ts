@@ -237,7 +237,10 @@ async function explainAndVerify(
     0,
   );
   assert(tempWrittenBlocks === 0, `${baseline.name} 发生临时磁盘写入`);
-  assert(document["Execution Time"] < 1_000, `${baseline.name} 单次执行超过 1 秒`);
+  assert(
+    document["Execution Time"] < 1_000,
+    `${baseline.name} 单次执行 ${document["Execution Time"].toFixed(3)} ms 超过 1 秒`,
+  );
   return {
     name: baseline.name,
     planning_ms: document["Planning Time"],
