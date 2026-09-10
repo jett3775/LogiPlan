@@ -94,23 +94,23 @@
         }
       },
       "frontline_variable_labor": {
-        "DE_FC": {"currency": "EUR", "unit_price": "1.2000"},
-        "FR_FC": {"currency": "EUR", "unit_price": "1.0000"}
+        "DE_FC": { "currency": "EUR", "unit_price": "1.2000" },
+        "FR_FC": { "currency": "EUR", "unit_price": "1.0000" }
       },
       "packaging": {
-        "DE_FC": {"currency": "EUR", "unit_price": "0.4000"},
-        "FR_FC": {"currency": "EUR", "unit_price": "0.3500"}
+        "DE_FC": { "currency": "EUR", "unit_price": "0.4000" },
+        "FR_FC": { "currency": "EUR", "unit_price": "0.3500" }
       },
       "return_logistics": {
-        "GB|DE_FC": {"currency": "GBP", "unit_price": "5.0000"},
-        "GB|FR_FC": {"currency": "EUR", "unit_price": "4.5000"},
-        "FR|FR_FC": {"currency": "EUR", "unit_price": "4.0000"}
+        "GB|DE_FC": { "currency": "GBP", "unit_price": "5.0000" },
+        "GB|FR_FC": { "currency": "EUR", "unit_price": "4.5000" },
+        "FR|FR_FC": { "currency": "EUR", "unit_price": "4.0000" }
       },
       "billable_exception": {
-        "R_GB_DE_A_ROAD": {"currency": "GBP", "unit_price": "3.0000"},
-        "R_GB_DE_C_AIR": {"currency": "GBP", "unit_price": "3.5000"},
-        "R_GB_FR_B_AIR": {"currency": "EUR", "unit_price": "3.0000"},
-        "R_FR_FR_B_ROAD": {"currency": "EUR", "unit_price": "2.5000"}
+        "R_GB_DE_A_ROAD": { "currency": "GBP", "unit_price": "3.0000" },
+        "R_GB_DE_C_AIR": { "currency": "GBP", "unit_price": "3.5000" },
+        "R_GB_FR_B_AIR": { "currency": "EUR", "unit_price": "3.0000" },
+        "R_FR_FR_B_ROAD": { "currency": "EUR", "unit_price": "2.5000" }
       }
     },
     "fx": {
@@ -119,17 +119,52 @@
       "GBP": "9.000000"
     },
     "gmv": {
-      "GB": {"currency": "GBP", "original_amount": "120000.0000"},
-      "FR": {"currency": "EUR", "original_amount": "90000.0000"}
+      "GB": { "currency": "GBP", "original_amount": "120000.0000" },
+      "FR": { "currency": "EUR", "original_amount": "90000.0000" }
     },
     "fixed_costs": [
-      {"scope": "DE_FC", "category": "WAREHOUSE_RENT", "currency": "EUR", "original_amount": "10000.0000"},
-      {"scope": "DE_FC", "category": "FRONTLINE_BASE_LABOR", "currency": "EUR", "original_amount": "6000.0000"},
-      {"scope": "DE_FC", "category": "WAREHOUSE_MANAGEMENT_LABOR", "currency": "EUR", "original_amount": "2000.0000"},
-      {"scope": "FR_FC", "category": "WAREHOUSE_RENT", "currency": "EUR", "original_amount": "8000.0000"},
-      {"scope": "FR_FC", "category": "FRONTLINE_BASE_LABOR", "currency": "EUR", "original_amount": "4500.0000"},
-      {"scope": "FR_FC", "category": "WAREHOUSE_MANAGEMENT_LABOR", "currency": "EUR", "original_amount": "1500.0000"},
-      {"scope": "SHARED", "category": "SYSTEM_COST", "currency": "CNY", "original_amount": "5000.0000"}
+      {
+        "scope": "DE_FC",
+        "category": "WAREHOUSE_RENT",
+        "currency": "EUR",
+        "original_amount": "10000.0000"
+      },
+      {
+        "scope": "DE_FC",
+        "category": "FRONTLINE_BASE_LABOR",
+        "currency": "EUR",
+        "original_amount": "6000.0000"
+      },
+      {
+        "scope": "DE_FC",
+        "category": "WAREHOUSE_MANAGEMENT_LABOR",
+        "currency": "EUR",
+        "original_amount": "2000.0000"
+      },
+      {
+        "scope": "FR_FC",
+        "category": "WAREHOUSE_RENT",
+        "currency": "EUR",
+        "original_amount": "8000.0000"
+      },
+      {
+        "scope": "FR_FC",
+        "category": "FRONTLINE_BASE_LABOR",
+        "currency": "EUR",
+        "original_amount": "4500.0000"
+      },
+      {
+        "scope": "FR_FC",
+        "category": "WAREHOUSE_MANAGEMENT_LABOR",
+        "currency": "EUR",
+        "original_amount": "1500.0000"
+      },
+      {
+        "scope": "SHARED",
+        "category": "SYSTEM_COST",
+        "currency": "CNY",
+        "original_amount": "5000.0000"
+      }
     ]
   },
   "periods": [
@@ -201,23 +236,23 @@
             }
           },
           "frontline_variable_labor": {
-            "DE_FC": {"unit_price": "1.2500"},
-            "FR_FC": {"unit_price": "1.0200"}
+            "DE_FC": { "unit_price": "1.2500" },
+            "FR_FC": { "unit_price": "1.0200" }
           },
           "packaging": {
-            "DE_FC": {"unit_price": "0.4200"},
-            "FR_FC": {"unit_price": "0.3600"}
+            "DE_FC": { "unit_price": "0.4200" },
+            "FR_FC": { "unit_price": "0.3600" }
           },
           "return_logistics": {
-            "GB|DE_FC": {"unit_price": "5.2000"},
-            "GB|FR_FC": {"unit_price": "4.6000"},
-            "FR|FR_FC": {"unit_price": "4.1000"}
+            "GB|DE_FC": { "unit_price": "5.2000" },
+            "GB|FR_FC": { "unit_price": "4.6000" },
+            "FR|FR_FC": { "unit_price": "4.1000" }
           },
           "billable_exception": {
-            "R_GB_DE_A_ROAD": {"unit_price": "3.2000"},
-            "R_GB_DE_C_AIR": {"unit_price": "3.7000"},
-            "R_GB_FR_B_AIR": {"unit_price": "3.1000"},
-            "R_FR_FR_B_ROAD": {"unit_price": "2.6000"}
+            "R_GB_DE_A_ROAD": { "unit_price": "3.2000" },
+            "R_GB_DE_C_AIR": { "unit_price": "3.7000" },
+            "R_GB_FR_B_AIR": { "unit_price": "3.1000" },
+            "R_FR_FR_B_ROAD": { "unit_price": "2.6000" }
           }
         },
         "fx": {
@@ -225,17 +260,52 @@
           "GBP": "9.200000"
         },
         "gmv": {
-          "GB": {"original_amount": "160000.0000"},
-          "FR": {"original_amount": "85000.0000"}
+          "GB": { "original_amount": "160000.0000" },
+          "FR": { "original_amount": "85000.0000" }
         },
         "fixed_costs": [
-          {"scope": "DE_FC", "category": "WAREHOUSE_RENT", "currency": "EUR", "original_amount": "10100.0000"},
-          {"scope": "DE_FC", "category": "FRONTLINE_BASE_LABOR", "currency": "EUR", "original_amount": "6150.0000"},
-          {"scope": "DE_FC", "category": "WAREHOUSE_MANAGEMENT_LABOR", "currency": "EUR", "original_amount": "2050.0000"},
-          {"scope": "FR_FC", "category": "WAREHOUSE_RENT", "currency": "EUR", "original_amount": "8000.0000"},
-          {"scope": "FR_FC", "category": "FRONTLINE_BASE_LABOR", "currency": "EUR", "original_amount": "4500.0000"},
-          {"scope": "FR_FC", "category": "WAREHOUSE_MANAGEMENT_LABOR", "currency": "EUR", "original_amount": "1500.0000"},
-          {"scope": "SHARED", "category": "SYSTEM_COST", "currency": "CNY", "original_amount": "5200.0000"}
+          {
+            "scope": "DE_FC",
+            "category": "WAREHOUSE_RENT",
+            "currency": "EUR",
+            "original_amount": "10100.0000"
+          },
+          {
+            "scope": "DE_FC",
+            "category": "FRONTLINE_BASE_LABOR",
+            "currency": "EUR",
+            "original_amount": "6150.0000"
+          },
+          {
+            "scope": "DE_FC",
+            "category": "WAREHOUSE_MANAGEMENT_LABOR",
+            "currency": "EUR",
+            "original_amount": "2050.0000"
+          },
+          {
+            "scope": "FR_FC",
+            "category": "WAREHOUSE_RENT",
+            "currency": "EUR",
+            "original_amount": "8000.0000"
+          },
+          {
+            "scope": "FR_FC",
+            "category": "FRONTLINE_BASE_LABOR",
+            "currency": "EUR",
+            "original_amount": "4500.0000"
+          },
+          {
+            "scope": "FR_FC",
+            "category": "WAREHOUSE_MANAGEMENT_LABOR",
+            "currency": "EUR",
+            "original_amount": "1500.0000"
+          },
+          {
+            "scope": "SHARED",
+            "category": "SYSTEM_COST",
+            "currency": "CNY",
+            "original_amount": "5200.0000"
+          }
         ]
       },
       "expected_nonzero_factors": ["VOLUME", "MIX", "EFFICIENCY", "PRICE", "FX"]

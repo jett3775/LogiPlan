@@ -1,21 +1,28 @@
-import Link from "next/link";
-
-import { compatibilityStatusSchema } from "@logiplan/contracts";
-import { addExactDecimals } from "@logiplan/domain";
+import { DashboardWorkspace, HistoricalEvidenceWorkspace } from "./dashboard-workspace";
+import { currentAnalysisAddressFromParams, hasEvidenceAddress } from "./lib/model";
+import { loadDashboardData } from "./lib/query-server";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
-export default function DashboardPage() {
-  const status = compatibilityStatusSchema.parse({ state: "ready" });
-  const exactCheck = addExactDecimals("0.1", "0.2");
-
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  if (hasEvidenceAddress(params))
+    return (
+      <HistoricalEvidenceWorkspace returnHref={currentAnalysisAddressFromParams("/", params)} />
+    );
+  const data = await loadDashboardData();
+  const guide = typeof params.guide === "string" ? Number.parseInt(params.guide, 10) : 0;
+  const evidenceId = typeof params.evidence_id === "string" ? params.evidence_id : null;
   return (
-    <main>
-      <h1>LogiPlan 正式工程</h1>
-      <p>兼容性骨架状态：{status.state === "ready" ? "已就绪" : "未就绪"}</p>
-      <p>精确十进制检查：0.1 + 0.2 = {exactCheck}</p>
-      <Link href="/attribution">进入归因分析骨架</Link>
-    </main>
+    <DashboardWorkspace
+      data={data}
+      initialGuide={guide === 1 || guide === 2 ? guide : 0}
+      initialEvidenceId={evidenceId}
+    />
   );
 }

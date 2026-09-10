@@ -128,7 +128,8 @@ function renderMonthlyChart() {
   const height = 310;
   const margin = { top: 32, right: 24, bottom: 50, left: 58 };
   const innerHeight = height - margin.top - margin.bottom;
-  const maxValue = Math.max(...rows.flatMap((row) => [number(row.current), number(row.baseline)])) * 1.13;
+  const maxValue =
+    Math.max(...rows.flatMap((row) => [number(row.current), number(row.baseline)])) * 1.13;
   const xStep = (width - margin.left - margin.right) / rows.length;
   const barWidth = Math.min(34, xStep * 0.52);
   const y = (value) => margin.top + innerHeight - (number(value) / maxValue) * innerHeight;
@@ -220,10 +221,13 @@ function renderFixedCostPanel({ bare = false } = {}) {
         <thead><tr><th>类别 / 归属</th><th>Latest Outlook</th><th>Budget</th><th>差异</th></tr></thead>
         <tbody>${fixed.rows
           .map(
-            (row) => `<tr class="fixed-category-row"><td>${escapeHtml(row.label)}</td><td>¥ ${fmtMoney(row.current)}</td><td>¥ ${fmtMoney(row.baseline)}</td><td class="${semanticClass(row.variance)}">¥ ${fmtSignedMoney(row.variance)}</td></tr>
+            (
+              row,
+            ) => `<tr class="fixed-category-row"><td>${escapeHtml(row.label)}</td><td>¥ ${fmtMoney(row.current)}</td><td>¥ ${fmtMoney(row.baseline)}</td><td class="${semanticClass(row.variance)}">¥ ${fmtSignedMoney(row.variance)}</td></tr>
               ${row.children
                 .map(
-                  (child) => `<tr class="fixed-scope-row"><td>↳ ${escapeHtml(child.label)}</td><td>¥ ${fmtMoney(child.current)}</td><td>¥ ${fmtMoney(child.baseline)}</td><td class="${semanticClass(child.variance)}">¥ ${fmtSignedMoney(child.variance)}</td></tr>`,
+                  (child) =>
+                    `<tr class="fixed-scope-row"><td>↳ ${escapeHtml(child.label)}</td><td>¥ ${fmtMoney(child.current)}</td><td>¥ ${fmtMoney(child.baseline)}</td><td class="${semanticClass(child.variance)}">¥ ${fmtSignedMoney(child.variance)}</td></tr>`,
                 )
                 .join("")}`,
           )
@@ -248,7 +252,8 @@ function renderWarehouseContext({ bare = false } = {}) {
     <table class="warehouse-table"><thead><tr><th>发货仓</th><th>Actual</th><th>Budget</th><th>差异</th></tr></thead><tbody>
       ${context.warehouses
         .map(
-          (row) => `<tr><td>${escapeHtml(row.label)} ${evidenceButton(row.evidence_id)}</td><td>¥ ${fmtMoney(row.current)}</td><td>¥ ${fmtMoney(row.baseline)}</td><td class="adverse">¥ ${fmtSignedMoney(row.variance, 2)}</td></tr>`,
+          (row) =>
+            `<tr><td>${escapeHtml(row.label)} ${evidenceButton(row.evidence_id)}</td><td>¥ ${fmtMoney(row.current)}</td><td>¥ ${fmtMoney(row.baseline)}</td><td class="adverse">¥ ${fmtSignedMoney(row.variance, 2)}</td></tr>`,
         )
         .join("")}
     </tbody></table>
@@ -261,7 +266,8 @@ function renderEvaluationGate() {
     <summary><span>结构化评估基线</span><span class="status-chip pass-chip">9 / 9 PASS</span></summary>
     <div class="eval-list">${model.evaluation_gate
       .map(
-        (item) => `<div class="eval-item"><strong>${escapeHtml(item.question_id)} · ${escapeHtml(item.status)}</strong><br>${escapeHtml(item.page_location)}</div>`,
+        (item) =>
+          `<div class="eval-item"><strong>${escapeHtml(item.question_id)} · ${escapeHtml(item.status)}</strong><br>${escapeHtml(item.page_location)}</div>`,
       )
       .join("")}</div>
   </details>`;
@@ -284,9 +290,10 @@ function diagnosticValue(item, value) {
 function renderDiagnostics() {
   return `<section class="diagnostic-strip">${model.attribution.diagnostics
     .map((item) => {
-      const comparison = item.baseline == null
-        ? `<span class="status-chip adverse-chip">${escapeHtml(item.delta_label)}</span>`
-        : `Budget ${diagnosticValue(item, item.baseline)} · <span class="${number(item.delta) >= 0 ? "adverse" : "favourable"}">${item.unit === "RATIO" ? `${number(item.delta) >= 0 ? "+" : "−"}${Math.abs(number(item.delta) * 100).toFixed(2)} 个百分点` : fmtSignedPct(item.delta_rate)}</span>`;
+      const comparison =
+        item.baseline == null
+          ? `<span class="status-chip adverse-chip">${escapeHtml(item.delta_label)}</span>`
+          : `Budget ${diagnosticValue(item, item.baseline)} · <span class="${number(item.delta) >= 0 ? "adverse" : "favourable"}">${item.unit === "RATIO" ? `${number(item.delta) >= 0 ? "+" : "−"}${Math.abs(number(item.delta) * 100).toFixed(2)} 个百分点` : fmtSignedPct(item.delta_rate)}</span>`;
       return `<article class="diagnostic-item">
         <div class="diag-label">${escapeHtml(item.label)} ${evidenceButton(item.evidence_id)}</div>
         <div class="diag-value num">${diagnosticValue(item, item.current)}</div>
@@ -299,7 +306,9 @@ function renderDiagnostics() {
 function renderFactorToolbar() {
   return `<div class="factor-toolbar" aria-label="归因因素选择">${model.attribution.factors
     .map(
-      (factor) => `<button type="button" class="factor-button ${state.selectedFactor === factor.factor_id ? "selected" : ""}" data-action="select-factor" data-factor-id="${factor.factor_id}" aria-pressed="${state.selectedFactor === factor.factor_id}">
+      (
+        factor,
+      ) => `<button type="button" class="factor-button ${state.selectedFactor === factor.factor_id ? "selected" : ""}" data-action="select-factor" data-factor-id="${factor.factor_id}" aria-pressed="${state.selectedFactor === factor.factor_id}">
         <strong>${escapeHtml(factor.label)}因素</strong><span>¥ ${fmtSignedMoney(factor.amount)}</span>
       </button>`,
     )
@@ -353,10 +362,14 @@ function renderWaterfall() {
 }
 
 function renderWaterfallCard({ bare = false } = {}) {
-  const selectedLabel = state.selectedFactor ? `${FACTOR_LABELS[state.selectedFactor]}因素已同步到下钻表` : "当前显示五因素合计";
+  const selectedLabel = state.selectedFactor
+    ? `${FACTOR_LABELS[state.selectedFactor]}因素已同步到下钻表`
+    : "当前显示五因素合计";
   const body = `<div class="section-head"><div><h2>五因素归因桥</h2><p>${escapeHtml(model.attribution.method_label)}</p></div><span class="status-chip blue-chip">${escapeHtml(selectedLabel)}</span></div>
     ${renderFactorToolbar()}${renderWaterfall()}`;
-  return bare ? body : `<section class="surface waterfall-card" data-guide-target="attribution">${body}</section>`;
+  return bare
+    ? body
+    : `<section class="surface waterfall-card" data-guide-target="attribution">${body}</section>`;
 }
 
 function renderEvidenceRefs(ids) {
@@ -376,12 +389,14 @@ function renderAiAnalysis({ bare = false } = {}) {
     </div>
     ${sections
       .map(
-        ([title, section]) => `<section class="ai-section"><h4>${title}</h4><p>${escapeHtml(section.text)}</p>${renderEvidenceRefs(section.evidence_ids)}</section>`,
+        ([title, section]) =>
+          `<section class="ai-section"><h4>${title}</h4><p>${escapeHtml(section.text)}</p>${renderEvidenceRefs(section.evidence_ids)}</section>`,
       )
       .join("")}
     <section class="ai-section"><h4>建议</h4>${ai.recommendations
       .map(
-        (item) => `<div class="recommendation-item"><p>${escapeHtml(item.text)}</p>${renderEvidenceRefs(item.evidence_ids)}<span class="recommendation-status">尚未进行情景验证 · 可行性未验证</span></div>`,
+        (item) =>
+          `<div class="recommendation-item"><p>${escapeHtml(item.text)}</p>${renderEvidenceRefs(item.evidence_ids)}<span class="recommendation-status">尚未进行情景验证 · 可行性未验证</span></div>`,
       )
       .join("")}</section>
     <section class="ai-section"><h4>限制</h4><p>${escapeHtml(ai.limitations.text)}</p>${renderEvidenceRefs(ai.limitations.evidence_ids)}
@@ -412,14 +427,18 @@ function flattenTree(nodes, depth = 0, rows = []) {
 
 function renderTreeTable({ bare = false } = {}) {
   const rows = flattenTree(model.attribution.tree);
-  const factorLabel = state.selectedFactor ? `${FACTOR_LABELS[state.selectedFactor]}因素贡献` : "五因素合计";
+  const factorLabel = state.selectedFactor
+    ? `${FACTOR_LABELS[state.selectedFactor]}因素贡献`
+    : "五因素合计";
   const body = `<div class="section-head"><div><h2>多维归因下钻</h2><p>固定英国口径 · 发货仓 → 运输方式 → 承运商 → 成本类别</p></div><span class="status-chip blue-chip">${state.selectedFactor ? `按${FACTOR_LABELS[state.selectedFactor]}贡献排序` : "按总差异排序"}</span></div>
     <div class="tree-state-bar"><span>当前范围：2026 年 8 月｜英国｜Actual vs Budget</span><span>德国仓 +566,770.9315 · 法国仓 +7,703.2917 · 合计 +574,474.2232</span></div>
     <table class="tree-table"><thead><tr><th>分析项</th><th>Actual 成本</th><th>Budget 成本</th><th>总差异</th><th>${escapeHtml(factorLabel)}</th></tr></thead>
       <tbody>${rows
         .map(({ node, depth }, index) => {
           const expanded = state.expandedRowIds.includes(node.row_id);
-          const contribution = state.selectedFactor ? node.factor_contributions[state.selectedFactor] : node.variance;
+          const contribution = state.selectedFactor
+            ? node.factor_contributions[state.selectedFactor]
+            : node.variance;
           return `<tr id="${escapeHtml(node.row_id)}">
             <td><div class="tree-name-cell" style="padding-left:${depth * 21}px">
               ${node.children.length ? `<button class="tree-toggle" type="button" data-action="toggle-row" data-row-id="${escapeHtml(node.row_id)}" aria-expanded="${expanded}" aria-label="${expanded ? "折叠" : "展开"}${escapeHtml(node.label)}">${expanded ? "−" : "+"}</button>` : '<span class="tree-spacer"></span>'}
@@ -478,14 +497,16 @@ function renderEvidenceDrawer() {
   if (!state.evidenceId) return "";
   const item = model.evidence[state.evidenceId];
   if (!item) return "";
-  const filters = Object.entries(item.filters || {})
-    .map(([key, values]) => `${key}: ${values.join(", ")}`)
-    .join("；") || "公司总范围";
+  const filters =
+    Object.entries(item.filters || {})
+      .map(([key, values]) => `${key}: ${values.join(", ")}`)
+      .join("；") || "公司总范围";
   const versions = Object.entries(item.versions || {})
     .map(([key, value]) => `${key}: ${value}`)
     .join("；");
   const unitLabel = item.unit === "RATIO" ? "比率" : item.unit;
-  const value = item.unit === "RATIO" ? fmtPct(item.value, 4) : `${fmtMoney(item.value, 4)} ${item.unit}`;
+  const value =
+    item.unit === "RATIO" ? fmtPct(item.value, 4) : `${fmtMoney(item.value, 4)} ${item.unit}`;
   return `<div class="drawer-scrim" data-action="close-evidence" aria-hidden="true"></div>
     <aside class="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title">
       <div class="drawer-head"><div><span class="eyebrow">STRUCTURED EVIDENCE</span><h2 id="evidence-title">数字证据</h2></div><button class="icon-btn" type="button" data-action="close-evidence" aria-label="关闭证据侧栏">✕</button></div>
@@ -580,7 +601,10 @@ function handleAction(actionElement) {
     state.expandedRowIds = [...new Set([...state.expandedRowIds, ...item.row_path])];
     updateUrl();
     render();
-    window.setTimeout(() => document.getElementById(item.row_path.at(-1))?.scrollIntoView({ block: "center" }), 0);
+    window.setTimeout(
+      () => document.getElementById(item.row_path.at(-1))?.scrollIntoView({ block: "center" }),
+      0,
+    );
     return;
   }
   if (action === "start-guide") {
@@ -611,7 +635,10 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if ((event.key === "Enter" || event.key === " ") && event.target.matches('[data-action][role="button"]')) {
+  if (
+    (event.key === "Enter" || event.key === " ") &&
+    event.target.matches('[data-action][role="button"]')
+  ) {
     event.preventDefault();
     handleAction(event.target);
   }
@@ -636,7 +663,8 @@ async function init() {
     model = await response.json();
     render();
   } catch (error) {
-    document.getElementById("app").innerHTML = `<main class="loading-shell"><p class="eyebrow">PROTOTYPE DATA ERROR</p><h1>无法载入原型数据快照</h1><p class="muted">请从项目根目录启动本地服务器后访问此页面。<br><span class="mono">${escapeHtml(error.message)}</span></p></main>`;
+    document.getElementById("app").innerHTML =
+      `<main class="loading-shell"><p class="eyebrow">PROTOTYPE DATA ERROR</p><h1>无法载入原型数据快照</h1><p class="muted">请从项目根目录启动本地服务器后访问此页面。<br><span class="mono">${escapeHtml(error.message)}</span></p></main>`;
   }
 }
 

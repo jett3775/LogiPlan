@@ -3,7 +3,12 @@ import path from "node:path";
 import { FileBlob, SpreadsheetFile } from "@oai/artifact-tool";
 
 const workspace = "C:\\Users\\Jett\\Documents\\LogiAI";
-const sourcePath = path.join(workspace, "outputs", "2026-demo-data-current-labor-split", "LogiPlan-AI-2026-Demo-Data.xlsx");
+const sourcePath = path.join(
+  workspace,
+  "outputs",
+  "2026-demo-data-current-labor-split",
+  "LogiPlan-AI-2026-Demo-Data.xlsx",
+);
 const workDir = path.join(workspace, ".tmp", "workbook-extract-current-labor-split");
 const previewDir = path.join(workDir, "previews");
 const extractPath = path.join(workDir, "workbook-extract.json");
@@ -64,15 +69,38 @@ for (const name of Object.keys(renderRanges)) {
     formulas: used.formulas,
     display_formulas: used.displayFormulas,
   };
-  const preview = await workbook.render({ sheetName: name, range: renderRanges[name], format: "png", scale: 1 });
-  await fs.writeFile(path.join(previewDir, `${name}.png`), new Uint8Array(await preview.arrayBuffer()));
+  const preview = await workbook.render({
+    sheetName: name,
+    range: renderRanges[name],
+    format: "png",
+    scale: 1,
+  });
+  await fs.writeFile(
+    path.join(previewDir, `${name}.png`),
+    new Uint8Array(await preview.arrayBuffer()),
+  );
 }
 
 await fs.writeFile(extractPath, JSON.stringify(output, null, 2), "utf8");
 
-const summary = await workbook.inspect({ kind: "region", sheetId: "Summary", range: "A1:S42", maxChars: 7000 });
-const fixed = await workbook.inspect({ kind: "region", sheetId: "Fixed_Costs", range: "A1:M30", maxChars: 7000 });
-const checks = await workbook.inspect({ kind: "region", sheetId: "Checks", range: "A1:E24", maxChars: 7000 });
+const summary = await workbook.inspect({
+  kind: "region",
+  sheetId: "Summary",
+  range: "A1:S42",
+  maxChars: 7000,
+});
+const fixed = await workbook.inspect({
+  kind: "region",
+  sheetId: "Fixed_Costs",
+  range: "A1:M30",
+  maxChars: 7000,
+});
+const checks = await workbook.inspect({
+  kind: "region",
+  sheetId: "Checks",
+  range: "A1:E24",
+  maxChars: 7000,
+});
 console.log("SUMMARY");
 console.log(summary.ndjson);
 console.log("FIXED_COSTS");
