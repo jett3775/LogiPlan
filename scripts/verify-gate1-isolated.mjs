@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 
+import { childHasStopped, waitForServer } from "./wait-for-server.mjs";
+
 const projectName = `logiplan-gate1-${process.pid}-${randomBytes(4).toString("hex")}`;
 const projectNamePattern = /^logiplan-gate1-[a-z0-9-]+$/u;
 const temporaryMigrationPrefix = "logiplan-gate1-migrations-";
@@ -27,6 +29,7 @@ const localPasswords = {
 };
 
 let activeChild;
+let activeServerChild;
 let receivedSignal;
 let receivedSignalCount = 0;
 let cleanupStarted = false;
@@ -124,6 +127,30 @@ function reserveEphemeralPort() {
       });
     });
   });
+}
+
+async function reserveLocalAppPort(excludedPorts) {
+  const excluded = new Set(excludedPorts);
+  for (let port = 4174; port <= 4194; port += 1) {
+    if (excluded.has(port)) continue;
+    try {
+      await new Promise((resolve, reject) => {
+        const server = createServer();
+        server.unref();
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+          server.close((error) => {
+            if (error === undefined) resolve();
+            else reject(error);
+          });
+        });
+      });
+      return port;
+    } catch {
+      // Try the next dedicated local application port.
+    }
+  }
+  throw new Error("无法分配隔离快照 API 本地端口");
 }
 
 async function createGate1MigrationDirectory() {
@@ -244,6 +271,71 @@ function runProcess(label, command, args, env, options = {}) {
   });
 }
 
+function waitForChildExit(child, timeoutMs) {
+  if (childHasStopped(child)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      child.removeListener("exit", onExit);
+      reject(new Error("本地 API 服务未在限定时间内退出"));
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+async function stopServer(child) {
+  if (childHasStopped(child)) return;
+  child.kill("SIGTERM");
+  try {
+    await waitForChildExit(child, 5_000);
+  } catch {
+    if (childHasStopped(child)) return;
+    child.kill("SIGKILL");
+    await waitForChildExit(child, 5_000);
+  }
+}
+
+async function runSnapshotIntegration(appUrl, appEnv, testEnv) {
+  assertNotInterrupted();
+  process.stdout.write("\n[Gate 1] 启动快照集成本地 API\n");
+  const server = spawn(
+    process.execPath,
+    [
+      "node_modules/next/dist/bin/next",
+      "start",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      new URL(appUrl).port,
+    ],
+    {
+      cwd: resolve("apps/web"),
+      env: appEnv,
+      shell: false,
+      stdio: "inherit",
+      windowsHide: true,
+    },
+  );
+  activeServerChild = server;
+  try {
+    await waitForServer(`${appUrl}/api/health/live`, server);
+    await runPnpm(
+      "完整持久化证据 PostgreSQL/API/Chromium 集成测试",
+      ["exec", "vitest", "run", "packages/db/src/evidence-snapshot.test.ts"],
+      testEnv,
+    );
+  } finally {
+    try {
+      await stopServer(server);
+    } finally {
+      if (childHasStopped(server) && activeServerChild === server) activeServerChild = undefined;
+    }
+  }
+}
+
 function runPnpm(label, args, env) {
   const invocation = pnpmInvocation(args);
   return runProcess(label, invocation.command, invocation.args, env, {
@@ -267,6 +359,9 @@ function handleSignal(signal) {
   if (!cleanupStarted && activeChild !== undefined) {
     activeChild.kill(receivedSignalCount > 1 ? "SIGKILL" : signal);
   }
+  if (!cleanupStarted && activeServerChild !== undefined) {
+    activeServerChild.kill(receivedSignalCount > 1 ? "SIGKILL" : signal);
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -279,6 +374,7 @@ async function verify() {
   while (performancePort === postgresPort) {
     performancePort = await reserveEphemeralPort();
   }
+  const snapshotAppPort = await reserveLocalAppPort([postgresPort, performancePort]);
   const databaseHost = `127.0.0.1:${postgresPort}`;
   const databaseName = "logiplan";
   const roleUrl = (role, password) =>
@@ -328,12 +424,31 @@ async function verify() {
   const readerRuntimeEnv = {
     ...guardedEnvironment,
     DATABASE_URL: readerUrl,
-    SNAPSHOT_TEST_SUPERUSER_URL: roleUrl("postgres", localPasswords.superuser),
+  };
+  const snapshotAppUrl = `http://127.0.0.1:${snapshotAppPort}`;
+  const snapshotSuperuserUrl = roleUrl("postgres", localPasswords.superuser);
+  const snapshotTestEnv = {
+    ...readerRuntimeEnv,
+    SNAPSHOT_TEST_SUPERUSER_URL: snapshotSuperuserUrl,
+    SNAPSHOT_TEST_DATABASE_URL: readerUrl,
+    SNAPSHOT_TEST_MIGRATION_URL: migrationUrl,
+    SNAPSHOT_TEST_PUBLISHER_URL: publisherUrl,
+    SNAPSHOT_TEST_API_URL: snapshotAppUrl,
+  };
+  const historicalEvidenceTestEnv = {
+    ...readerRuntimeEnv,
+    SNAPSHOT_TEST_SUPERUSER_URL: snapshotSuperuserUrl,
   };
 
   let temporaryMigrationDirectory;
   let primaryError;
   try {
+    await runProcess(
+      "本地 API 服务等待逻辑回归测试",
+      process.execPath,
+      ["--test", "scripts/verify-gate1-isolated.test.mjs"],
+      guardedEnvironment,
+    );
     assertNotInterrupted();
     temporaryMigrationDirectory = await createGate1MigrationDirectory();
     const v1MigrationEnv = {
@@ -360,7 +475,21 @@ async function verify() {
     await runPnpm("不可变发布升级与核心查询验证", ["db:verify-release"], releaseVerificationEnv);
     await runPnpm("核心查询计划验证", ["db:verify-plans"], readerRuntimeEnv);
     await runPnpm("生产构建", ["build"], readerRuntimeEnv);
+    await runSnapshotIntegration(snapshotAppUrl, readerRuntimeEnv, snapshotTestEnv);
     await runPnpm("Chromium 双视口基础冒烟", ["test:e2e:gate1"], readerRuntimeEnv);
+    await runPnpm(
+      "Chromium 双视口历史证据验收",
+      [
+        "exec",
+        "playwright",
+        "test",
+        "--project=chromium-1440",
+        "--project=chromium-1280",
+        "--workers=1",
+        "apps/web/tests/historical-evidence.spec.ts",
+      ],
+      historicalEvidenceTestEnv,
+    );
     await runPnpm("Firefox 核心冒烟", ["test:e2e:firefox-smoke"], readerRuntimeEnv);
     await runProcess(
       "并发 5、100 次热查询性能验证",
@@ -374,6 +503,19 @@ async function verify() {
     cleanupStarted = true;
     let cleanupError;
     try {
+      if (activeServerChild !== undefined) {
+        const server = activeServerChild;
+        try {
+          await stopServer(server);
+        } finally {
+          if (childHasStopped(server) && activeServerChild === server)
+            activeServerChild = undefined;
+        }
+      }
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
       await runCompose(
         "清理本次隔离 PostgreSQL 项目与命名卷",
         ["down", "-v", "--remove-orphans"],
@@ -381,7 +523,7 @@ async function verify() {
         { cleanup: true, timeoutMs: 30_000, killGraceMs: 2_000 },
       );
     } catch (error) {
-      cleanupError = error;
+      if (cleanupError === undefined) cleanupError = error;
     }
 
     if (temporaryMigrationDirectory !== undefined) {
