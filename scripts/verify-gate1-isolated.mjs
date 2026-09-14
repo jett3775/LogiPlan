@@ -16,6 +16,7 @@ const gate1MigrationFiles = [
   "0002_release_reactivation.sql",
   "0003_schema_version_reader.sql",
 ];
+const upgradedV2ReleaseId = "LOGIPLAN_2026_DEMO_V2";
 
 if (!projectNamePattern.test(projectName) || projectName === "logiplan") {
   throw new Error("隔离 Compose 项目名无效");
@@ -45,6 +46,7 @@ const isolatedEnvironmentKeys = [
   "DATABASE_URL",
   "MIGRATION_DIRECTORY",
   "RELEASE_MANIFEST",
+  "LOGIPLAN_PUBLISH_MODE",
 ];
 const passthroughEnvironmentKeys = [
   "PATH",
@@ -410,6 +412,10 @@ async function verify() {
     PUBLISHER_DATABASE_URL: publisherUrl,
     RELEASE_MANIFEST: v2Manifest,
   };
+  const publisherValidateOnlyEnv = {
+    ...publisherEnv,
+    LOGIPLAN_PUBLISH_MODE: "validate-only",
+  };
   const verificationEnv = {
     ...guardedEnvironment,
     MIGRATION_DATABASE_URL: migrationUrl,
@@ -444,6 +450,12 @@ async function verify() {
   let primaryError;
   try {
     await runProcess(
+      "Neon 基线入口代码级回归测试",
+      process.execPath,
+      ["--test", "scripts/neon-baseline.test.mjs"],
+      guardedEnvironment,
+    );
+    await runProcess(
       "本地 API 服务等待逻辑回归测试",
       process.execPath,
       ["--test", "scripts/verify-gate1-isolated.test.mjs"],
@@ -469,7 +481,13 @@ async function verify() {
       v1PublisherEnv,
     );
     await runPnpm("从 0003 升级执行完整迁移", ["db:migrate"], migrationEnv);
-    await runPnpm("发布 V2 数据", ["db:publish"], publisherEnv);
+    await runPnpm("导入并校验 V2 候选但不激活", ["db:publish"], publisherValidateOnlyEnv);
+    await runPnpm("重复校验 VALIDATED V2 候选", ["db:publish"], publisherValidateOnlyEnv);
+    await runPnpm(
+      "显式激活 V2 并原子物化固定证据",
+      ["db:activate-release", upgradedV2ReleaseId],
+      publisherEnv,
+    );
     await runPnpm("重复发布幂等验证", ["db:publish"], publisherEnv);
     await runPnpm("结构、精度与三角色权限验证", ["db:verify"], verificationEnv);
     await runPnpm("不可变发布升级与核心查询验证", ["db:verify-release"], releaseVerificationEnv);

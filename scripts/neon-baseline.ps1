@@ -1,0 +1,62 @@
+[CmdletBinding()]
+param(
+  [Parameter(Mandatory = $true)][string]$CandidateSha,
+  [Parameter(Mandatory = $true)][string]$ApprovedSha,
+  [Parameter(Mandatory = $true)][string]$ExpectedDatabase,
+  [string]$ToolingSha,
+  [string]$ApprovedToolingSha,
+  [string]$Report,
+  [switch]$Write
+)
+
+$ErrorActionPreference = "Stop"
+$secretNames = @(
+  "NEON_ADMIN_DATABASE_URL",
+  "MIGRATION_DATABASE_URL",
+  "PUBLISHER_DATABASE_URL",
+  "DATABASE_URL"
+)
+$previous = @{}
+
+function Read-SecretText([string]$Name) {
+  $secure = Read-Host "$Name（隐藏输入）" -AsSecureString
+  $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+  try {
+    return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+  }
+  finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+  }
+}
+
+try {
+  if ($Write) {
+    if ([string]::IsNullOrWhiteSpace($ToolingSha) -or [string]::IsNullOrWhiteSpace($ApprovedToolingSha)) {
+      throw "-Write 必须同时提供 -ToolingSha 和 -ApprovedToolingSha"
+    }
+    $previous["LOGIPLAN_APPROVED_TOOLING_SHA"] = [Environment]::GetEnvironmentVariable("LOGIPLAN_APPROVED_TOOLING_SHA", "Process")
+    [Environment]::SetEnvironmentVariable("LOGIPLAN_APPROVED_TOOLING_SHA", $ApprovedToolingSha, "Process")
+    foreach ($name in $secretNames) {
+      $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+      if ([string]::IsNullOrWhiteSpace($previous[$name])) {
+        [Environment]::SetEnvironmentVariable($name, (Read-SecretText $name), "Process")
+      }
+    }
+  }
+  $arguments = @(
+    "scripts/neon-baseline.mjs",
+    "--candidate-sha", $CandidateSha,
+    "--approved-sha", $ApprovedSha,
+    "--expected-database", $ExpectedDatabase
+  )
+  if (-not [string]::IsNullOrWhiteSpace($ToolingSha)) { $arguments += @("--tooling-sha", $ToolingSha) }
+  if ($Write) { $arguments += "--write" }
+  if (-not [string]::IsNullOrWhiteSpace($Report)) { $arguments += @("--report", $Report) }
+  & node @arguments
+  if ($LASTEXITCODE -ne 0) { throw "Neon 基线入口退出码为 $LASTEXITCODE" }
+}
+finally {
+  foreach ($name in $previous.Keys) {
+    [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
+  }
+}

@@ -3,38 +3,20 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 
 import { loadReleaseBundle, validateReleasePackage } from "./release-package";
+import { activateAndMaterialize } from "./activate-and-materialize";
 import {
-  activateRelease,
-  assertActiveRelease,
   assertDatabaseSchemaVersion,
   getReleaseStatus,
   insertReleaseData,
   validateCandidateInDatabase,
   validationSummaryJson,
 } from "./release-store";
-import { materializeEvidenceSnapshots, releaseEvidenceSnapshotIntents } from "./query-service";
 
 const publishingLockKey = "logiplan-data-publishing-v1";
+const publishMode = process.env.LOGIPLAN_PUBLISH_MODE || "activate";
 const defaultManifestPath = fileURLToPath(
   new URL("../../../database/releases/LOGIPLAN_2026_DEMO_V2.json", import.meta.url),
 );
-
-async function activateAndMaterialize(
-  client: Client,
-  releaseId: string,
-  activate = true,
-): Promise<void> {
-  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
-  try {
-    if (activate) await activateRelease(client, releaseId);
-    await materializeEvidenceSnapshots(client, releaseEvidenceSnapshotIntents);
-    await assertActiveRelease(client, releaseId);
-    await client.query("COMMIT");
-  } catch (error: unknown) {
-    await client.query("ROLLBACK");
-    throw error;
-  }
-}
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -45,6 +27,10 @@ function requiredEnvironment(name: string): string {
 }
 
 async function publish(): Promise<void> {
+  if (publishMode !== "activate" && publishMode !== "validate-only") {
+    throw new Error("LOGIPLAN_PUBLISH_MODE 只允许 activate 或 validate-only");
+  }
+  const shouldActivate = publishMode === "activate";
   const manifestPath = process.env.RELEASE_MANIFEST ?? defaultManifestPath;
   const bundle = await loadReleaseBundle(manifestPath);
   const packageSummary = validateReleasePackage(bundle);
@@ -62,8 +48,12 @@ async function publish(): Promise<void> {
 
     if (initialStatus === "ACTIVE") {
       await validateCandidateInDatabase(client, bundle, packageSummary);
-      await activateAndMaterialize(client, releaseId, false);
-      process.stdout.write(`发布 ${releaseId} 已处于活动状态；校验通过，未重复写入\n`);
+      if (shouldActivate) {
+        await activateAndMaterialize(client, releaseId, false);
+      }
+      process.stdout.write(
+        `发布 ${releaseId} 已处于活动状态；校验通过，${shouldActivate ? "未重复写入" : "validate-only 未改变活动版本"}\n`,
+      );
       return;
     }
     if (initialStatus === "RETIRED") {
@@ -115,11 +105,17 @@ async function publish(): Promise<void> {
           .catch(() => undefined);
         throw error;
       }
+    } else if (currentStatus === "VALIDATED") {
+      await validateCandidateInDatabase(client, bundle, packageSummary);
     }
 
     const validatedStatus = await getReleaseStatus(client, releaseId);
     if (validatedStatus !== "VALIDATED") {
       throw new Error(`发布 ${releaseId} 未进入 VALIDATED 状态：${validatedStatus ?? "NOT_FOUND"}`);
+    }
+    if (!shouldActivate) {
+      process.stdout.write(`发布 ${releaseId} 已完成校验并停留在 VALIDATED；未切换活动发布\n`);
+      return;
     }
     await activateAndMaterialize(client, releaseId);
     process.stdout.write(`发布 ${releaseId} 已完成校验并原子激活\n`);

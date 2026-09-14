@@ -1,6 +1,9 @@
 import { Client } from "pg";
 
-import { activateRelease, assertActiveRelease } from "./release-store";
+import {
+  activateAndMaterialize,
+  withInitializationCoordinationLock,
+} from "./activate-and-materialize";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -21,22 +24,23 @@ async function run(): Promise<void> {
   });
   await client.connect();
   try {
-    const result = await client.query<{ status: string; validation_status: string | null }>(
-      `SELECT status, validation_summary ->> 'status' AS validation_status
-       FROM logiplan.data_release
-       WHERE data_release_id = $1`,
-      [releaseId],
-    );
-    const row = result.rows[0];
-    if (row === undefined) {
-      throw new Error(`发布不存在：${releaseId}`);
-    }
-    if (row.validation_status !== "PASS") {
-      throw new Error(`发布没有通过完整校验：${releaseId}`);
-    }
-    await activateRelease(client, releaseId);
-    await assertActiveRelease(client, releaseId);
-    process.stdout.write(`活动发布已切换为 ${releaseId}\n`);
+    await withInitializationCoordinationLock(client, async () => {
+      const result = await client.query<{ status: string; validation_status: string | null }>(
+        `SELECT status, validation_summary ->> 'status' AS validation_status
+         FROM logiplan.data_release
+         WHERE data_release_id = $1`,
+        [releaseId],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new Error(`发布不存在：${releaseId}`);
+      }
+      if (row.validation_status !== "PASS") {
+        throw new Error(`发布没有通过完整校验：${releaseId}`);
+      }
+      await activateAndMaterialize(client, releaseId);
+      process.stdout.write(`活动发布已原子切换为 ${releaseId}，固定证据已物化\n`);
+    });
   } finally {
     await client.end();
   }
