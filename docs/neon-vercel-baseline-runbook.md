@@ -72,7 +72,7 @@ $endpoints = (($endpointJson | ConvertFrom-Json).endpoints |
 pnpm neon:baseline -- \
   --candidate-sha 0229755a097dff94c8de67954b36ab4f9412c0f5 \
   --approved-sha 0229755a097dff94c8de67954b36ab4f9412c0f5 \
-  --tooling-sha d3fc0b8e807db1771487e8c6b0175bb99d405764 \
+  --tooling-sha <TOOLING_SHA> \
   --expected-database neondb
 ```
 
