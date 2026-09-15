@@ -6,6 +6,8 @@ import {
   executionClosurePaths,
   assertExactPrivileges,
   assertSupportedNodeVersion,
+  classifyBootstrapTransactionFailure,
+  classifyRoleBootstrap,
   isolatedGitEnvironment,
   parseArguments,
   runProcess,
@@ -25,12 +27,11 @@ const options = Object.freeze({
   candidateSha: target.candidateSha,
   approvedSha: target.candidateSha,
   toolingSha: target.candidateSha,
-  expectedDatabase: "logiplan",
+  expectedDatabase: "neondb",
 });
 
 function validEnvironment() {
   const directHost = "ep-baseline.ap-southeast-1.aws.neon.tech";
-  const pooledHost = "ep-baseline-pooler.ap-southeast-1.aws.neon.tech";
   return {
     LOGIPLAN_NEON_PROJECT_NAME: target.projectName,
     LOGIPLAN_NEON_PROJECT_ID: target.projectId,
@@ -40,10 +41,10 @@ function validEnvironment() {
     LOGIPLAN_NEON_POSTGRES_VERSION: target.postgresVersion,
     LOGIPLAN_NEON_ENDPOINT_ID: "ep-baseline",
     LOGIPLAN_APPROVED_TOOLING_SHA: target.candidateSha,
-    NEON_ADMIN_DATABASE_URL: `postgresql://neondb_owner:admin-secret@${directHost}/logiplan?sslmode=require`,
-    MIGRATION_DATABASE_URL: `postgresql://schema_migrator:migration-secret@${directHost}/logiplan?sslmode=require`,
-    PUBLISHER_DATABASE_URL: `postgresql://data_publisher:publisher-secret@${directHost}/logiplan?sslmode=require`,
-    DATABASE_URL: `postgresql://app_reader:reader-secret@${pooledHost}/logiplan?sslmode=require`,
+    NEON_ADMIN_DATABASE_URL: `postgresql://neondb_owner:admin-secret@${directHost}/neondb?sslmode=require`,
+    NEON_SCHEMA_MIGRATOR_PASSWORD: "migration-secret",
+    NEON_DATA_PUBLISHER_PASSWORD: "publisher-secret",
+    NEON_APP_READER_PASSWORD: "reader-secret",
   };
 }
 
@@ -72,7 +73,20 @@ test("默认参数不允许把连接串放入命令行", () => {
         "--expected-database",
         "postgresql://role:secret@example.test/db",
       ]),
-    /连接串只能通过环境变量/u,
+    /连接串和密码只能通过环境变量/u,
+  );
+  assert.throws(
+    () =>
+      parseArguments([
+        "--candidate-sha",
+        target.candidateSha,
+        "--approved-sha",
+        target.candidateSha,
+        "--expected-database",
+        "neondb",
+        "NEON_APP_READER_PASSWORD=secret",
+      ]),
+    /连接串和密码只能通过环境变量/u,
   );
 });
 
@@ -201,10 +215,101 @@ test("角色属性和 ACL 必须是迁移定义的精确基线", () => {
 
 test("管理和发布必须直连，运行角色必须池化", () => {
   const environment = validEnvironment();
-  environment.DATABASE_URL = environment.DATABASE_URL.replace("-pooler", "");
+  environment.NEON_ADMIN_DATABASE_URL = environment.NEON_ADMIN_DATABASE_URL.replace(
+    "neondb_owner:",
+    "app_reader:",
+  );
   assert.throws(
-    () => validateConnectionEnvironment(environment, "logiplan", "ep-baseline"),
-    /DATABASE_URL 必须使用池化端点/u,
+    () => validateConnectionEnvironment(environment, "neondb", "ep-baseline"),
+    /管理连接必须使用 neondb_owner/u,
+  );
+});
+
+test("从 admin 主机和隐藏密码构造编码后的直连与池化角色连接", () => {
+  const environment = validEnvironment();
+  environment.NEON_APP_READER_PASSWORD = "reader%40secret/@?#";
+  const connections = validateConnectionEnvironment(environment, "neondb", "ep-baseline");
+  assert.equal(connections.admin.parsed.hostname, "ep-baseline.ap-southeast-1.aws.neon.tech");
+  assert.equal(connections.roles[0].parsed.hostname, "ep-baseline.ap-southeast-1.aws.neon.tech");
+  assert.equal(connections.roles[1].parsed.hostname, "ep-baseline.ap-southeast-1.aws.neon.tech");
+  assert.equal(
+    connections.roles[2].parsed.hostname,
+    "ep-baseline-pooler.ap-southeast-1.aws.neon.tech",
+  );
+  assert.equal(decodeURIComponent(connections.roles[2].parsed.password), "reader%40secret/@?#");
+  assert.equal(decodeURIComponent(connections.roles[2].parsed.pathname.slice(1)), "neondb");
+  assert.equal(connections.roles[2].parsed.search, "?sslmode=require");
+  assert.match(connections.roles[2].raw, /%25|%40|%2F|%3F|%23/u);
+});
+
+test("拒绝 admin URL 中覆盖 host、角色或密码的查询参数", () => {
+  const environment = validEnvironment();
+  environment.NEON_ADMIN_DATABASE_URL += "&host=attacker.example&user=attacker";
+  assert.throws(
+    () => validateConnectionEnvironment(environment, "neondb", "ep-baseline"),
+    /只能包含 sslmode/u,
+  );
+});
+
+test("不读取旧的角色连接串环境变量覆盖内部构造结果", () => {
+  const environment = validEnvironment();
+  environment.MIGRATION_DATABASE_URL =
+    "postgresql://attacker:wrong@ep-wrong.ap-southeast-1.aws.neon.tech/wrong?sslmode=require";
+  environment.PUBLISHER_DATABASE_URL = environment.MIGRATION_DATABASE_URL;
+  environment.DATABASE_URL = environment.MIGRATION_DATABASE_URL;
+  const connections = validateConnectionEnvironment(environment, "neondb", "ep-baseline");
+  assert.equal(connections.roles[0].parsed.username, "schema_migrator");
+  assert.equal(connections.roles[0].parsed.hostname, "ep-baseline.ap-southeast-1.aws.neon.tech");
+  assert.equal(connections.roles[2].parsed.username, "app_reader");
+  assert.equal(
+    connections.roles[2].parsed.hostname,
+    "ep-baseline-pooler.ap-southeast-1.aws.neon.tech",
+  );
+});
+
+test("缺少任一角色密码时拒绝写入凭据构造", () => {
+  const environment = validEnvironment();
+  delete environment.NEON_DATA_PUBLISHER_PASSWORD;
+  assert.throws(
+    () => validateConnectionEnvironment(environment, "neondb", "ep-baseline"),
+    /NEON_DATA_PUBLISHER_PASSWORD/u,
+  );
+});
+
+test("角色初始化计划区分全部缺失、全部存在并拒绝部分漂移", () => {
+  assert.deepEqual(classifyRoleBootstrap([]), {
+    allPresent: false,
+    rolesToCreate: ["schema_migrator", "data_publisher", "app_reader"],
+  });
+  assert.deepEqual(classifyRoleBootstrap(["schema_migrator", "data_publisher", "app_reader"]), {
+    allPresent: true,
+    rolesToCreate: [],
+  });
+  assert.throws(() => classifyRoleBootstrap(["schema_migrator"]), /三角色只存在一部分/u);
+});
+
+test("角色事务的连接异常和 COMMIT 确认丢失均为 unknown", () => {
+  const connectionError = Object.assign(new Error("connection terminated"), { code: "08006" });
+  assert.deepEqual(
+    classifyBootstrapTransactionFailure(connectionError, {
+      commitSent: false,
+      rollbackConfirmed: false,
+    }),
+    { writeOutcomeUnknown: true },
+  );
+  assert.deepEqual(
+    classifyBootstrapTransactionFailure(new Error("COMMIT acknowledgement lost"), {
+      commitSent: true,
+      rollbackConfirmed: false,
+    }),
+    { writeOutcomeUnknown: true },
+  );
+  assert.deepEqual(
+    classifyBootstrapTransactionFailure(new Error("constraint violation"), {
+      commitSent: false,
+      rollbackConfirmed: true,
+    }),
+    { rollbackConfirmed: true },
   );
 });
 
@@ -212,9 +317,9 @@ test("默认预检不读取连接串且不执行数据库写入", async () => {
   const environment = validEnvironment();
   for (const name of [
     "NEON_ADMIN_DATABASE_URL",
-    "MIGRATION_DATABASE_URL",
-    "PUBLISHER_DATABASE_URL",
-    "DATABASE_URL",
+    "NEON_SCHEMA_MIGRATOR_PASSWORD",
+    "NEON_DATA_PUBLISHER_PASSWORD",
+    "NEON_APP_READER_PASSWORD",
   ]) {
     delete environment[name];
   }
@@ -231,6 +336,37 @@ test("默认预检不读取连接串且不执行数据库写入", async () => {
   assert.equal(report.active_release_switch, false);
   assert.deepEqual(report.writes, []);
   assert.equal(report.target_identity_verification.independently_verified_by_this_entry, false);
+});
+
+test("预检失败路径也不读取凭据", async () => {
+  const accesses = [];
+  const environment = new Proxy(validEnvironment(), {
+    get(target, property, receiver) {
+      accesses.push(String(property));
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const localFailure = new Error("local preflight failed");
+  await assert.rejects(
+    runBaseline({ ...options, write: false }, environment, {
+      ...dependencies(async () => undefined),
+      localConfigPreflight: async () => {
+        throw localFailure;
+      },
+    }),
+    /local preflight failed/u,
+  );
+  assert.deepEqual(
+    accesses.filter((name) =>
+      [
+        "NEON_ADMIN_DATABASE_URL",
+        "NEON_SCHEMA_MIGRATOR_PASSWORD",
+        "NEON_DATA_PUBLISHER_PASSWORD",
+        "NEON_APP_READER_PASSWORD",
+      ].includes(name),
+    ),
+    [],
+  );
 });
 
 test("写入模式拒绝继承可改写迁移、发布或 Node 加载行为的环境变量", async () => {
@@ -357,14 +493,23 @@ test("失败消息和报告不泄露连接串或密码", async () => {
     runBaseline(
       options,
       environment,
-      dependencies(async () => {
+      dependencies(async (_options, _environment, connections) => {
+        const roleUrl = connections.roles[2].raw;
         throw new Error(
-          `connection failed: ${secretUrl} ep-baseline.ap-southeast-1.aws.neon.tech 203.0.113.7:5432`,
+          [
+            "connection failed:",
+            secretUrl,
+            roleUrl,
+            environment.NEON_APP_READER_PASSWORD,
+            "ep-baseline.ap-southeast-1.aws.neon.tech",
+            "203.0.113.7:5432",
+          ].join(" "),
         );
       }),
     ),
     (error) => {
       assert(!error.message.includes("admin-secret"));
+      assert(!error.message.includes("reader-secret"));
       assert(!error.message.includes(secretUrl));
       assert(!error.message.includes("ep-baseline.ap-southeast-1.aws.neon.tech"));
       assert(!error.message.includes("203.0.113.7"));
@@ -374,7 +519,7 @@ test("失败消息和报告不泄露连接串或密码", async () => {
       return true;
     },
   );
-  const connections = validateConnectionEnvironment(environment, "logiplan", "ep-baseline");
+  const connections = validateConnectionEnvironment(environment, "neondb", "ep-baseline");
   const serialized = JSON.stringify(createReport(options, { connections }));
   for (const secret of ["admin-secret", "migration-secret", "publisher-secret", "reader-secret"]) {
     assert(!serialized.includes(secret));

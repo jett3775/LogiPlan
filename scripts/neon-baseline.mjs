@@ -28,9 +28,24 @@ export const target = Object.freeze({
 });
 
 const roleConnections = Object.freeze([
-  { env: "MIGRATION_DATABASE_URL", role: "schema_migrator", pooled: false },
-  { env: "PUBLISHER_DATABASE_URL", role: "data_publisher", pooled: false },
-  { env: "DATABASE_URL", role: "app_reader", pooled: true },
+  {
+    env: "MIGRATION_DATABASE_URL",
+    passwordEnv: "NEON_SCHEMA_MIGRATOR_PASSWORD",
+    role: "schema_migrator",
+    pooled: false,
+  },
+  {
+    env: "PUBLISHER_DATABASE_URL",
+    passwordEnv: "NEON_DATA_PUBLISHER_PASSWORD",
+    role: "data_publisher",
+    pooled: false,
+  },
+  {
+    env: "DATABASE_URL",
+    passwordEnv: "NEON_APP_READER_PASSWORD",
+    role: "app_reader",
+    pooled: true,
+  },
 ]);
 const targetEnvironment = Object.freeze({
   LOGIPLAN_NEON_PROJECT_NAME: target.projectName,
@@ -154,9 +169,11 @@ export function parseArguments(argv) {
   const options = { write: false, timeoutMs: 300_000 };
   assert(
     argv.every(
-      (argument) => !/postgres(?:ql)?:\/\//iu.test(argument) && !/DATABASE_URL=/u.test(argument),
+      (argument) =>
+        !/postgres(?:ql)?:\/\//iu.test(argument) &&
+        !/(?:DATABASE_URL|NEON_[A-Z0-9_]*PASSWORD)=/u.test(argument),
     ),
-    "连接串只能通过环境变量传入，禁止作为命令行参数",
+    "连接串和密码只能通过环境变量传入，禁止作为命令行参数",
   );
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -263,24 +280,86 @@ function endpointFromHost(hostname) {
   return hostname.split(".")[0]?.replace(/-pooler$/u, "");
 }
 
+function assertSafeConnectionQuery(parsed, name) {
+  const keys = [...parsed.searchParams.keys()];
+  assert(
+    keys.length === 1 && keys[0] === "sslmode",
+    `${name} 只能包含 sslmode，禁止通过查询参数覆盖连接身份`,
+  );
+}
+
+function roleHostFromAdmin(adminHostname, endpointId, pooled) {
+  const directHostname = adminHostname.replace(/-pooler(?=\.)/u, "");
+  assert(endpointFromHost(directHostname) === endpointId, "管理连接主机与目标 endpoint 不匹配");
+  const suffix = directHostname.slice(`${endpointId}.`.length);
+  assert(suffix.length > 0, "管理连接主机缺少 Neon 区域后缀");
+  return pooled ? `${endpointId}-pooler.${suffix}` : directHostname;
+}
+
+function buildRoleUrl(admin, definition, password, expectedDatabase, endpointId) {
+  assert(password.length > 0, `${definition.passwordEnv} 不能为空`);
+  const roleUrl = new URL(admin.toString());
+  const sslmode = admin.searchParams.get("sslmode");
+  roleUrl.hostname = roleHostFromAdmin(admin.hostname, endpointId, definition.pooled);
+  roleUrl.username = "";
+  roleUrl.password = "";
+  roleUrl.pathname = `/${expectedDatabase}`;
+  roleUrl.search = "";
+  roleUrl.searchParams.set("sslmode", sslmode);
+  const serialized = roleUrl.toString();
+  const schemeEnd = serialized.indexOf("//") + 2;
+  const encodedRole = encodeURIComponent(definition.role);
+  const encodedPassword = encodeURIComponent(password);
+  return `${serialized.slice(0, schemeEnd)}${encodedRole}:${encodedPassword}@${serialized.slice(
+    schemeEnd,
+  )}`;
+}
+
+export function classifyRoleBootstrap(existingRoleNames) {
+  const existing = new Set(existingRoleNames);
+  const allPresent = managedRoleNames.every((role) => existing.has(role));
+  assert(existing.size === 0 || allPresent, "三角色只存在一部分，拒绝非原子角色状态");
+  return {
+    allPresent,
+    rolesToCreate: allPresent ? [] : [...managedRoleNames],
+  };
+}
+
+function isConnectionException(error) {
+  const code = typeof error?.code === "string" ? error.code : "";
+  return (
+    code.startsWith("08") ||
+    ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "ENOTFOUND"].includes(code) ||
+    /connection (?:closed|lost|terminated)|socket hang up|connection reset/iu.test(
+      String(error?.message ?? ""),
+    )
+  );
+}
+
+export function classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed }) {
+  if (commitSent || isConnectionException(error) || !rollbackConfirmed) {
+    return { writeOutcomeUnknown: true };
+  }
+  return { rollbackConfirmed: true };
+}
+
 export function validateConnectionEnvironment(environment, expectedDatabase, endpointId) {
   const adminValue = environment.NEON_ADMIN_DATABASE_URL;
   assert(adminValue, "--write 需要环境变量 NEON_ADMIN_DATABASE_URL");
   const admin = parsePostgresUrl(adminValue, "NEON_ADMIN_DATABASE_URL");
+  assertSafeConnectionQuery(admin, "NEON_ADMIN_DATABASE_URL");
   assert(!admin.hostname.includes("-pooler."), "管理连接必须使用直连端点");
   assert(
     endpointFromHost(admin.hostname) === endpointId,
     "管理连接端点与 LOGIPLAN_NEON_ENDPOINT_ID 不匹配",
   );
   assert(decodeURIComponent(admin.username).length > 0, "管理连接缺少角色名称");
-  assert(
-    decodeURIComponent(admin.username) !== "schema_migrator",
-    "管理连接不得复用 schema_migrator",
-  );
+  assert(decodeURIComponent(admin.username) === "neondb_owner", "管理连接必须使用 neondb_owner");
 
   const parsedRoles = roleConnections.map((definition) => {
-    const raw = environment[definition.env];
-    assert(raw, `--write 需要环境变量 ${definition.env}`);
+    const password = environment[definition.passwordEnv];
+    assert(password, `--write 需要环境变量 ${definition.passwordEnv}`);
+    const raw = buildRoleUrl(admin, definition, password, expectedDatabase, endpointId);
     const parsed = parsePostgresUrl(raw, definition.env);
     assert(
       decodeURIComponent(parsed.username) === definition.role,
@@ -295,10 +374,13 @@ export function validateConnectionEnvironment(environment, expectedDatabase, end
       decodeURIComponent(parsed.pathname.slice(1)) === expectedDatabase,
       `${definition.env} 数据库不匹配`,
     );
-    return { ...definition, parsed, raw };
+    return { ...definition, parsed, raw, secret: password };
   });
   assert(decodeURIComponent(admin.pathname.slice(1)) === expectedDatabase, "管理连接数据库不匹配");
-  return { admin: { parsed: admin, raw: adminValue }, roles: parsedRoles };
+  return {
+    admin: { parsed: admin, raw: adminValue, secret: decodeURIComponent(admin.password) },
+    roles: parsedRoles,
+  };
 }
 
 function redact(text, secrets) {
@@ -874,11 +956,8 @@ async function bootstrapRoles(options, connections, adminRole) {
        FROM pg_roles WHERE rolname = ANY($1::text[])`,
       [roleNames],
     );
-    assert(
-      existingRoles.rowCount === 0 || existingRoles.rowCount === roleNames.length,
-      "三角色只存在一部分，拒绝非原子角色状态",
-    );
-    if (existingRoles.rowCount === roleNames.length) {
+    const rolePlan = classifyRoleBootstrap(existingRoles.rows.map(({ rolname }) => rolname));
+    if (rolePlan.allPresent) {
       await assertRoleDefinitions(admin, adminRole);
       const schema = await admin.query("SELECT to_regnamespace('logiplan') IS NOT NULL AS exists");
       if (schema.rows[0]?.exists === true) await assertRolePrivilegeBaseline(admin, adminRole);
@@ -888,9 +967,12 @@ async function bootstrapRoles(options, connections, adminRole) {
     const databaseIdentifier = await admin.query("SELECT format('%I', current_database()) AS name");
     const databaseName = databaseIdentifier.rows[0].name;
     await admin.query("BEGIN");
+    let commitSent = false;
     try {
-      for (const connection of connections.roles) {
-        const password = decodeURIComponent(connection.parsed.password);
+      for (const connection of connections.roles.filter(({ role }) =>
+        rolePlan.rolesToCreate.includes(role),
+      )) {
+        const password = connection.secret;
         const statement = await admin.query(
           `SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1, $2) AS sql`,
           [connection.role, password],
@@ -904,9 +986,27 @@ async function bootstrapRoles(options, connections, adminRole) {
       await admin.query(`GRANT CREATE ON DATABASE ${databaseName} TO schema_migrator`);
       await admin.query("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
       await admin.query("GRANT USAGE, CREATE ON SCHEMA public TO schema_migrator");
+      commitSent = true;
       await admin.query("COMMIT");
     } catch (error) {
-      await admin.query("ROLLBACK");
+      if (commitSent || isConnectionException(error)) {
+        Object.assign(
+          error,
+          classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed: false }),
+        );
+        throw error;
+      }
+      let rollbackConfirmed = false;
+      try {
+        await admin.query("ROLLBACK");
+        rollbackConfirmed = true;
+      } catch {
+        rollbackConfirmed = false;
+      }
+      Object.assign(
+        error,
+        classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed }),
+      );
       throw error;
     }
   } finally {
@@ -926,7 +1026,16 @@ async function defaultPrepareDatabase(options, environment, connections, onStage
     assert(lock.rows[0]?.acquired === true, "另一个 Neon 基线任务正在执行，拒绝并发写入");
     onStage("baseline_lock_acquired");
 
-    await bootstrapRoles(options, connections, adminRole);
+    try {
+      await bootstrapRoles(options, connections, adminRole);
+    } catch (error) {
+      if (error?.writeOutcomeUnknown) {
+        error.observedState = await inspectDatabaseState(lockClient).catch(() => ({
+          state_check: "failed",
+        }));
+      }
+      throw error;
+    }
     onStage("roles_bootstrapped");
 
     for (const connection of connections.roles) {
@@ -942,7 +1051,16 @@ async function defaultPrepareDatabase(options, environment, connections, onStage
     }
     onStage("identities_verified");
 
-    const secrets = [connections.admin.raw, ...connections.roles.map(({ raw }) => raw)];
+    const roleUrl = (role) => {
+      const connection = connections.roles.find((candidate) => candidate.role === role);
+      assert(connection, `缺少角色连接：${role}`);
+      return connection.raw;
+    };
+    const secrets = [
+      connections.admin.raw,
+      connections.admin.secret,
+      ...connections.roles.flatMap(({ raw, secret }) => [raw, secret]),
+    ];
     const runDatabaseEntry = async (label, entry, databaseEnvironment) => {
       const output = await runProcess(process.execPath, ["--import", "tsx", entry], {
         environment: isolatedChildEnvironment(environment, databaseEnvironment),
@@ -954,20 +1072,20 @@ async function defaultPrepareDatabase(options, environment, connections, onStage
     };
     try {
       await runDatabaseEntry("执行增量迁移", "packages/db/src/migrate.ts", {
-        MIGRATION_DATABASE_URL: environment.MIGRATION_DATABASE_URL,
+        MIGRATION_DATABASE_URL: roleUrl("schema_migrator"),
         MIGRATION_DIRECTORY: resolve("database/migrations"),
       });
       onStage("migrations_applied");
       await runDatabaseEntry("导入并校验候选（不激活）", "packages/db/src/publish-release.ts", {
-        PUBLISHER_DATABASE_URL: environment.PUBLISHER_DATABASE_URL,
+        PUBLISHER_DATABASE_URL: roleUrl("data_publisher"),
         RELEASE_MANIFEST: resolve("database/releases/LOGIPLAN_2026_DEMO_V2.json"),
         LOGIPLAN_PUBLISH_MODE: "validate-only",
       });
       onStage("candidate_validated");
       await runDatabaseEntry("验证结构、精度与三角色权限", "packages/db/src/verify-schema.ts", {
-        MIGRATION_DATABASE_URL: environment.MIGRATION_DATABASE_URL,
-        PUBLISHER_DATABASE_URL: environment.PUBLISHER_DATABASE_URL,
-        DATABASE_URL: environment.DATABASE_URL,
+        MIGRATION_DATABASE_URL: roleUrl("schema_migrator"),
+        PUBLISHER_DATABASE_URL: roleUrl("data_publisher"),
+        DATABASE_URL: roleUrl("app_reader"),
       });
       await assertRolePrivilegeBaseline(lockClient, adminRole);
       onStage("permissions_verified");
@@ -981,7 +1099,7 @@ async function defaultPrepareDatabase(options, environment, connections, onStage
     }
 
     const publisher = await connectWithRetry(
-      environment.PUBLISHER_DATABASE_URL,
+      roleUrl("data_publisher"),
       "logiplan-neon-final-state-verifier",
     );
     try {
@@ -1091,10 +1209,14 @@ export async function runBaseline(options, environment = process.env, dependenci
     await saveReport(options.reportPath, report);
     return report;
   } catch (error) {
-    const secrets = [
-      environment.NEON_ADMIN_DATABASE_URL,
-      ...roleConnections.map(({ env }) => environment[env]),
-    ];
+    const secrets = options.write
+      ? [
+          environment.NEON_ADMIN_DATABASE_URL,
+          ...roleConnections.map(({ passwordEnv }) => environment[passwordEnv]),
+          connections?.admin?.secret,
+          ...(connections?.roles ?? []).flatMap(({ raw, secret }) => [raw, secret]),
+        ]
+      : [];
     const safeMessage = redact(error instanceof Error ? error.message : "未知错误", secrets);
     const outcomeUnknown = Boolean(error?.writeOutcomeUnknown);
     databaseState = error?.observedState ?? databaseState;
@@ -1121,7 +1243,7 @@ export async function runBaseline(options, environment = process.env, dependenci
 }
 
 function usage() {
-  return `用法：pnpm neon:baseline -- --candidate-sha <40位SHA> --approved-sha <40位SHA> --expected-database <数据库> [--tooling-sha <40位SHA> --write] [--report <新文件>] [--timeout-seconds 300]\n\n默认仅预检，不连接或写入 Neon。--write 还要求 LOGIPLAN_APPROVED_TOOLING_SHA 精确批准已提交且无漂移的执行闭包；创建或核验三角色、执行迁移并把 V2 候选停在 VALIDATED，不激活发布，不配置或部署 Vercel。连接串只能通过环境变量传入。\n`;
+  return `用法：pnpm neon:baseline -- --candidate-sha <40位SHA> --approved-sha <40位SHA> --expected-database <数据库> [--tooling-sha <40位SHA> --write] [--report <新文件>] [--timeout-seconds 300]\n\n默认仅预检，不读取凭据、不连接或写入 Neon。--write 还要求 LOGIPLAN_APPROVED_TOOLING_SHA 精确批准已提交且无漂移的执行闭包；创建或核验三角色、执行迁移并把 V2 候选停在 VALIDATED，不激活发布，不配置或部署 Vercel。admin 连接串和角色密码只能通过环境变量传入。\n`;
 }
 
 async function main() {

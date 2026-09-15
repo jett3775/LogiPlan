@@ -27,34 +27,81 @@ LOGIPLAN_NEON_REGION=aws-ap-southeast-1
 LOGIPLAN_NEON_BRANCH_NAME=main
 LOGIPLAN_NEON_BRANCH_ID=br-patient-smoke-b3f5jtui
 LOGIPLAN_NEON_POSTGRES_VERSION=18.6
-LOGIPLAN_NEON_ENDPOINT_ID=<Neon 连接主机中的 ep-... 段>
+LOGIPLAN_NEON_ENDPOINT_ID=ep-empty-shape-b35qu1jv
 ```
 
-执行只读预检：
+数据库名和 endpoint ID 必须先通过 Neon 管理 API 只读核对，不从 branch
+详情中的 `database_name` 推断。使用已认证的 Neon CLI API passthrough：
+
+```powershell
+$ErrorActionPreference = "Stop"
+$projectId = "mute-mouse-49732061"
+$branchId = "br-patient-smoke-b3f5jtui"
+
+# GET /projects/{project_id}/branches/{branch_id}/databases
+$databaseJson = & neonctl api "/projects/$projectId/branches/$branchId/databases" --output json
+if ($LASTEXITCODE -ne 0) { throw "读取目标分支数据库列表失败" }
+$databases = (($databaseJson | ConvertFrom-Json).databases | ForEach-Object { $_.name })
+
+# GET /projects/{project_id}/endpoints；只保留目标分支的 read_write endpoint
+$endpointJson = & neonctl api "/projects/$projectId/endpoints" --output json
+if ($LASTEXITCODE -ne 0) { throw "读取项目 endpoint 列表失败" }
+$endpoints = (($endpointJson | ConvertFrom-Json).endpoints |
+  Where-Object { $_.branch_id -eq $branchId -and $_.type -eq "read_write" } |
+  ForEach-Object {
+    [pscustomobject]@{ endpoint_id = $_.id; branch_id = $_.branch_id }
+  })
+
+[pscustomobject]@{
+  database_names = @($databases)
+  read_write_endpoints = @($endpoints)
+} | ConvertTo-Json -Depth 4
+```
+
+输出只能包含数据库名、endpoint ID 和 endpoint 的 `branch_id`。数据库选择规则：
+
+- 无数据库：停止，不创建数据库；
+- 一个数据库：使用该名称；
+- 多个数据库：停止并人工明确选择一个名称，不猜测 `neondb` 或 `logiplan`；
+- 无 `read_write` endpoint：停止，不创建 endpoint；
+- 多个目标分支的 `read_write` endpoint：停止并报告差异，不选择或删除 endpoint。
+
+确认数据库名称后，再将其显式传入只读预检：
 
 ```bash
 pnpm neon:baseline -- \
   --candidate-sha 0229755a097dff94c8de67954b36ab4f9412c0f5 \
   --approved-sha 0229755a097dff94c8de67954b36ab4f9412c0f5 \
-  --expected-database logiplan
+  --tooling-sha d3fc0b8e807db1771487e8c6b0175bb99d405764 \
+  --expected-database neondb
 ```
 
-数据库名未在 Neon 项目元数据中冻结；示例 `logiplan` 只有在 Neon 中已创建同名数据库时才可使用。必须以实际目标库名显式替换，不允许脚本猜测 `neondb` 或其他默认名称。
+上述只读核对已确认目标数据库为 `neondb`；仍不得从 branch 详情猜测
+`database_name`，也不得在其他目标上猜测 `neondb`、`logiplan` 或其他默认名称。
 
-目标项目 ID、分支 ID 和区域无法仅靠 PostgreSQL 协议从服务器反查。运行前必须在 Neon Console 或只读管理 API 中核对这些元数据及 endpoint ID；脚本随后把显式元数据、连接主机、实际数据库、实际角色和服务器版本交叉校验。该限制会保留在报告中，不得把连接成功当成项目身份的独立证明。
+目标项目 ID、分支 ID、数据库和 endpoint ID 无法仅靠 PostgreSQL 协议完整反查。
+运行前必须通过上述只读管理 API 核对数据库列表，并从项目 endpoint 列表按
+`branch_id` 和 `type=read_write` 筛选 endpoint；脚本随后把显式元数据、连接主机、
+实际数据库、实际角色和服务器版本交叉校验。该限制会保留在报告中，不得把连接成功
+当成项目身份的独立证明。
 
 ## 3. 隐藏凭据与写入准备
 
-禁止把连接串放在参数、命令历史、报告或聊天中。`--write` 只从进程环境读取：
+禁止把连接串或密码放在参数、命令历史、报告或聊天中。`--write` 只从进程环境读取：
 
 - `NEON_ADMIN_DATABASE_URL`：目标数据库 owner 的直连连接，用于首次建立三角色；
-- `MIGRATION_DATABASE_URL`：`schema_migrator` 直连；
-- `PUBLISHER_DATABASE_URL`：`data_publisher` 直连；
-- `DATABASE_URL`：`app_reader` 的 `-pooler` 池化连接。
+- `NEON_SCHEMA_MIGRATOR_PASSWORD`：`schema_migrator` 的新建或现有密码；
+- `NEON_DATA_PUBLISHER_PASSWORD`：`data_publisher` 的新建或现有密码；
+- `NEON_APP_READER_PASSWORD`：`app_reader` 的新建或现有密码。
 
-四个 URL 必须启用 `sslmode=require` 或 `sslmode=verify-full`。管理、迁移和发布 URL 必须指向同一直接 endpoint；运行 URL 必须是同一 endpoint 的 `-pooler` 形式。脚本仅在角色缺失时使用相应 URL 中的密码创建角色；已有角色只做属性、成员关系、所有权和 ACL 核验，不改密码，也不另存密码。
+PowerShell 入口只隐藏读取一个已有的 owner 连接串和三个密码。Node 入口先验证
+owner URL 的区域、直连 endpoint、SSL、`neondb_owner` 和数据库名，再在内存中构造：
+`schema_migrator` 与 `data_publisher` 使用同一直接 endpoint，`app_reader` 使用同一
+endpoint 的 `-pooler` 主机。角色名、数据库名和 endpoint 不从密码输入中读取，也不要求
+手工构造角色连接串。密码仅在进程内用于缺失角色的原子创建和角色连接验证；已有角色
+只做属性、成员关系、所有权和 ACL 核验，不改密码。
 
-PowerShell 入口会对缺失连接串使用隐藏输入，并在结束后恢复进程原环境：
+PowerShell 入口只在 `-Write` 时进行隐藏输入，并在结束后恢复进程原环境：
 
 ```powershell
 ./scripts/neon-baseline.ps1 `
@@ -62,12 +109,12 @@ PowerShell 入口会对缺失连接串使用隐藏输入，并在结束后恢复
   -ApprovedSha 0229755a097dff94c8de67954b36ab4f9412c0f5 `
   -ToolingSha <已提交执行包 SHA> `
   -ApprovedToolingSha <独立批准执行包 SHA> `
-  -ExpectedDatabase logiplan `
+  -ExpectedDatabase neondb `
   -Write `
   -Report neon-baseline-report-20260911.json
 ```
 
-Bash/WSL 可用 `read -rsp` 分别读入上述四个变量并 `export`，并把已提交执行包 SHA 与独立批准执行包 SHA 作为非秘密参数/环境值传入；随后执行：
+Bash/WSL 可用 `read -rsp` 分别读入上述一个 admin URL 和三个密码并 `export`，并把已提交执行包 SHA 与独立批准执行包 SHA 作为非秘密参数/环境值传入；随后执行：
 
 ```bash
 export LOGIPLAN_APPROVED_TOOLING_SHA=<独立批准执行包 SHA>
@@ -80,6 +127,7 @@ pnpm neon:baseline -- \
   --report neon-baseline-report-YYYYMMDD.json
 ```
 
+默认预检不读取上述四个秘密、不建立数据库连接；只有 `--write` 才进行实时角色检测和初始化。
 不要写入 `.env`、shell profile 或仓库文件。报告路径必须是不存在的新文件；入口以 `0600` 创建，拒绝覆盖。
 
 连接建立最多重试三次，仅覆盖尚未开始写入的连接故障。`--write` 使用管理直连持有覆盖角色、迁移、发布和权限验收全流程的 advisory lock；无法取得锁时立即拒绝并发任务。迁移或发布命令不自动重试，避免把未知提交结果误报为已回滚。
