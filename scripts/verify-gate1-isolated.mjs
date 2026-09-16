@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -10,6 +10,8 @@ import { childHasStopped, waitForServer } from "./wait-for-server.mjs";
 
 const projectName = `logiplan-gate1-${process.pid}-${randomBytes(4).toString("hex")}`;
 const projectNamePattern = /^logiplan-gate1-[a-z0-9-]+$/u;
+const roleBootstrapContainerName = `logiplan-role-bootstrap-test-${process.pid}-${randomBytes(8).toString("hex")}`;
+const roleBootstrapContainerNamePattern = /^logiplan-role-bootstrap-test-\d+-[0-9a-f]{16}$/u;
 const temporaryMigrationPrefix = "logiplan-gate1-migrations-";
 const gate1MigrationFiles = [
   "0001_gate1_schema.sql",
@@ -18,7 +20,11 @@ const gate1MigrationFiles = [
 ];
 const upgradedV2ReleaseId = "LOGIPLAN_2026_DEMO_V2";
 
-if (!projectNamePattern.test(projectName) || projectName === "logiplan") {
+if (
+  !projectNamePattern.test(projectName) ||
+  projectName === "logiplan" ||
+  !roleBootstrapContainerNamePattern.test(roleBootstrapContainerName)
+) {
   throw new Error("隔离 Compose 项目名无效");
 }
 
@@ -355,6 +361,39 @@ function runCompose(label, args, env, options = {}) {
   );
 }
 
+function removeRoleBootstrapContainer(environment) {
+  if (!roleBootstrapContainerNamePattern.test(roleBootstrapContainerName)) {
+    throw new Error("拒绝清理未受控的角色事务测试容器");
+  }
+  const docker = environment.DOCKER_CLI || (process.platform === "win32" ? "docker.exe" : "docker");
+  const inspect = spawnSync(docker, ["container", "inspect", roleBootstrapContainerName], {
+    encoding: "utf8",
+    env: environment,
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (inspect.status !== 0) {
+    const detail = `${inspect.stderr ?? ""}${inspect.error?.message ?? ""}`;
+    if (/No such (?:object|container)/iu.test(detail)) return;
+    throw new Error(`无法检查角色事务测试容器：${detail || String(inspect.status)}`);
+  }
+  const removed = spawnSync(
+    docker,
+    ["container", "rm", "--force", "--volumes", roleBootstrapContainerName],
+    {
+      encoding: "utf8",
+      env: environment,
+      timeout: 30_000,
+      windowsHide: true,
+    },
+  );
+  if (removed.status !== 0) {
+    throw new Error(
+      `角色事务测试容器清理失败：${removed.stderr || removed.error?.message || String(removed.status)}`,
+    );
+  }
+}
+
 function handleSignal(signal) {
   receivedSignalCount += 1;
   if (receivedSignal === undefined) receivedSignal = signal;
@@ -450,10 +489,14 @@ async function verify() {
   let primaryError;
   try {
     await runProcess(
-      "Neon 基线入口代码级回归测试",
+      "Neon 基线入口与真实角色事务回归测试",
       process.execPath,
       ["--test", "scripts/neon-baseline.test.mjs"],
-      guardedEnvironment,
+      {
+        ...guardedEnvironment,
+        NEON_BASELINE_TEST_DOCKER: "1",
+        NEON_BASELINE_TEST_CONTAINER_NAME: roleBootstrapContainerName,
+      },
     );
     await runProcess(
       "本地 API 服务等待逻辑回归测试",
@@ -532,6 +575,11 @@ async function verify() {
       }
     } catch (error) {
       cleanupError = error;
+    }
+    try {
+      removeRoleBootstrapContainer(guardedEnvironment);
+    } catch (error) {
+      if (cleanupError === undefined) cleanupError = error;
     }
     try {
       await runCompose(

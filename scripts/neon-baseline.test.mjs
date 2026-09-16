@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { test } from "node:test";
 
 import {
   createReport,
   executionClosurePaths,
+  executeRoleBootstrapTransaction,
   assertExactPrivileges,
   assertSupportedNodeVersion,
   classifyBootstrapTransactionFailure,
@@ -20,6 +24,11 @@ import {
   validateTargetEnvironment,
   validateToolingApproval,
 } from "./neon-baseline.mjs";
+
+const requireFromDatabasePackage = createRequire(
+  new URL("../packages/db/package.json", import.meta.url),
+);
+const { Client } = requireFromDatabasePackage("pg");
 
 const options = Object.freeze({
   write: true,
@@ -61,6 +70,224 @@ function dependencies(prepareDatabase) {
     persistReport: async () => undefined,
   };
 }
+
+const runRoleBootstrapIntegration = process.env.NEON_BASELINE_TEST_DOCKER === "1";
+const roleBootstrapContainerNamePattern = /^logiplan-role-bootstrap-test-\d+-[0-9a-f]{16}$/u;
+
+function roleBootstrapConnections(overrides = {}) {
+  return {
+    roles: [
+      { role: "schema_migrator", secret: "migration-secret" },
+      { role: "data_publisher", secret: "publisher-secret" },
+      { role: "app_reader", secret: "reader-secret" },
+    ].map((connection, index) => ({ ...connection, ...(overrides[index] ?? {}) })),
+  };
+}
+
+async function dropManagedRoles(admin) {
+  await admin.query("DROP OWNED BY schema_migrator, data_publisher, app_reader");
+  await admin.query("DROP ROLE IF EXISTS schema_migrator, data_publisher, app_reader");
+}
+
+async function existingManagedRoles(admin) {
+  const result = await admin.query(
+    `SELECT rolname FROM pg_roles
+     WHERE rolname = ANY($1::text[])
+     ORDER BY rolname`,
+    [["schema_migrator", "data_publisher", "app_reader"]],
+  );
+  return result.rows.map(({ rolname }) => rolname);
+}
+
+function findDockerCli() {
+  const candidates = [process.env.DOCKER_CLI, "docker"];
+  if (process.platform === "win32") candidates.push("docker.exe");
+  for (const candidate of [...new Set(candidates.filter(Boolean))]) {
+    const result = spawnSync(candidate, ["version", "--format", "{{.Server.Version}}"], {
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    if (result.status === 0 && result.stdout.trim().length > 0) return candidate;
+  }
+  throw new Error("无法连接 Docker 引擎以执行真实角色事务回归");
+}
+
+function runDocker(docker, args, environment = process.env) {
+  const result = spawnSync(docker, args, {
+    encoding: "utf8",
+    env: environment,
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  if (result.status !== 0) {
+    throw new Error(`隔离 PostgreSQL 命令失败：${result.stderr || result.error?.message}`);
+  }
+  return result.stdout.trim();
+}
+
+async function startRoleBootstrapPostgres() {
+  const docker = findDockerCli();
+  const generatedContainerName = `logiplan-role-bootstrap-test-${process.pid}-${randomBytes(8).toString("hex")}`;
+  const containerName = process.env.NEON_BASELINE_TEST_CONTAINER_NAME ?? generatedContainerName;
+  assert.match(containerName, roleBootstrapContainerNamePattern);
+  const password = randomBytes(24).toString("hex");
+  const dockerEnvironment = { ...process.env, POSTGRES_PASSWORD: password };
+  let cleanupRequired = false;
+  try {
+    const existing = spawnSync(docker, ["container", "inspect", containerName], {
+      encoding: "utf8",
+      timeout: 10_000,
+      windowsHide: true,
+    });
+    assert.notEqual(existing.status, 0, "角色事务测试容器名称已被占用");
+    cleanupRequired = true;
+    const containerId = runDocker(
+      docker,
+      [
+        "run",
+        "--detach",
+        "--rm",
+        "--name",
+        containerName,
+        "--publish",
+        "127.0.0.1::5432",
+        "--tmpfs",
+        "/var/lib/postgresql",
+        "--env",
+        "POSTGRES_DB=logiplan",
+        "--env",
+        "POSTGRES_USER=postgres",
+        "--env",
+        "POSTGRES_PASSWORD",
+        "postgres:18.4",
+      ],
+      dockerEnvironment,
+    );
+    assert.match(containerId, /^[0-9a-f]{64}$/u);
+    let ready = false;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const probe = spawnSync(
+        docker,
+        ["exec", containerId, "pg_isready", "-U", "postgres", "-d", "logiplan"],
+        { encoding: "utf8", timeout: 10_000, windowsHide: true },
+      );
+      if (probe.status === 0) {
+        ready = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert(ready, "隔离 PostgreSQL 未就绪");
+    const port = runDocker(docker, ["port", containerId, "5432/tcp"]).split(":").at(-1);
+    assert.match(port, /^\d+$/u);
+    return {
+      connectionString: `postgresql://postgres:${password}@127.0.0.1:${port}/logiplan`,
+      stop() {
+        runDocker(docker, ["container", "rm", "--force", "--volumes", containerName]);
+        cleanupRequired = false;
+      },
+    };
+  } catch (error) {
+    if (cleanupRequired) {
+      try {
+        runDocker(docker, ["container", "rm", "--force", "--volumes", containerName]);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "角色事务测试数据库启动失败且容器清理失败");
+      }
+    }
+    throw error;
+  }
+}
+
+test(
+  "真实 PostgreSQL 角色创建事务保持原子性和既有密码",
+  { skip: !runRoleBootstrapIntegration },
+  async () => {
+    const postgres = await startRoleBootstrapPostgres();
+    const admin = new Client({ connectionString: postgres.connectionString });
+    try {
+      await admin.connect();
+      const databaseIdentifier = await admin.query(
+        "SELECT format('%I', current_database()) AS name",
+      );
+      const databaseName = databaseIdentifier.rows[0].name;
+      const missingPlan = classifyRoleBootstrap([]);
+
+      await executeRoleBootstrapTransaction(
+        admin,
+        roleBootstrapConnections(),
+        databaseName,
+        missingPlan,
+      );
+      assert.deepEqual(await existingManagedRoles(admin), [
+        "app_reader",
+        "data_publisher",
+        "schema_migrator",
+      ]);
+
+      const passwordsBefore = await admin.query(
+        `SELECT rolname, rolpassword FROM pg_authid
+         WHERE rolname = ANY($1::text[])
+         ORDER BY rolname`,
+        [["schema_migrator", "data_publisher", "app_reader"]],
+      );
+      await executeRoleBootstrapTransaction(
+        admin,
+        roleBootstrapConnections({
+          0: { secret: "changed-migration-secret" },
+          1: { secret: "changed-publisher-secret" },
+          2: { secret: "changed-reader-secret" },
+        }),
+        databaseName,
+        classifyRoleBootstrap(await existingManagedRoles(admin)),
+      );
+      const passwordsAfter = await admin.query(
+        `SELECT rolname, rolpassword FROM pg_authid
+         WHERE rolname = ANY($1::text[])
+         ORDER BY rolname`,
+        [["schema_migrator", "data_publisher", "app_reader"]],
+      );
+      assert.deepEqual(passwordsAfter.rows, passwordsBefore.rows);
+
+      await dropManagedRoles(admin);
+      await assert.rejects(
+        executeRoleBootstrapTransaction(
+          admin,
+          roleBootstrapConnections({ 2: { role: "schema_migrator" } }),
+          databaseName,
+          missingPlan,
+        ),
+        (error) => {
+          assert.equal(error.code, "42710");
+          assert.equal(error.rollbackConfirmed, true);
+          assert.equal(error.writeOutcomeUnknown, undefined);
+          return true;
+        },
+      );
+      assert.deepEqual(await existingManagedRoles(admin), []);
+
+      await assert.rejects(
+        executeRoleBootstrapTransaction(
+          admin,
+          roleBootstrapConnections(),
+          '"missing_role_bootstrap_database"',
+          missingPlan,
+        ),
+        (error) => {
+          assert.equal(error.code, "3D000");
+          assert.equal(error.rollbackConfirmed, true);
+          assert.equal(error.writeOutcomeUnknown, undefined);
+          return true;
+        },
+      );
+      assert.deepEqual(await existingManagedRoles(admin), []);
+    } finally {
+      await admin.end().catch(() => undefined);
+      postgres.stop();
+    }
+  },
+);
 
 test("默认参数不允许把连接串放入命令行", () => {
   assert.throws(

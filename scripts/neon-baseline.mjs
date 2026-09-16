@@ -942,6 +942,54 @@ async function assertRolePrivilegeBaseline(admin, adminRole) {
   );
 }
 
+export async function executeRoleBootstrapTransaction(admin, connections, databaseName, rolePlan) {
+  if (rolePlan.allPresent) return;
+
+  await admin.query("BEGIN");
+  let commitSent = false;
+  try {
+    for (const connection of connections.roles.filter(({ role }) =>
+      rolePlan.rolesToCreate.includes(role),
+    )) {
+      const password = connection.secret;
+      const statement = await admin.query(
+        `SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1::text, $2::text) AS sql`,
+        [connection.role, password],
+      );
+      await admin.query(statement.rows[0].sql);
+    }
+    await admin.query(`REVOKE TEMPORARY ON DATABASE ${databaseName} FROM PUBLIC`);
+    await admin.query(
+      `GRANT CONNECT ON DATABASE ${databaseName} TO schema_migrator, data_publisher, app_reader`,
+    );
+    await admin.query(`GRANT CREATE ON DATABASE ${databaseName} TO schema_migrator`);
+    await admin.query("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
+    await admin.query("GRANT USAGE, CREATE ON SCHEMA public TO schema_migrator");
+    commitSent = true;
+    await admin.query("COMMIT");
+  } catch (error) {
+    if (commitSent || isConnectionException(error)) {
+      Object.assign(
+        error,
+        classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed: false }),
+      );
+      throw error;
+    }
+    let rollbackConfirmed = false;
+    try {
+      await admin.query("ROLLBACK");
+      rollbackConfirmed = true;
+    } catch {
+      rollbackConfirmed = false;
+    }
+    Object.assign(
+      error,
+      classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed }),
+    );
+    throw error;
+  }
+}
+
 async function bootstrapRoles(options, connections, adminRole) {
   const admin = await connectWithRetry(connections.admin.raw, "logiplan-neon-role-bootstrap");
   try {
@@ -961,54 +1009,13 @@ async function bootstrapRoles(options, connections, adminRole) {
       await assertRoleDefinitions(admin, adminRole);
       const schema = await admin.query("SELECT to_regnamespace('logiplan') IS NOT NULL AS exists");
       if (schema.rows[0]?.exists === true) await assertRolePrivilegeBaseline(admin, adminRole);
+      await executeRoleBootstrapTransaction(admin, connections, undefined, rolePlan);
       return;
     }
 
     const databaseIdentifier = await admin.query("SELECT format('%I', current_database()) AS name");
     const databaseName = databaseIdentifier.rows[0].name;
-    await admin.query("BEGIN");
-    let commitSent = false;
-    try {
-      for (const connection of connections.roles.filter(({ role }) =>
-        rolePlan.rolesToCreate.includes(role),
-      )) {
-        const password = connection.secret;
-        const statement = await admin.query(
-          `SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', $1, $2) AS sql`,
-          [connection.role, password],
-        );
-        await admin.query(statement.rows[0].sql);
-      }
-      await admin.query(`REVOKE TEMPORARY ON DATABASE ${databaseName} FROM PUBLIC`);
-      await admin.query(
-        `GRANT CONNECT ON DATABASE ${databaseName} TO schema_migrator, data_publisher, app_reader`,
-      );
-      await admin.query(`GRANT CREATE ON DATABASE ${databaseName} TO schema_migrator`);
-      await admin.query("REVOKE CREATE ON SCHEMA public FROM PUBLIC");
-      await admin.query("GRANT USAGE, CREATE ON SCHEMA public TO schema_migrator");
-      commitSent = true;
-      await admin.query("COMMIT");
-    } catch (error) {
-      if (commitSent || isConnectionException(error)) {
-        Object.assign(
-          error,
-          classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed: false }),
-        );
-        throw error;
-      }
-      let rollbackConfirmed = false;
-      try {
-        await admin.query("ROLLBACK");
-        rollbackConfirmed = true;
-      } catch {
-        rollbackConfirmed = false;
-      }
-      Object.assign(
-        error,
-        classifyBootstrapTransactionFailure(error, { commitSent, rollbackConfirmed }),
-      );
-      throw error;
-    }
+    await executeRoleBootstrapTransaction(admin, connections, databaseName, rolePlan);
   } finally {
     await admin.end();
   }
