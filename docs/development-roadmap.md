@@ -22,7 +22,7 @@
 
 裸执行两个 Node 测试文件 41 项（40 passed、1 项 Docker 条件 skip）、历次 PostgreSQL 18.6 定向验证 41/41、历史 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3、P95 43.954ms）以及 2026-09-20 的 audit 9/9 与独立复查 PASS 全部保留为历史证据，仅覆盖各自当时的范围，不替代本轮最新重跑。
 
-全仓 `pnpm format:check` 仍为退出码 1，失败文件为本轮未改动的 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产；本轮只做定向格式检查，未执行全仓 `prettier --write`。候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 未在本轮修改；新的 tooling SHA 尚未生成；未提交、未暂存、未推送，未连接 Neon，未部署 Vercel。H1 仍只记录为本地 PostgreSQL 机制证据。
+全仓 `pnpm format:check` 仍为退出码 1，失败文件为本轮未改动的 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产；本轮只做定向格式检查，未执行全仓 `prettier --write`。候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 未在本轮修改；本轮代码修复已以单次提交提交（`104f4b0f`，15 个文件）并通过独立复查；本段文案修正为紧随其后的独立文档提交，tooling SHA 应取包含该修正的当前 HEAD 且尚未批准；未推送，未连接 Neon，未部署 Vercel。H1 仍只记录为本地 PostgreSQL 机制证据。
 
 ### 1.1 第三阶段正式实现闸门
 

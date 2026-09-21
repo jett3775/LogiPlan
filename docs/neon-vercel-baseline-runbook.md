@@ -27,7 +27,7 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 
 `verify-schema` 含事务内写入权限探针，因此按写入敏感子进程处理：它被信号或异常退出码终止时同样判为写入结果未知，这不属于“只读子进程不受影响”的例外说明——该例外只适用于 git 与本地预检等真正的只读子进程。本节契约覆盖 baseline 入口；`packages/db/src/activate-release.ts` 与 `scripts/publish-gate1-v1-baseline.ts` 的 CLI 包装仍固定以退出码 1 结束，二者的底层事务模块已具备 `writeOutcomeUnknown` 语义，但包装层未传播 75。激活被远程执行包显式排除，`publish-gate1-v1-baseline.ts` 只用于本地 Gate 1 夹具，因此二者不影响本轮远程准备；如需把它们纳入统一契约，应作为单独的最小改动处理。
 
-远程执行包在 tooling SHA 生成并独立批准前不可执行。固定目标为 `logiplan-public-test` / `mute-mouse-49732061`、`aws-ap-southeast-1`、PostgreSQL `18.6`、`main` / `br-patient-smoke-b3f5jtui`；准备顺序为：只读目标/身份/迁移/V2/活动发布预检 → 一次 `neon-baseline.ps1 -Write -Report <新报告路径>` 的 `validate-only` prepare → 仅在首次成功且获明确授权时使用新报告路径重复同一入口作幂等复验。前置批准必须同时覆盖精确 candidate SHA、已提交且独立批准的 tooling SHA、目标项目/分支/数据库、一次 prepare、一次幂等复验和只读状态核查；不包括激活、部署、密码变更或额外 GRANT/REVOKE。任何目标漂移、成员/ACL/校验和差异、V2 为 FAILED、状态未知、首个写入失败或提交确认丢失均立即停止；未知结果只做只读复核，不声称 rollback/success。本轮未生成 tooling SHA、未提交或暂存、未连接 Neon、未部署 Vercel，也未准备远程执行包；本轮本地修复在独立复查通过前不构成远程执行的前置条件。
+远程执行包在 tooling SHA 生成并独立批准前不可执行。固定目标为 `logiplan-public-test` / `mute-mouse-49732061`、`aws-ap-southeast-1`、PostgreSQL `18.6`、`main` / `br-patient-smoke-b3f5jtui`；准备顺序为：只读目标/身份/迁移/V2/活动发布预检 → 一次 `neon-baseline.ps1 -Write -Report <新报告路径>` 的 `validate-only` prepare → 仅在首次成功且获明确授权时使用新报告路径重复同一入口作幂等复验。前置批准必须同时覆盖精确 candidate SHA、已提交且独立批准的 tooling SHA、目标项目/分支/数据库、一次 prepare、一次幂等复验和只读状态核查；不包括激活、部署、密码变更或额外 GRANT/REVOKE。任何目标漂移、成员/ACL/校验和差异、V2 为 FAILED、状态未知、首个写入失败或提交确认丢失均立即停止；未知结果只做只读复核，不声称 rollback/success。本轮代码修复已于 2026-09-21 以单次提交提交（`104f4b0f`，15 个文件）并通过独立复查；本段文案修正为紧随其后的独立文档提交，因此 tooling SHA 应取包含本次文案修正的当前 HEAD 并仍需独立批准。未连接 Neon、未部署 Vercel、未推送，也未准备远程执行包。
 
 ## 1. 固定目标与边界
 

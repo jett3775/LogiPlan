@@ -2,7 +2,7 @@
 
 日期：2026-09-17
 
-状态：2026-09-21 第二次返工轮次（P1/P2 最小修复）已在最终代码上完成本地实现与验证：Docker 与 `postgres:18.6` 重跑 46/46、项目级检查退出码全为 0、`pnpm verify:gate1:isolated` 第二次执行退出码 0（第一次在同一子步骤以原生崩溃码 `3221226505` 失败，两次结果不一致已如实记录）。远程 Neon 尚未连接，tooling SHA 尚未生成，本文件不是远程完成证明或操作授权。
+状态：2026-09-21 第二次返工轮次（P1/P2 最小修复）已在最终代码上完成本地实现与验证：Docker 与 `postgres:18.6` 重跑 46/46、项目级检查退出码全为 0、`pnpm verify:gate1:isolated` 第二次执行退出码 0（第一次在同一子步骤以原生崩溃码 `3221226505` 失败，两次结果不一致已如实记录）。本轮代码修复已于 2026-09-21 以单次提交提交（`104f4b0f`，15 个文件）并通过独立复查；远程 Neon 尚未连接，tooling SHA 取包含文档修正的当前 HEAD 且尚未批准，本文件不是远程完成证明或操作授权。
 
 本轮最新结果摘要：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时 `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）；`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0；`pnpm verify:gate1:isolated` 第二次执行退出码 0。全仓 `pnpm format:check` 仍因 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产失败，本轮只做定向格式检查，未执行全仓 `prettier --write`。
 
@@ -43,17 +43,17 @@
 
 启动时按顺序读取：`AGENTS.md`、`CONTEXT.md` 成本及证据定义、`docs/development-roadmap.md` 当前阶段、`docs/multi-agent-workflow.md` L2/审查/授权规则，再读本节列出的文件。无需重新访谈已经冻结的业务设计。
 
-| 项目                  | 计划编制时的值                                 | 执行要求                           |
-| --------------------- | ---------------------------------------------- | ---------------------------------- |
-| 分支                  | `codex/gate1-delivery-baseline`                | 重新核查，不自动切分支             |
-| 当前 HEAD             | `1603b51714f460a67151f3dadd8613bdaacf9ccd`     | 只作起点，不作修复后的批准 SHA     |
-| 冻结候选              | `0229755a097dff94c8de67954b36ab4f9412c0f5`     | 保持不变                           |
-| Neon 项目             | `logiplan-public-test` / `mute-mouse-49732061` | 管理 API 只读核对                  |
-| Neon 分支             | `main` / `br-patient-smoke-b3f5jtui`           | 管理 API 只读核对                  |
-| 数据库与 endpoint     | `neondb` / `ep-empty-shape-b35qu1jv`           | 不能只凭历史记录或连接成功确认     |
-| 区域 / 远程数据库版本 | `aws-ap-southeast-1` / PostgreSQL `18.6`       | 实测不符即停止，不自动修改版本要求 |
-| 本地完整回归版本      | PostgreSQL `18.4`                              | 保持既定版本                       |
-| 候选数据包            | `LOGIPLAN_2026_DEMO_V2`                        | 不换包，不激活                     |
+| 项目                  | 计划编制时的值                                 | 执行要求                            |
+| --------------------- | ---------------------------------------------- | ----------------------------------- |
+| 分支                  | `codex/gate1-delivery-baseline`                | 重新核查，不自动切分支              |
+| 当前 HEAD             | `1603b51714f460a67151f3dadd8613bdaacf9ccd`     | 只作起点；本轮修复提交为 `104f4b0f` |
+| 冻结候选              | `0229755a097dff94c8de67954b36ab4f9412c0f5`     | 保持不变                            |
+| Neon 项目             | `logiplan-public-test` / `mute-mouse-49732061` | 管理 API 只读核对                   |
+| Neon 分支             | `main` / `br-patient-smoke-b3f5jtui`           | 管理 API 只读核对                   |
+| 数据库与 endpoint     | `neondb` / `ep-empty-shape-b35qu1jv`           | 不能只凭历史记录或连接成功确认      |
+| 区域 / 远程数据库版本 | `aws-ap-southeast-1` / PostgreSQL `18.6`       | 实测不符即停止，不自动修改版本要求  |
+| 本地完整回归版本      | PostgreSQL `18.4`                              | 保持既定版本                        |
+| 候选数据包            | `LOGIPLAN_2026_DEMO_V2`                        | 不换包，不激活                      |
 
 关键文件及阅读目的：
 
