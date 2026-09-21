@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 
 import { Client } from "pg";
 
@@ -24,6 +26,101 @@ function requiredEnvironment(name: string): string {
     throw new Error(`缺少环境变量：${name}`);
   }
   return value;
+}
+
+type TransactionError = Error & {
+  rollbackConfirmed?: true;
+  writeOutcomeUnknown?: true;
+};
+
+function isConfirmedCommitFailure(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    /^[0-9A-Z]{5}$/u.test(error.code) &&
+    !error.code.startsWith("08") &&
+    error.code !== "57014"
+  );
+}
+
+function markRollbackConfirmed(error: unknown): TransactionError {
+  const confirmed = error instanceof Error ? error : new Error("数据库事务失败");
+  Object.assign(confirmed, { rollbackConfirmed: true });
+  return confirmed as TransactionError;
+}
+
+function unknownCommitOutcome(): TransactionError {
+  const error = new Error("COMMIT 确认丢失，发布结果未知；必须先只读核对再重试");
+  Object.assign(error, { writeOutcomeUnknown: true });
+  return error as TransactionError;
+}
+
+function unknownRollbackOutcome(): TransactionError {
+  const error = new Error("事务回滚确认丢失，发布结果未知；必须先只读核对再重试");
+  Object.assign(error, { writeOutcomeUnknown: true });
+  return error as TransactionError;
+}
+
+export async function runPublishValidationTransaction(
+  client: Client,
+  operation: () => Promise<void>,
+): Promise<void> {
+  await client.query("BEGIN");
+  let commitAttempted = false;
+  try {
+    await operation();
+    commitAttempted = true;
+    await client.query("COMMIT");
+  } catch (error: unknown) {
+    if (commitAttempted && !isConfirmedCommitFailure(error)) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        throw unknownRollbackOutcome();
+      }
+      throw unknownCommitOutcome();
+    }
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      throw unknownRollbackOutcome();
+    }
+    throw markRollbackConfirmed(error);
+  }
+}
+
+function hasTransactionFlag(
+  error: unknown,
+  flag: "rollbackConfirmed" | "writeOutcomeUnknown",
+): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    flag in error &&
+    (error as Record<string, unknown>)[flag] === true
+  );
+}
+
+export async function markPublishFailedIfKnown(
+  client: Client,
+  releaseId: string,
+  error: unknown,
+): Promise<void> {
+  if (
+    hasTransactionFlag(error, "writeOutcomeUnknown") ||
+    !hasTransactionFlag(error, "rollbackConfirmed")
+  ) {
+    return;
+  }
+  const message = error instanceof Error ? error.message : "未知候选发布错误";
+  await client
+    .query("SELECT logiplan.mark_data_release_failed($1, $2::jsonb)", [
+      releaseId,
+      JSON.stringify({ status: "FAIL", message }),
+    ])
+    .catch(() => undefined);
 }
 
 async function publish(): Promise<void> {
@@ -84,25 +181,18 @@ async function publish(): Promise<void> {
 
     const currentStatus = await getReleaseStatus(client, releaseId);
     if (currentStatus === "CANDIDATE") {
-      await client.query("BEGIN");
       try {
-        await insertReleaseData(client, bundle);
-        const coreSummary = await validateCandidateInDatabase(client, bundle, packageSummary);
-        const validationSummary = validationSummaryJson(packageSummary, coreSummary);
-        await client.query("SELECT logiplan.mark_data_release_validated($1, $2::jsonb)", [
-          releaseId,
-          validationSummary,
-        ]);
-        await client.query("COMMIT");
-      } catch (error: unknown) {
-        await client.query("ROLLBACK");
-        const message = error instanceof Error ? error.message : "未知候选发布错误";
-        await client
-          .query("SELECT logiplan.mark_data_release_failed($1, $2::jsonb)", [
+        await runPublishValidationTransaction(client, async () => {
+          await insertReleaseData(client, bundle);
+          const coreSummary = await validateCandidateInDatabase(client, bundle, packageSummary);
+          const validationSummary = validationSummaryJson(packageSummary, coreSummary);
+          await client.query("SELECT logiplan.mark_data_release_validated($1, $2::jsonb)", [
             releaseId,
-            JSON.stringify({ status: "FAIL", message }),
-          ])
-          .catch(() => undefined);
+            validationSummary,
+          ]);
+        });
+      } catch (error: unknown) {
+        await markPublishFailedIfKnown(client, releaseId, error);
         throw error;
       }
     } else if (currentStatus === "VALIDATED") {
@@ -127,8 +217,16 @@ async function publish(): Promise<void> {
   }
 }
 
-await publish().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "未知数据发布错误";
-  process.stderr.write(`数据发布失败：${message}\n`);
-  process.exitCode = 1;
-});
+const isMain =
+  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (isMain) {
+  await publish().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : "未知数据发布错误";
+    const writeOutcomeUnknown =
+      typeof error === "object" && error !== null && "writeOutcomeUnknown" in error;
+    process.stderr.write(
+      `${writeOutcomeUnknown ? "[WRITE_OUTCOME_UNKNOWN] " : ""}数据发布失败：${message}\n`,
+    );
+    process.exitCode = writeOutcomeUnknown ? 75 : 1;
+  });
+}

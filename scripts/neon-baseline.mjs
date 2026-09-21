@@ -64,22 +64,49 @@ const protectedCandidatePaths = Object.freeze([
 ]);
 export const executionClosurePaths = Object.freeze([
   "package.json",
+  "tsconfig.base.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   "scripts/neon-baseline.mjs",
   "scripts/neon-baseline.ps1",
   "scripts/neon-baseline.test.mjs",
+  "scripts/neon-permission-audit.mjs",
+  "scripts/neon-permission-audit.test.mjs",
   "scripts/verify-gate1-isolated.mjs",
   "packages/db/package.json",
   "packages/db/tsconfig.json",
   "packages/db/src",
+  "packages/domain/package.json",
+  "packages/domain/tsconfig.json",
+  "packages/domain/src",
+  "packages/contracts/package.json",
+  "packages/contracts/tsconfig.json",
+  "packages/contracts/src",
   "apps/web/package.json",
   "apps/web/vercel.json",
   "database/migrations",
   "database/releases",
   "data/generated",
 ]);
+export const writeOutcomeUnknownExitCode = 75;
 const managedRoleNames = Object.freeze(["schema_migrator", "data_publisher", "app_reader"]);
+const roleMembershipSql = `SELECT membership.roleid AS parent_oid,
+       parent.rolname AS parent_role,
+       membership.member AS member_oid,
+       member.rolname AS member_role,
+       membership.grantor AS grantor_oid,
+       grantor.rolname AS grantor_role,
+       grantor.rolsuper AS grantor_is_superuser,
+       membership.admin_option,
+       membership.inherit_option,
+       membership.set_option
+FROM pg_auth_members AS membership
+JOIN pg_roles AS parent ON parent.oid = membership.roleid
+JOIN pg_roles AS member ON member.oid = membership.member
+LEFT JOIN pg_roles AS grantor ON grantor.oid = membership.grantor
+WHERE parent.rolname = ANY($1::text[])
+   OR member.rolname = ANY($1::text[])
+ORDER BY parent.rolname, member.rolname, membership.grantor`;
 const expectedRoleProperties = Object.freeze({
   schema_migrator: Object.freeze({ canLogin: true, inherit: true, connectionLimit: -1 }),
   data_publisher: Object.freeze({ canLogin: true, inherit: true, connectionLimit: -1 }),
@@ -343,7 +370,7 @@ export function classifyBootstrapTransactionFailure(error, { commitSent, rollbac
   return { rollbackConfirmed: true };
 }
 
-export function validateConnectionEnvironment(environment, expectedDatabase, endpointId) {
+export function validateAdminConnectionEnvironment(environment, expectedDatabase, endpointId) {
   const adminValue = environment.NEON_ADMIN_DATABASE_URL;
   assert(adminValue, "--write 需要环境变量 NEON_ADMIN_DATABASE_URL");
   const admin = parsePostgresUrl(adminValue, "NEON_ADMIN_DATABASE_URL");
@@ -355,6 +382,17 @@ export function validateConnectionEnvironment(environment, expectedDatabase, end
   );
   assert(decodeURIComponent(admin.username).length > 0, "管理连接缺少角色名称");
   assert(decodeURIComponent(admin.username) === "neondb_owner", "管理连接必须使用 neondb_owner");
+  assert(decodeURIComponent(admin.pathname.slice(1)) === expectedDatabase, "管理连接数据库不匹配");
+  return { parsed: admin, raw: adminValue, secret: decodeURIComponent(admin.password) };
+}
+
+export function validateConnectionEnvironment(environment, expectedDatabase, endpointId) {
+  const adminConnection = validateAdminConnectionEnvironment(
+    environment,
+    expectedDatabase,
+    endpointId,
+  );
+  const { parsed: admin, raw: adminValue, secret: adminSecret } = adminConnection;
 
   const parsedRoles = roleConnections.map((definition) => {
     const password = environment[definition.passwordEnv];
@@ -376,9 +414,8 @@ export function validateConnectionEnvironment(environment, expectedDatabase, end
     );
     return { ...definition, parsed, raw, secret: password };
   });
-  assert(decodeURIComponent(admin.pathname.slice(1)) === expectedDatabase, "管理连接数据库不匹配");
   return {
-    admin: { parsed: admin, raw: adminValue, secret: decodeURIComponent(admin.password) },
+    admin: { parsed: admin, raw: adminValue, secret: adminSecret },
     roles: parsedRoles,
   };
 }
@@ -475,6 +512,15 @@ export function createReport(options, context = {}) {
   };
 }
 
+export function isUnknownWriteProcessExit({ writeOperation, spawned, timedOut, code, signal }) {
+  if (!writeOperation || !spawned) return false;
+  if (timedOut) return true;
+  if (signal !== null && signal !== undefined) return true;
+  if (code === null || code === undefined) return true;
+  if (code === writeOutcomeUnknownExitCode) return true;
+  return code !== 0 && code !== 1;
+}
+
 export async function runProcess(
   command,
   args,
@@ -488,6 +534,10 @@ export async function runProcess(
       detached: process.platform !== "win32",
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
+    });
+    let spawned = false;
+    child.once("spawn", () => {
+      spawned = true;
     });
     let output = "";
     const append = (chunk) => {
@@ -520,12 +570,27 @@ export async function runProcess(
               ? `${command} 超时且进程终止状态不明；数据库写入结果未知，必须只读复核后再试`
               : `${command} 超时且进程终止状态不明`,
           );
-          if (writeOperation) error.writeOutcomeUnknown = true;
+          if (
+            isUnknownWriteProcessExit({
+              writeOperation,
+              spawned,
+              timedOut: true,
+              code: null,
+              signal: "SIGKILL",
+            })
+          ) {
+            error.writeOutcomeUnknown = true;
+          }
           settle(reject, error);
         }, 2_000);
       }, 2_000);
     }, timeoutMs);
     child.once("error", (error) => {
+      if (
+        isUnknownWriteProcessExit({ writeOperation, spawned, timedOut, code: null, signal: null })
+      ) {
+        error.writeOutcomeUnknown = true;
+      }
       settle(reject, error);
     });
     child.once("exit", (code, signal) => {
@@ -536,14 +601,20 @@ export async function runProcess(
             ? `${command} 超时，已终止直接数据库进程；数据库写入结果未知，必须只读复核后再试`
             : `${command} 超时，已终止子进程`,
         );
-        if (writeOperation) error.writeOutcomeUnknown = true;
+        if (isUnknownWriteProcessExit({ writeOperation, spawned, timedOut, code, signal })) {
+          error.writeOutcomeUnknown = true;
+        }
         settle(reject, error);
       } else if (code === 0) settle(resolvePromise, safeOutput.trim());
       else {
         const error = new Error(
           `${command} 失败（code=${String(code)}, signal=${String(signal)}）：${safeOutput.slice(-2_000)}`,
         );
-        if (writeOperation && safeOutput.includes("结果未知")) error.writeOutcomeUnknown = true;
+        error.childExitCode = code;
+        error.childSignal = signal ?? null;
+        if (isUnknownWriteProcessExit({ writeOperation, spawned, timedOut, code, signal })) {
+          error.writeOutcomeUnknown = true;
+        }
         settle(reject, error);
       }
     });
@@ -709,7 +780,46 @@ async function assertDatabaseIdentity(client, expectedRole, expectedDatabase) {
   );
 }
 
-async function assertRoleDefinitions(admin, adminRole) {
+export function validateRoleMemberships(rows, { adminRole } = {}) {
+  assert(Array.isArray(rows), "角色成员关系查询结果无效");
+  assert(
+    typeof adminRole === "string" && adminRole.length > 0 && !managedRoleNames.includes(adminRole),
+    "角色成员关系缺少有效管理身份",
+  );
+  const managedRoles = new Set(managedRoleNames);
+  const seen = new Set();
+  for (const row of rows) {
+    assert(row !== null && typeof row === "object", "角色成员关系记录无效");
+    for (const field of ["parent_role", "member_role", "grantor_role"]) {
+      assert(typeof row[field] === "string" && row[field].length > 0, `角色成员关系缺少 ${field}`);
+    }
+    for (const field of ["parent_oid", "member_oid", "grantor_oid"]) {
+      assert(
+        typeof row[field] === "number" && Number.isInteger(row[field]) && row[field] >= 0,
+        `角色成员关系 ${field} 类型无效`,
+      );
+    }
+    for (const field of ["grantor_is_superuser", "admin_option", "inherit_option", "set_option"]) {
+      assert(typeof row[field] === "boolean", `角色成员关系 ${field} 类型无效`);
+    }
+    const relationKey = [row.parent_oid, row.member_oid, row.grantor_oid].join(":");
+    assert(!seen.has(relationKey), "角色成员关系存在重复关系或额外授予者");
+    seen.add(relationKey);
+    assert(managedRoles.has(row.parent_role), "角色成员关系的 parent 不是基线角色");
+    assert(!managedRoles.has(row.member_role), "角色成员关系不得把基线角色作为 member");
+    assert(row.member_role === adminRole, "角色成员关系的 member 不是已验证管理身份");
+    assert(
+      row.admin_option === true && row.inherit_option === false && row.set_option === false,
+      "角色成员关系选项偏离严格管理基线",
+    );
+    assert(
+      row.grantor_oid === 10 && row.grantor_is_superuser === true,
+      "角色成员关系授予者不是 OID 10 的超级用户",
+    );
+  }
+}
+
+export async function assertRoleDefinitions(admin, adminRole) {
   assert(!managedRoleNames.includes(adminRole), "管理连接不得使用基线运行角色");
   const roles = await admin.query(
     `SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls,
@@ -724,16 +834,8 @@ async function assertRoleDefinitions(admin, adminRole) {
   for (const state of roles.rows) {
     validateRoleDefinition(state);
   }
-  const memberships = await admin.query(
-    `SELECT parent.rolname AS parent_role, member.rolname AS member_role
-     FROM pg_auth_members AS membership
-     JOIN pg_roles AS parent ON parent.oid = membership.roleid
-     JOIN pg_roles AS member ON member.oid = membership.member
-     WHERE parent.rolname = ANY($1::text[])
-        OR member.rolname = ANY($1::text[])`,
-    [managedRoleNames],
-  );
-  assert(memberships.rowCount === 0, "三角色不得存在任何角色成员关系");
+  const memberships = await admin.query(roleMembershipSql, [managedRoleNames]);
+  validateRoleMemberships(memberships.rows, { adminRole });
 }
 
 export function validateRoleDefinition(state) {
@@ -942,7 +1044,13 @@ async function assertRolePrivilegeBaseline(admin, adminRole) {
   );
 }
 
-export async function executeRoleBootstrapTransaction(admin, connections, databaseName, rolePlan) {
+export async function executeRoleBootstrapTransaction(
+  admin,
+  connections,
+  databaseName,
+  rolePlan,
+  adminRole,
+) {
   if (rolePlan.allPresent) return;
 
   await admin.query("BEGIN");
@@ -958,6 +1066,10 @@ export async function executeRoleBootstrapTransaction(admin, connections, databa
       );
       await admin.query(statement.rows[0].sql);
     }
+    const verifiedAdminRole =
+      adminRole ?? (await admin.query("SELECT current_user AS role")).rows[0]?.role;
+    const memberships = await admin.query(roleMembershipSql, [managedRoleNames]);
+    validateRoleMemberships(memberships.rows, { adminRole: verifiedAdminRole });
     await admin.query(`REVOKE TEMPORARY ON DATABASE ${databaseName} FROM PUBLIC`);
     await admin.query(
       `GRANT CONNECT ON DATABASE ${databaseName} TO schema_migrator, data_publisher, app_reader`,
@@ -1009,13 +1121,13 @@ async function bootstrapRoles(options, connections, adminRole) {
       await assertRoleDefinitions(admin, adminRole);
       const schema = await admin.query("SELECT to_regnamespace('logiplan') IS NOT NULL AS exists");
       if (schema.rows[0]?.exists === true) await assertRolePrivilegeBaseline(admin, adminRole);
-      await executeRoleBootstrapTransaction(admin, connections, undefined, rolePlan);
+      await executeRoleBootstrapTransaction(admin, connections, undefined, rolePlan, adminRole);
       return;
     }
 
     const databaseIdentifier = await admin.query("SELECT format('%I', current_database()) AS name");
     const databaseName = databaseIdentifier.rows[0].name;
-    await executeRoleBootstrapTransaction(admin, connections, databaseName, rolePlan);
+    await executeRoleBootstrapTransaction(admin, connections, databaseName, rolePlan, adminRole);
   } finally {
     await admin.end();
   }
@@ -1253,22 +1365,34 @@ function usage() {
   return `用法：pnpm neon:baseline -- --candidate-sha <40位SHA> --approved-sha <40位SHA> --expected-database <数据库> [--tooling-sha <40位SHA> --write] [--report <新文件>] [--timeout-seconds 300]\n\n默认仅预检，不读取凭据、不连接或写入 Neon。--write 还要求 LOGIPLAN_APPROVED_TOOLING_SHA 精确批准已提交且无漂移的执行闭包；创建或核验三角色、执行迁移并把 V2 候选停在 VALIDATED，不激活发布，不配置或部署 Vercel。admin 连接串和角色密码只能通过环境变量传入。\n`;
 }
 
-async function main() {
-  const options = parseArguments(process.argv.slice(2));
-  if (options.help) {
-    process.stdout.write(usage());
-    return;
+export function exitCodeForBaselineError(error) {
+  return error?.writeOutcomeUnknown === true ? writeOutcomeUnknownExitCode : 1;
+}
+
+export async function runCli(
+  argv = process.argv.slice(2),
+  {
+    runBaseline: baselineRunner = runBaseline,
+    stdout = process.stdout,
+    stderr = process.stderr,
+  } = {},
+) {
+  try {
+    const options = parseArguments(argv);
+    if (options.help) {
+      stdout.write(usage());
+      return 0;
+    }
+    const report = await baselineRunner(options);
+    stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    stderr.write(`Neon 基线执行失败：${error instanceof Error ? error.message : "未知错误"}\n`);
+    return exitCodeForBaselineError(error);
   }
-  const report = await runBaseline(options);
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
 const isMain = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 if (isMain) {
-  await main().catch((error) => {
-    process.stderr.write(
-      `Neon 基线执行失败：${error instanceof Error ? error.message : "未知错误"}\n`,
-    );
-    process.exitCode = 1;
-  });
+  process.exitCode = await runCli();
 }

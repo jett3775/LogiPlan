@@ -334,6 +334,7 @@ async function runSnapshotIntegration(appUrl, appEnv, testEnv) {
       "完整持久化证据 PostgreSQL/API/Chromium 集成测试",
       ["exec", "vitest", "run", "packages/db/src/evidence-snapshot.test.ts"],
       testEnv,
+      { timeoutMs: 420_000 },
     );
   } finally {
     try {
@@ -344,9 +345,10 @@ async function runSnapshotIntegration(appUrl, appEnv, testEnv) {
   }
 }
 
-function runPnpm(label, args, env) {
+function runPnpm(label, args, env, options = {}) {
   const invocation = pnpmInvocation(args);
   return runProcess(label, invocation.command, invocation.args, env, {
+    ...options,
     shell: invocation.shell,
   });
 }
@@ -497,6 +499,13 @@ async function verify() {
         NEON_BASELINE_TEST_DOCKER: "1",
         NEON_BASELINE_TEST_CONTAINER_NAME: roleBootstrapContainerName,
       },
+      { timeoutMs: 420_000 },
+    );
+    await runProcess(
+      "Neon 权限只读诊断回归测试",
+      process.execPath,
+      ["--test", "scripts/neon-permission-audit.test.mjs"],
+      guardedEnvironment,
     );
     await runProcess(
       "本地 API 服务等待逻辑回归测试",
@@ -515,7 +524,9 @@ async function verify() {
       RELEASE_MANIFEST: v1Manifest,
     };
 
-    await runCompose("启动隔离 PostgreSQL 18.4", ["up", "-d", "--wait"], composeEnv);
+    await runCompose("启动隔离 PostgreSQL 18.4", ["up", "-d", "--wait"], composeEnv, {
+      timeoutMs: 420_000,
+    });
     await runPnpm("从零执行 0001—0003 迁移", ["db:migrate"], v1MigrationEnv);
     await runProcess(
       "使用测试专用 harness 发布 0003 基线 V1 数据",
@@ -535,9 +546,11 @@ async function verify() {
     await runPnpm("结构、精度与三角色权限验证", ["db:verify"], verificationEnv);
     await runPnpm("不可变发布升级与核心查询验证", ["db:verify-release"], releaseVerificationEnv);
     await runPnpm("核心查询计划验证", ["db:verify-plans"], readerRuntimeEnv);
-    await runPnpm("生产构建", ["build"], readerRuntimeEnv);
+    await runPnpm("生产构建", ["build"], readerRuntimeEnv, { timeoutMs: 420_000 });
     await runSnapshotIntegration(snapshotAppUrl, readerRuntimeEnv, snapshotTestEnv);
-    await runPnpm("Chromium 双视口基础冒烟", ["test:e2e:gate1"], readerRuntimeEnv);
+    await runPnpm("Chromium 双视口基础冒烟", ["test:e2e:gate1"], readerRuntimeEnv, {
+      timeoutMs: 300_000,
+    });
     await runPnpm(
       "Chromium 双视口历史证据验收",
       [
@@ -550,13 +563,17 @@ async function verify() {
         "apps/web/tests/historical-evidence.spec.ts",
       ],
       historicalEvidenceTestEnv,
+      { timeoutMs: 300_000 },
     );
-    await runPnpm("Firefox 核心冒烟", ["test:e2e:firefox-smoke"], readerRuntimeEnv);
+    await runPnpm("Firefox 核心冒烟", ["test:e2e:firefox-smoke"], readerRuntimeEnv, {
+      timeoutMs: 240_000,
+    });
     await runProcess(
       "并发 5、100 次热查询性能验证",
       process.execPath,
       ["scripts/verify-query-performance.mjs"],
       readerRuntimeEnv,
+      { timeoutMs: 240_000 },
     );
   } catch (error) {
     primaryError = error;

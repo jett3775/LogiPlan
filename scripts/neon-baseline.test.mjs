@@ -1,25 +1,36 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   createReport,
   executionClosurePaths,
   executeRoleBootstrapTransaction,
+  exitCodeForBaselineError,
   assertExactPrivileges,
+  assertRoleDefinitions,
   assertSupportedNodeVersion,
   classifyBootstrapTransactionFailure,
   classifyRoleBootstrap,
   isolatedGitEnvironment,
+  isUnknownWriteProcessExit,
   parseArguments,
+  runCli,
   runProcess,
   runBaseline,
   target,
+  writeOutcomeUnknownExitCode,
   validateConnectionEnvironment,
   validateGitIdentity,
   validateCandidateShas,
+  validateRoleMemberships,
   validateRoleDefinition,
   validateTargetEnvironment,
   validateToolingApproval,
@@ -113,6 +124,12 @@ function findDockerCli() {
   throw new Error("无法连接 Docker 引擎以执行真实角色事务回归");
 }
 
+function postgresTestImage() {
+  const image = process.env.NEON_BASELINE_TEST_POSTGRES_IMAGE ?? "postgres:18.4";
+  assert.match(image, /^postgres:18\.(?:4|6)$/u);
+  return image;
+}
+
 function runDocker(docker, args, environment = process.env) {
   const result = spawnSync(docker, args, {
     encoding: "utf8",
@@ -160,7 +177,7 @@ async function startRoleBootstrapPostgres() {
         "POSTGRES_USER=postgres",
         "--env",
         "POSTGRES_PASSWORD",
-        "postgres:18.4",
+        postgresTestImage(),
       ],
       dockerEnvironment,
     );
@@ -251,6 +268,95 @@ test(
       assert.deepEqual(passwordsAfter.rows, passwordsBefore.rows);
 
       await dropManagedRoles(admin);
+      await admin.query(
+        "CREATE ROLE bootstrap_admin LOGIN CREATEROLE NOSUPERUSER NOCREATEDB " +
+          "NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD 'bootstrap-admin-secret'",
+      );
+      await admin.query(`ALTER DATABASE ${databaseName} OWNER TO bootstrap_admin`);
+      const databasePort = new URL(postgres.connectionString).port;
+      const bootstrapAdmin = new Client({
+        connectionString: `postgresql://bootstrap_admin:bootstrap-admin-secret@127.0.0.1:${databasePort}/logiplan`,
+      });
+      try {
+        await bootstrapAdmin.connect();
+        await executeRoleBootstrapTransaction(
+          bootstrapAdmin,
+          roleBootstrapConnections(),
+          databaseName,
+          missingPlan,
+          "bootstrap_admin",
+        );
+        await assertRoleDefinitions(bootstrapAdmin, "bootstrap_admin");
+        const memberships = await bootstrapAdmin.query(
+          `SELECT parent.rolname AS parent_role,
+                  member.rolname AS member_role,
+                  membership.grantor AS grantor_oid,
+                  grantor.rolsuper AS grantor_is_superuser,
+                  membership.admin_option,
+                  membership.inherit_option,
+                  membership.set_option
+           FROM pg_auth_members AS membership
+           JOIN pg_roles AS parent ON parent.oid = membership.roleid
+           JOIN pg_roles AS member ON member.oid = membership.member
+           LEFT JOIN pg_roles AS grantor ON grantor.oid = membership.grantor
+           WHERE parent.rolname = ANY($1::text[])
+           ORDER BY parent.rolname`,
+          [["schema_migrator", "data_publisher", "app_reader"]],
+        );
+        assert.deepEqual(
+          memberships.rows,
+          ["app_reader", "data_publisher", "schema_migrator"].map((parent_role) => ({
+            parent_role,
+            member_role: "bootstrap_admin",
+            grantor_oid: 10,
+            grantor_is_superuser: true,
+            admin_option: true,
+            inherit_option: false,
+            set_option: false,
+          })),
+        );
+
+        await bootstrapAdmin.query("CREATE ROLE unexpected_member NOLOGIN");
+        await bootstrapAdmin.query("GRANT app_reader TO unexpected_member");
+        await assert.rejects(
+          assertRoleDefinitions(bootstrapAdmin, "bootstrap_admin"),
+          /角色成员关系的 member 不是已验证管理身份/u,
+        );
+        await bootstrapAdmin.query("REVOKE app_reader FROM unexpected_member");
+        await bootstrapAdmin.query("DROP ROLE unexpected_member");
+      } finally {
+        await bootstrapAdmin.end().catch(() => undefined);
+      }
+
+      await dropManagedRoles(admin);
+      await admin.query(
+        "CREATE ROLE bootstrap_admin_options LOGIN CREATEROLE NOSUPERUSER NOCREATEDB " +
+          "NOREPLICATION NOBYPASSRLS NOINHERIT PASSWORD 'bootstrap-admin-options-secret'",
+      );
+      await admin.query(`ALTER DATABASE ${databaseName} OWNER TO bootstrap_admin_options`);
+      const optionAdmin = new Client({
+        connectionString: `postgresql://bootstrap_admin_options:bootstrap-admin-options-secret@127.0.0.1:${databasePort}/logiplan`,
+      });
+      try {
+        await optionAdmin.connect();
+        await optionAdmin.query("SET createrole_self_grant = 'inherit, set'");
+        await assert.rejects(
+          executeRoleBootstrapTransaction(
+            optionAdmin,
+            roleBootstrapConnections(),
+            databaseName,
+            missingPlan,
+            "bootstrap_admin_options",
+          ),
+          /选项偏离/u,
+        );
+        assert.deepEqual(await existingManagedRoles(admin), []);
+      } finally {
+        await optionAdmin.end().catch(() => undefined);
+      }
+      await admin.query(`ALTER DATABASE ${databaseName} OWNER TO postgres`);
+      await admin.query("DROP ROLE bootstrap_admin, bootstrap_admin_options");
+
       await assert.rejects(
         executeRoleBootstrapTransaction(
           admin,
@@ -367,8 +473,20 @@ test("当前分支和 HEAD 必须精确绑定工具闭包", () => {
   );
 });
 
-test("执行闭包必须包含隔离 Gate1 编排脚本", () => {
-  assert(executionClosurePaths.includes("scripts/verify-gate1-isolated.mjs"));
+test("执行闭包覆盖实际加载的 Gate1 编排、查询和契约包源码", () => {
+  for (const path of [
+    "tsconfig.base.json",
+    "scripts/verify-gate1-isolated.mjs",
+    "packages/db/src",
+    "packages/domain/package.json",
+    "packages/domain/tsconfig.json",
+    "packages/domain/src",
+    "packages/contracts/package.json",
+    "packages/contracts/tsconfig.json",
+    "packages/contracts/src",
+  ]) {
+    assert(executionClosurePaths.includes(path), path);
+  }
 });
 
 test("Git 子进程不继承仓库或配置覆盖变量", () => {
@@ -437,6 +555,71 @@ test("角色属性和 ACL 必须是迁移定义的精确基线", () => {
         "test",
       ),
     /ACL 偏离基线/u,
+  );
+});
+
+function roleMembershipRow(overrides = {}) {
+  return {
+    parent_oid: 16384,
+    parent_role: "schema_migrator",
+    member_oid: 16385,
+    member_role: "bootstrap_admin",
+    grantor_oid: 10,
+    grantor_role: "postgres",
+    grantor_is_superuser: true,
+    admin_option: true,
+    inherit_option: false,
+    set_option: false,
+    ...overrides,
+  };
+}
+
+test("严格接受 PostgreSQL 18 CREATEROLE 自动管理关系", () => {
+  assert.doesNotThrow(() => validateRoleMemberships([], { adminRole: "bootstrap_admin" }));
+  assert.doesNotThrow(() =>
+    validateRoleMemberships(
+      [
+        roleMembershipRow(),
+        roleMembershipRow({ parent_role: "data_publisher", parent_oid: 16386 }),
+        roleMembershipRow({ parent_role: "app_reader", parent_oid: 16387 }),
+      ],
+      { adminRole: "bootstrap_admin" },
+    ),
+  );
+});
+
+test("三角色成员关系的方向、选项、授予者和证据完整性全部受限", () => {
+  const rejected = [
+    [
+      "managed role is a member",
+      roleMembershipRow({ parent_role: "bootstrap_admin", member_role: "app_reader" }),
+    ],
+    ["unexpected member", roleMembershipRow({ member_role: "other_admin" })],
+    ["admin option false", roleMembershipRow({ admin_option: false })],
+    ["inherit option true", roleMembershipRow({ inherit_option: true })],
+    ["set option true", roleMembershipRow({ set_option: true })],
+    ["wrong grantor oid", roleMembershipRow({ grantor_oid: 11 })],
+    ["grantor is not superuser", roleMembershipRow({ grantor_is_superuser: false })],
+    ["missing grantor", roleMembershipRow({ grantor_role: null })],
+    ["wrong field type", roleMembershipRow({ admin_option: "true" })],
+    ["duplicate relation", [roleMembershipRow(), roleMembershipRow()]],
+  ];
+  for (const [label, value] of rejected) {
+    assert.throws(
+      () =>
+        validateRoleMemberships(Array.isArray(value) ? value : [value], {
+          adminRole: "bootstrap_admin",
+        }),
+      /角色成员关系/u,
+      label,
+    );
+  }
+  assert.throws(
+    () =>
+      validateRoleMemberships([roleMembershipRow(), roleMembershipRow()], {
+        adminRole: "bootstrap_admin",
+      }),
+    /重复/u,
   );
 });
 
@@ -797,13 +980,207 @@ test("数据库子进程报告 COMMIT 确认丢失时保留未知结果", async 
   await assert.rejects(
     runProcess(
       process.execPath,
-      ["-e", "process.stderr.write('COMMIT 确认丢失，发布结果未知'); process.exit(1)"],
+      [
+        "-e",
+        `process.stderr.write('commit acknowledgement lost'); process.exit(${writeOutcomeUnknownExitCode})`,
+      ],
       { timeoutMs: 5_000, writeOperation: true },
     ),
     (error) => {
       assert.equal(error.writeOutcomeUnknown, true);
-      assert.match(error.message, /结果未知/u);
+      assert.match(error.message, /code=75/u);
       return true;
     },
   );
+});
+
+test("数据库写入子进程异常退出码不再被当作已知失败", async () => {
+  for (const code of [137, 2]) {
+    await assert.rejects(
+      runProcess(process.execPath, ["-e", `process.exit(${code})`], {
+        timeoutMs: 5_000,
+        writeOperation: true,
+      }),
+      (error) => {
+        assert.equal(error.writeOutcomeUnknown, true, `退出码 ${code}`);
+        return true;
+      },
+    );
+  }
+});
+
+test("只读子进程失败和启动失败仍是已知失败", async () => {
+  await assert.rejects(
+    runProcess(process.execPath, ["-e", "process.exit(1)"], { timeoutMs: 5_000 }),
+    (error) => {
+      assert.equal(error.writeOutcomeUnknown, undefined);
+      assert.match(error.message, /code=1/u);
+      return true;
+    },
+  );
+  const missingCommand =
+    process.platform === "win32" ? "logiplan-missing-command.exe" : "logiplan-missing-command";
+  await assert.rejects(
+    runProcess(missingCommand, [], { timeoutMs: 5_000, writeOperation: true }),
+    (error) => {
+      assert.equal(error.writeOutcomeUnknown, undefined);
+      return true;
+    },
+  );
+});
+
+const runPowerShellPassthroughTest = process.platform === "win32";
+
+function powershellHosts() {
+  const hosts = [];
+  if (process.env.SystemRoot) {
+    const windowsPowerShell = join(
+      process.env.SystemRoot,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    );
+    if (existsSync(windowsPowerShell)) {
+      hosts.push({ label: "Windows PowerShell", executable: windowsPowerShell });
+    }
+  }
+  if (process.env.ProgramFiles) {
+    const pwsh = join(process.env.ProgramFiles, "PowerShell", "7", "pwsh.exe");
+    if (existsSync(pwsh)) hosts.push({ label: "PowerShell 7", executable: pwsh });
+  }
+  return hosts;
+}
+
+test("PowerShell 入口原样透传 Node 退出码", { skip: !runPowerShellPassthroughTest }, async () => {
+  const hosts = powershellHosts();
+  assert(hosts.length > 0, "未找到可用的 PowerShell 宿主");
+  const script = fileURLToPath(new URL("./neon-baseline.ps1", import.meta.url));
+  const shimDirectory = await mkdtemp(join(tmpdir(), "logiplan-node-shim-"));
+  const environment = {
+    ...process.env,
+    PATH: `${shimDirectory};${process.env.PATH ?? process.env.Path ?? ""}`,
+  };
+  delete environment.Path;
+  try {
+    for (const host of hosts) {
+      for (const code of [0, 1, writeOutcomeUnknownExitCode]) {
+        await writeFile(
+          join(shimDirectory, "node.cmd"),
+          `@echo off\r\necho simulated-node-stderr 1>&2\r\nexit /b ${code}\r\n`,
+          "utf8",
+        );
+        const result = spawnSync(
+          host.executable,
+          [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            script,
+            "-CandidateSha",
+            target.candidateSha,
+            "-ApprovedSha",
+            target.candidateSha,
+            "-ExpectedDatabase",
+            "neondb",
+          ],
+          { encoding: "utf8", env: environment, timeout: 60_000, windowsHide: true },
+        );
+        const diagnostic = `${result.stderr}${result.error?.message ?? ""}`;
+        assert.equal(result.status, code, `${host.label} 退出码 ${code}：${diagnostic}`);
+      }
+    }
+  } finally {
+    await rm(shimDirectory, { recursive: true, force: true });
+  }
+});
+
+test("写入子进程异常终止的分类规则是单一纯函数", () => {
+  const classify = (overrides) =>
+    isUnknownWriteProcessExit({
+      writeOperation: true,
+      spawned: true,
+      timedOut: false,
+      code: 0,
+      signal: null,
+      ...overrides,
+    });
+  assert.equal(classify({ code: 0 }), false, "退出码 0 是成功");
+  assert.equal(classify({ code: 1 }), false, "退出码 1 是受控已知失败");
+  assert.equal(classify({ code: writeOutcomeUnknownExitCode }), true, "退出码 75 是未知");
+  assert.equal(classify({ code: 137 }), true, "异常退出码是未知");
+  assert.equal(classify({ code: 2 }), true, "非 0/1/75 的退出码是未知");
+  assert.equal(classify({ code: null, signal: "SIGTERM" }), true, "信号终止是未知");
+  assert.equal(classify({ code: null, signal: null }), true, "缺少退出码是未知");
+  assert.equal(classify({ timedOut: true, code: 1 }), true, "超时优先于退出码");
+  assert.equal(classify({ spawned: false, code: 137 }), false, "启动前失败不是未知");
+  assert.equal(classify({ writeOperation: false, code: 137 }), false, "只读子进程不受影响");
+});
+
+test("Node 入口把未知写入结果映射为退出码 75", async () => {
+  const argv = [
+    "--candidate-sha",
+    target.candidateSha,
+    "--approved-sha",
+    target.candidateSha,
+    "--expected-database",
+    "neondb",
+  ];
+  const stdout = { write: () => undefined };
+  const stderr = { write: () => undefined };
+  const unknown = new Error("write timeout");
+  unknown.writeOutcomeUnknown = true;
+  assert.equal(exitCodeForBaselineError(new Error("known")), 1);
+  assert.equal(exitCodeForBaselineError(unknown), writeOutcomeUnknownExitCode);
+  assert.equal(
+    await runCli(argv, {
+      runBaseline: async () => {
+        throw unknown;
+      },
+      stdout,
+      stderr,
+    }),
+    writeOutcomeUnknownExitCode,
+    "未知写入结果必须以 75 结束进程",
+  );
+  assert.equal(
+    await runCli(argv, {
+      runBaseline: async () => {
+        throw new Error("known");
+      },
+      stdout,
+      stderr,
+    }),
+    1,
+    "已知失败仍以 1 结束进程",
+  );
+  assert.equal(
+    await runCli(argv, {
+      runBaseline: async () => ({ status: "preflight_passed" }),
+      stdout,
+      stderr,
+    }),
+    0,
+    "成功以 0 结束进程",
+  );
+});
+
+test("非法参数以已知失败结束并输出脱敏错误信息", async () => {
+  const output = [];
+  const stderr = {
+    write: (chunk) => {
+      output.push(String(chunk));
+      return true;
+    },
+  };
+  assert.equal(
+    await runCli(["--bogus"], { stdout: { write: () => undefined }, stderr }),
+    1,
+    "参数错误属于已知失败",
+  );
+  const message = output.join("");
+  assert.match(message, /Neon 基线执行失败/u);
+  assert.match(message, /未知参数/u);
+  assert(!message.includes("\n    at "), "不得向用户输出原始堆栈");
 });

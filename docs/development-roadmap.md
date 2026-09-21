@@ -12,6 +12,18 @@
 
 第二阶段数据基线已经完成。第三阶段按 D-093 推进“全年 Latest Outlook 异常 → 2026 年 8 月英国下钻 → 五因素归因 → 数字级证据 → AI 管理分析”的核心纵向切片。方案 B 桌面原型已通过 D-124 验收，查询与证据契约已按 D-125 冻结为 V1.0，当前进入正式 Next.js 实现准备；该切片实现并验收通过后，再扩展 Forecast 和情景模拟。
 
+## 0. 2026-09-21 最新本地验收状态
+
+本轮（第二次返工轮次：P1/P2 最小修复）已在最终代码上取得新的实际结果，详细命令与结果见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。基线与 audit：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时 `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）。项目级：`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0，覆盖率 All files 95.51% stmts / 87.5% branch / 95.66% lines，分包阈值满足。
+
+`pnpm verify:gate1:isolated` 共执行 6 次，4 次退出码 0，覆盖 PostgreSQL 18.4 迁移/V1/V2、发布幂等、显式激活、三角色权限、6 条查询计划（`temp_written_blocks` 全为 0）、生产构建、快照持久化证据 28/28、Chromium 双视口基础 10 passed 与 22 项设计性跳过、Chromium 双视口历史证据 22/22、Firefox 3/3，以及并发 5 的 100 次热查询 P50 23.083ms / P95 38.898ms / P99 42.123ms（第 3 次 P50 23.865ms / P95 42.099ms / P99 44.621ms；第 5 次 P50 23.165ms / P95 43.537ms / P99 47.975ms；第 6 次 P50 22.521ms / P95 40.066ms / P99 45.452ms）。异常的 2 次都发生在浏览器启动环节：第 1 次在“Chromium 双视口历史证据验收”以原生崩溃码 `3221226505` 失败（无用例输出），第 4 次挂起在“Chromium 双视口基础冒烟”（无任何 Chromium 进程存活，等待超过 15 分钟无进展后人工终止并清理隔离环境，不计为通过或失败）。第 5 次在环境净化后通过，第 6 次在为 Docker、构建与浏览器步骤补齐 `timeoutMs`（经用户授权的最小改动，只加超时参数）后通过。无任何用例断言失败，同一批用例在其余执行中通过，判定为环境不稳定而非代码缺陷；在消除该不稳定前，Gate 1 不得记为稳定通过。
+
+本轮修复 P1（Node 与 PowerShell 入口把写入结果未知压成退出码 1）与 P2（写入子进程异常终止被误判为 known_failed），改为退出码 75 与异常终止统一判定为未知写入结果，均先写红灯测试再实现。执行者安排经用户明确变更：原“Luna High 实现 + Sol High 独立复查”改由单一会话模型（DeepSeek V4.1 Flash）完成实现与验证；随后由独立只读子代理（全新上下文、无写入权限）完成复查，判定 PASS，无 P0/P1，列出 6 项 P2，其中 2 项代码问题（`runCli` 中 `parseArguments` 未纳入 `try` 导致原始堆栈输出、`error` 事件未走统一判定函数）已修复并补 1 项回归测试，其余 4 项为文档精度问题并已收窄描述。复查者标注的未验证项包括 ps1 → 真实 Node 的 75 组合链路、真实 signal 退出、Docker 18.6 的 46 passed 与 Gate 1 六次执行结果。
+
+裸执行两个 Node 测试文件 41 项（40 passed、1 项 Docker 条件 skip）、历次 PostgreSQL 18.6 定向验证 41/41、历史 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3、P95 43.954ms）以及 2026-09-20 的 audit 9/9 与独立复查 PASS 全部保留为历史证据，仅覆盖各自当时的范围，不替代本轮最新重跑。
+
+全仓 `pnpm format:check` 仍为退出码 1，失败文件为本轮未改动的 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产；本轮只做定向格式检查，未执行全仓 `prettier --write`。候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 未在本轮修改；新的 tooling SHA 尚未生成；未提交、未暂存、未推送，未连接 Neon，未部署 Vercel。H1 仍只记录为本地 PostgreSQL 机制证据。
+
 ### 1.1 第三阶段正式实现闸门
 
 1. 闸门一：完成 Next.js App Router、PostgreSQL 只读发布数据、确定性查询与证据 API、方案 B 桌面页面和已校验固定 AI 示例，并通过 V1.0 契约与核心 9 题验收。正式查询必须从标准化 PostgreSQL 关系表执行；原型 JSON 仅作测试夹具和冻结结果参照。演示数据通过离线、可重复、原子发布流程装载，应用启动不写入业务数据。
@@ -139,6 +151,22 @@ Docker Desktop 4.87.0 的隔离 PostgreSQL 18.4 空库完成 0001—0003 迁移�
 上述结果不表示第一闸门整体关闭。Gate 1 GitHub Actions、依赖审查、CodeQL 和 Dependabot 配置已经落地，但 GitHub Actions 远程运行尚未执行，仓库秘密扫描仍待在外部 GitHub 仓库设置中启用并验证；部署后的 Singapore 区域、健康检查、浏览器与性能复验同样未执行。当前不宣称远程 CI、秘密扫描或部署验收通过。
 
 Web 与安全基线已按 D-177 冻结：业务页动态 SSR 且不缓存，正式地址为 `/` 和 `/attribution`，查询接口仅同源 JSON 且限制 16 KiB；首版关闭 React Compiler，不使用 Server Actions、外部 CDN、Cookie、分析埋点、PWA 或 Service Worker，并执行 CSP、HSTS、环境变量分层和禁止不安全 HTML 注入等要求。
+
+2026-09-17，Neon 权限基线本地修复进行中：在一次性 PostgreSQL 18.4 容器中以
+`CREATEROLE NOSUPERUSER` 管理角色真实复现三条标准 `pg_auth_members` 管理边，确认
+三角色为 parent、管理角色为 member、`ADMIN=true`、`INHERIT=false`、`SET=false`、
+grantor OID 10 且为超级用户；旧的零行规则因此确认为误拒。生产校验已改为严格逐条
+判定并保留 `assertRoleDefinitions`、完整 `assertRolePrivilegeBaseline`、对象权限、
+事务失败未知语义及候选资产/执行闭包保护；另增加纯只读权限诊断入口和 Node 测试。
+Node 24 的 Windows 进程互操作在该日会话因 WSL `UtilBindVsockAnyPort` 错误不可用，
+因此生产 Node 测试、完整格式/lint/typecheck/test/coverage/build/Gate 1 尚未执行；
+PostgreSQL 18.6 定向测试因本地无 `postgres:18.6` 镜像未执行。未进行 Neon、Vercel、
+GitHub 或任何真实凭据操作；返工阶段补充了实际加载的 `packages/domain` 与
+`packages/contracts` 执行闭包、固定 PostgreSQL 18.6 实连身份校验、迁移/V2 数据包校验和
+事实读取、凭据原始/编码/解码脱敏及审计 CLI 成功不创建文件或目录的输出边界；这些均为
+本地机制，未宣称 Neon、Vercel 或 GitHub 远程通过，远程核验仍待后续授权和执行。正式
+`neon-baseline --report` 文件报告行为不受本任务影响。独立审查和远程准备
+仍待阶段 5。
 
 CI 与验收已按 D-178 冻结：工作流固定提交 SHA 并最小授权；启用依赖与代码安全检查；执行分包覆盖率阈值、Playwright axe 无严重问题、并发 5 的 100 次热查询 P95 不超过 1 秒，并按冻结安装到浏览器验收的固定顺序失败关闭。
 

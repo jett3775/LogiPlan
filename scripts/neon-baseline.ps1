@@ -29,6 +29,10 @@ function Read-SecretText([string]$Name) {
   }
 }
 
+$nodeExitCode = $null
+$nativePreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+$previousNativePreference = if ($null -ne $nativePreference) { $nativePreference.Value } else { $null }
+
 try {
   if ($Write) {
     if ([string]::IsNullOrWhiteSpace($ToolingSha) -or [string]::IsNullOrWhiteSpace($ApprovedToolingSha)) {
@@ -52,11 +56,18 @@ try {
   if (-not [string]::IsNullOrWhiteSpace($ToolingSha)) { $arguments += @("--tooling-sha", $ToolingSha) }
   if ($Write) { $arguments += "--write" }
   if (-not [string]::IsNullOrWhiteSpace($Report)) { $arguments += @("--report", $Report) }
+  if ($null -ne $nativePreference) { $PSNativeCommandUseErrorActionPreference = $false }
   & node @arguments
-  if ($LASTEXITCODE -ne 0) { throw "Neon 基线入口退出码为 $LASTEXITCODE" }
+  $nodeExitCode = $LASTEXITCODE
 }
 finally {
   foreach ($name in $previous.Keys) {
     [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
   }
+  if ($null -ne $nativePreference) {
+    $PSNativeCommandUseErrorActionPreference = $previousNativePreference
+  }
 }
+
+if ($null -eq $nodeExitCode) { throw "Neon 基线入口未返回有效退出码" }
+exit $nodeExitCode
