@@ -2,7 +2,7 @@
 
 日期：2026-09-18
 
-状态（2026-09-22，当前）：第三次修复轮次已完成本地实现、真实 PostgreSQL 回归与独立审查，并已完成本文件范围内的本地闭环。本轮修复 `acldefault` 类型错误（授权文件见下）、ACL 断言口径、COMMIT 失败分类、两处事务外自动提交写入、报告路径原子预留、跨平台进程树终止、`scripts/neon-baseline.ps1` 的 UTF-8 BOM，以及执行闭包合规修正（把 `scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`、删除 `neon-baseline.mjs` 内的重复进程树终止实现，符合本仓库「不得以新增外部 helper 绕过工具 SHA 保护」的要求）。依据本文件的范围变更（"生产文件 + 测试文件 + 四份文档，不新增文件"），本轮获用户批准把 `scripts/wait-for-server.mjs` 与 `scripts/neon-baseline.ps1` 纳入范围，最终为 10 个源码与测试文件加 4 份文档。远程操作仍未执行，新 tooling SHA 待生成并重新批准。真实测试计数与 Gate 1 逐次结果见 `docs/neon-vercel-baseline-runbook.md` 第 0 节与 `docs/neon-permission-baseline-plan.md` 的状态段。
+状态（2026-09-22，当前）：第三次修复轮次已完成本地实现、真实 PostgreSQL 回归与独立审查，并已完成本文件范围内的本地闭环。本轮修复 `acldefault` 类型错误（授权文件见下）、ACL 断言口径、COMMIT 失败分类、两处事务外自动提交写入、报告路径原子预留、跨平台进程树终止、`scripts/neon-baseline.ps1` 的 UTF-8 BOM，以及执行闭包合规修正（把 `scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`、删除 `neon-baseline.mjs` 内的重复进程树终止实现，符合本仓库「不得以新增外部 helper 绕过工具 SHA 保护」的要求）。依据本文件的范围变更（"生产文件 + 测试文件 + 四份文档，不新增文件"），本轮获用户批准把 `scripts/wait-for-server.mjs` 与 `scripts/neon-baseline.ps1` 纳入范围，最终为 10 个源码与测试文件加 4 份文档。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d…`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7；写模式前置检查已通过（HEAD 精确匹配、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a…` 无改动、工作区仅剩 11 项约定排除资产）。远程操作仍未执行，tooling SHA 为 `245dc301…`，待独立批准。真实测试计数与 Gate 1 逐次结果见 `docs/neon-vercel-baseline-runbook.md` 第 0 节与 `docs/neon-permission-baseline-plan.md` 的状态段。
 
 计数更正：baseline 文件由 37 项增至 40 项，audit 10 项；`NEON_BASELINE_TEST_DOCKER=1` + `postgres:18.6` 下三个脚本测试文件为 57 passed、0 skipped，无 Docker 下 baseline + audit 为 48 passed、2 skipped。本文件此前引用的 46/46 与 46 passed + 1 skipped 作废。
 

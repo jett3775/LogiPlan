@@ -14,7 +14,7 @@
 
 ## 0. 2026-09-22 最新本地验收状态
 
-2026-09-22 轮次（第三次修复轮次）已完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正。本轮未再次连接 Neon、未提交、未推送、未激活远程发布、未部署 Vercel。详细命令、逐次结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
+2026-09-22 轮次（第三次修复轮次）已完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正。本轮未再次连接 Neon、未推送、未激活远程发布、未部署 Vercel。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7。写模式前置检查已通过：HEAD 精确匹配该提交、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 无改动、工作区仅剩 11 项约定排除资产。tooling SHA 为 `245dc301…`，待独立批准。详细命令、逐次结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
 
 修复内容：`scripts/neon-baseline.mjs` 的 `acldefault` 由 `CASE ... THEN 'S' ...` 改为 `(CASE ... THEN 's' ...)::"char"`（根因：`CASE` 结果类型被解析为 `text`，`pg_catalog` 无 `acldefault(text, oid)`，真实 PostgreSQL 报 SQLSTATE 42883，与 2026-09-21 远程 `-Write` 失败信息逐字一致），并把四段 ACL 查询提取为导出函数 `queryPrivilegeAclRows`、导出 `assertRolePrivilegeBaseline` 供真实库测试执行生产路径；ACL 断言口径改为「只有 `relkind` 为 `r`/`p` 才预期 data_publisher INSERT」，并新增 `publisherReadOnlyRelations`（`data_release`、`active_data_release` 仅 SELECT，对应 `0001:1317-1320` 的显式 `REVOKE INSERT`），修正了「视图被要求 INSERT」与「显式撤销 INSERT 的表被要求 INSERT」两类误判；`packages/db/src/migrate.ts` 与 `publish-release.ts` 的 COMMIT 失败分类改为保守白名单（仅 `25xxx` 与 `2D000` 视为确定未提交，`40003`、`08xxx`、`57014` 与未枚举码一律判未知），并把迁移表创建与候选创建两处事务外自动提交写入收进既有事务 helper；`scripts/neon-baseline.mjs` 的报告路径改为在任何连接与预检之前以 `open(path,"wx")` 独占预留，路径被占用时零连接即失败且不覆盖已有文件，写入失败不再吞错；`scripts/verify-gate1-isolated.mjs` 的进程终止改为按进程树终止（Windows `taskkill /PID /T /F`，POSIX 进程组）并覆盖超时、停止服务与信号共 6 处；`scripts/neon-baseline.ps1` 只新增 UTF-8 BOM，修复 Windows PowerShell 5.1 在非 UTF-8 控制台代码页下解析中文导致的 `ParserError`。
 
@@ -22,7 +22,7 @@
 
 `pnpm verify:gate1:isolated` 本轮执行 6 次：第 1、3 次退出码 1，第 2、4、5、6 次退出码 0，**第 4、5、6 次为连续三次正常退出**。两次失败必须保留：第 1 次为 Firefox 核心冒烟 1/3 失败——`/attribution?destination=GB` 跳转成功但 5 秒内未出现目标标题，可访问性快照显示页面仍停在「正在加载分析工作台」加载壳；第 3 次为快照集成 `preserves historical release evidence across both Chromium viewports` 在 10 秒轮询内未观测到 4 条快照落库（该次中止早于浏览器套件）。两次失败位于不同步骤且均为轮询/等待超时类，与 2026-09-21 的 6 次（4 次退出码 0、2 次浏览器启动环节异常）同属长期不稳定，根因未定位；**在消除该不稳定前 Gate 1 不得记为稳定通过**，复验必须记录执行次数与每次结果。第 2、4、5、6 次执行后均无 gate1 / acl 容器、卷、网络残留，Chromium 进程 0，Firefox 进程数与运行前一致。
 
-独立审查：2026-09-22 由独立只读子代理（全新上下文、无写入权限）在固定点 `06cccf2` 上判定 PASS、无 P0/P1、列出 6 项 P2；其中 1 项按最小改动收紧（relation ACL 断言显式校验同一 `relname` 的关系类型一致），1 项按既有规则彻底关闭（`scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`，闭包由 24 条增至 25 条，并删除 `neon-baseline.mjs` 内的重复进程树终止实现），其余 4 项为既有问题或文档精度问题（详见 runbook 第 0 节）。本轮尚未提交，新 tooling SHA 需在本提交生成后重新独立批准。
+独立审查：2026-09-22 由独立只读子代理（全新上下文、无写入权限）在固定点 `06cccf2` 上判定 PASS、无 P0/P1、列出 6 项 P2；其中 1 项按最小改动收紧（relation ACL 断言显式校验同一 `relname` 的关系类型一致），1 项按既有规则彻底关闭（`scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`，闭包由 24 条增至 25 条，并删除 `neon-baseline.mjs` 内的重复进程树终止实现），其余 4 项为既有问题或文档精度问题（详见 runbook 第 0 节）。本轮修复已提交为 `245dc301…`，tooling SHA 与提交一致，待独立批准。
 
 ### 0.1 2026-09-21 轮次（历史证据）
 

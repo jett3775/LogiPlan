@@ -2,7 +2,7 @@
 
 日期：2026-09-17
 
-状态（2026-09-22，当前）：第三次修复轮次已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正；未再次连接 Neon、未提交、未推送、未激活远程发布、未部署。新 tooling SHA 需在本提交生成后重新独立批准，因此本文件仍不是远程完成证明或操作授权。完整命令、逐次 Gate 1 结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
+状态（2026-09-22，当前）：第三次修复轮次已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正；未再次连接 Neon、未推送、未激活远程发布、未部署。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7；写模式前置检查已通过（HEAD 精确匹配、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a…` 无改动、工作区仅剩 11 项约定排除资产）。tooling SHA 为 `245dc301…`，待独立批准，因此本文件仍不是远程完成证明或操作授权。完整命令、逐次 Gate 1 结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
 
 本轮实测：`NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 下三个脚本测试文件 57 passed、0 skipped、退出码 0；`postgres:18.4` 与 18.6 下 baseline + audit 均 50 passed、0 skipped；无 Docker 48 passed、2 skipped。计数口径更正：baseline 文件由 37 项增至 40 项（新增 1 项真实库 ACL 检查路径回归与 2 项报告路径测试），此前「Docker 46/46」「无 Docker 46 passed + 1 skipped」作废。项目级 `pnpm test` 95 passed、11 skipped，`pnpm test:coverage` 退出码 0（95.51% stmts / 87.5% branch / 95.66% lines），`pnpm lint`、`pnpm typecheck`、`pnpm build` 退出码 0。`pnpm verify:gate1:isolated` 执行 6 次：第 1、3 次退出码 1，第 2、4、5、6 次退出码 0（第 4、5、6 次连续正常退出）；两次失败分别位于 Firefox 核心冒烟与快照集成，均为轮询/等待超时类，根因未定位，**Gate 1 不得记为稳定通过**。
 
