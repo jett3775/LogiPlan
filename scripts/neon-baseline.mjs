@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { open, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+
+import { terminateProcessTree } from "./wait-for-server.mjs";
 
 const requireFromDatabasePackage = createRequire(
   new URL("../packages/db/package.json", import.meta.url),
@@ -73,6 +75,7 @@ export const executionClosurePaths = Object.freeze([
   "scripts/neon-permission-audit.mjs",
   "scripts/neon-permission-audit.test.mjs",
   "scripts/verify-gate1-isolated.mjs",
+  "scripts/wait-for-server.mjs",
   "packages/db/package.json",
   "packages/db/tsconfig.json",
   "packages/db/src",
@@ -152,6 +155,11 @@ const publisherNoPrivilegeRelations = new Set([
   "active_business_event_note",
   "evidence_snapshot",
 ]);
+// 发布记账表由 SECURITY DEFINER 函数写入（0001 显式 REVOKE INSERT），
+// data_publisher 只持有 SELECT；视图在 PostgreSQL 中同样不可写入。
+const publisherReadOnlyRelations = new Set(["data_release", "active_data_release"]);
+// 只有普通表与分区表接受 INSERT；视图、物化视图与序列不进入 INSERT 预期。
+const insertableRelationKinds = new Set(["r", "p"]);
 const publisherFunctionNames = new Set([
   "create_data_release_candidate",
   "mark_data_release_validated",
@@ -435,23 +443,8 @@ function fingerprint(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
-function terminateProcessTree(child, signal) {
-  if (child.pid === undefined) return;
-  if (process.platform === "win32") {
-    const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.once("error", () => child.kill(signal));
-    return;
-  }
-  try {
-    child.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
-}
-
+// 进程树终止由 scripts/wait-for-server.mjs 提供；该模块同时被 Gate 1 编排加载，
+// 已列入 executionClosurePaths，不再在本文件保留第二份实现。
 export function createReport(options, context = {}) {
   const connections = context.connections;
   return {
@@ -869,7 +862,61 @@ export function assertExactPrivileges(rows, expected, label) {
   );
 }
 
-async function assertRolePrivilegeBaseline(admin, adminRole) {
+export async function queryPrivilegeAclRows(admin) {
+  const schemaAcl = await admin.query(
+    `SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
+     FROM pg_namespace AS namespace
+     CROSS JOIN LATERAL aclexplode(
+       COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+     ) AS acl
+     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
+     WHERE namespace.nspname = 'logiplan'
+       AND (acl.grantee = 0 OR acl.grantee <> namespace.nspowner)`,
+  );
+  const relationAcl = await admin.query(
+    `SELECT object.relname, object.relkind,
+            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
+     FROM pg_class AS object
+     JOIN pg_namespace AS namespace ON namespace.oid = object.relnamespace
+     CROSS JOIN LATERAL aclexplode(
+       COALESCE(object.relacl, acldefault((CASE WHEN object.relkind = 'S' THEN 's' ELSE 'r' END)::"char", object.relowner))
+     ) AS acl
+     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
+     WHERE namespace.nspname = 'logiplan'
+       AND (acl.grantee = 0 OR acl.grantee <> object.relowner)`,
+  );
+  const functionAcl = await admin.query(
+    `SELECT object.proname,
+            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
+     FROM pg_proc AS object
+     JOIN pg_namespace AS namespace ON namespace.oid = object.pronamespace
+     CROSS JOIN LATERAL aclexplode(
+       COALESCE(object.proacl, acldefault('f', object.proowner))
+     ) AS acl
+     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
+     WHERE namespace.nspname = 'logiplan'
+       AND (acl.grantee = 0 OR acl.grantee <> object.proowner)`,
+  );
+  const defaultAcl = await admin.query(
+    `SELECT defaults.defaclobjtype,
+            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
+     FROM pg_default_acl AS defaults
+     JOIN pg_roles AS owner ON owner.oid = defaults.defaclrole
+     JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+     CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
+     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
+     WHERE owner.rolname = 'schema_migrator'
+       AND namespace.nspname = 'logiplan'`,
+  );
+  return {
+    schemaAcl: schemaAcl.rows,
+    relationAcl: relationAcl.rows,
+    functionAcl: functionAcl.rows,
+    defaultAcl: defaultAcl.rows,
+  };
+}
+
+export async function assertRolePrivilegeBaseline(admin, adminRole) {
   await assertRoleDefinitions(admin, adminRole);
   const structural = await admin.query(`SELECT
     has_database_privilege('schema_migrator', current_database(), 'CREATE') AS migrator_db_create,
@@ -941,36 +988,15 @@ async function assertRolePrivilegeBaseline(admin, adminRole) {
   );
   assert(ownership.rowCount === 0, "logiplan schema 或对象所有者偏离迁移基线");
 
-  const schemaAcl = await admin.query(
-    `SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
-     FROM pg_namespace AS namespace
-     CROSS JOIN LATERAL aclexplode(
-       COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
-     ) AS acl
-     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
-     WHERE namespace.nspname = 'logiplan'
-       AND (acl.grantee = 0 OR acl.grantee <> namespace.nspowner)`,
-  );
+  const acl = await queryPrivilegeAclRows(admin);
   assertExactPrivileges(
-    schemaAcl.rows,
+    acl.schemaAcl,
     ["data_publisher:USAGE", "app_reader:USAGE"],
     "logiplan schema",
   );
 
-  const relationAcl = await admin.query(
-    `SELECT object.relname, object.relkind,
-            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
-     FROM pg_class AS object
-     JOIN pg_namespace AS namespace ON namespace.oid = object.relnamespace
-     CROSS JOIN LATERAL aclexplode(
-       COALESCE(object.relacl, acldefault(CASE WHEN object.relkind = 'S' THEN 'S' ELSE 'r' END, object.relowner))
-     ) AS acl
-     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
-     WHERE namespace.nspname = 'logiplan'
-       AND (acl.grantee = 0 OR acl.grantee <> object.relowner)`,
-  );
   const relations = new Map();
-  for (const row of relationAcl.rows) {
+  for (const row of acl.relationAcl) {
     const entries = relations.get(row.relname) ?? [];
     entries.push(row);
     relations.set(row.relname, entries);
@@ -986,29 +1012,31 @@ async function assertRolePrivilegeBaseline(admin, adminRole) {
   }
   for (const [relationName, rows] of relations) {
     const relkind = rows[0]?.relkind;
+    // 一个 relname 只允许一种关系类型；显式断言，避免后续默认类型判定依赖隐式前提。
+    assert(
+      rows.every((row) => row.relkind === relkind),
+      `logiplan.${relationName} 的 ACL 行关系类型不一致`,
+    );
     const expected = [];
     if (appReaderSelectRelations.has(relationName)) expected.push("app_reader:SELECT");
-    if (publisherSelectRelations.has(relationName)) expected.push("data_publisher:SELECT");
-    if (!publisherNoPrivilegeRelations.has(relationName) && relkind !== "S") {
+    if (
+      publisherSelectRelations.has(relationName) ||
+      publisherReadOnlyRelations.has(relationName)
+    ) {
+      expected.push("data_publisher:SELECT");
+    }
+    if (
+      insertableRelationKinds.has(relkind) &&
+      !publisherNoPrivilegeRelations.has(relationName) &&
+      !publisherReadOnlyRelations.has(relationName)
+    ) {
       expected.push("data_publisher:SELECT", "data_publisher:INSERT");
     }
     assertExactPrivileges(rows, expected, `logiplan.${relationName}`);
   }
 
-  const functionAcl = await admin.query(
-    `SELECT object.proname,
-            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
-     FROM pg_proc AS object
-     JOIN pg_namespace AS namespace ON namespace.oid = object.pronamespace
-     CROSS JOIN LATERAL aclexplode(
-       COALESCE(object.proacl, acldefault('f', object.proowner))
-     ) AS acl
-     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
-     WHERE namespace.nspname = 'logiplan'
-       AND (acl.grantee = 0 OR acl.grantee <> object.proowner)`,
-  );
   const functions = new Map();
-  for (const row of functionAcl.rows) {
+  for (const row of acl.functionAcl) {
     const entries = functions.get(row.proname) ?? [];
     entries.push(row);
     functions.set(row.proname, entries);
@@ -1023,19 +1051,8 @@ async function assertRolePrivilegeBaseline(admin, adminRole) {
     assert(functions.has(functionName), `迁移基线函数不存在：logiplan.${functionName}`);
   }
 
-  const defaultAcl = await admin.query(
-    `SELECT defaults.defaclobjtype,
-            COALESCE(grantee.rolname, 'PUBLIC') AS grantee, acl.privilege_type
-     FROM pg_default_acl AS defaults
-     JOIN pg_roles AS owner ON owner.oid = defaults.defaclrole
-     JOIN pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
-     CROSS JOIN LATERAL aclexplode(defaults.defaclacl) AS acl
-     LEFT JOIN pg_roles AS grantee ON grantee.oid = acl.grantee
-     WHERE owner.rolname = 'schema_migrator'
-       AND namespace.nspname = 'logiplan'`,
-  );
   assertExactPrivileges(
-    defaultAcl.rows.map((row) => ({
+    acl.defaultAcl.map((row) => ({
       grantee: `${row.defaclobjtype}:${row.grantee}`,
       privilege_type: row.privilege_type,
     })),
@@ -1274,11 +1291,18 @@ async function inspectDatabaseState(client) {
   return state;
 }
 
+// 报告路径必须在任何本地预检副作用、远程连接或写入之前独占预留。路径被占用时立即以
+// 已知失败结束，不执行任何数据库操作；随后的写入只针对已预留的文件，因此不再使用 wx。
+async function reserveReportPath(path) {
+  if (!path) return;
+  const handle = await open(resolve(path), "wx", 0o600);
+  await handle.close();
+}
+
 async function persistReport(path, report) {
   if (!path) return;
   await writeFile(resolve(path), `${JSON.stringify(report, null, 2)}\n`, {
     encoding: "utf8",
-    flag: "wx",
     mode: 0o600,
   });
 }
@@ -1288,6 +1312,9 @@ export async function runBaseline(options, environment = process.env, dependenci
   const gitPreflight = dependencies.gitPreflight ?? defaultGitPreflight;
   const prepareDatabase = dependencies.prepareDatabase ?? defaultPrepareDatabase;
   const saveReport = dependencies.persistReport ?? persistReport;
+  const reserveReport = dependencies.reserveReport ?? reserveReportPath;
+  // 只有自己成功预留了报告路径才允许写入，避免覆盖他人已存在的报告文件。
+  let reportPathOwned = options.reportPath === undefined;
   let stage = "arguments_validated";
   let git;
   let connections;
@@ -1296,6 +1323,8 @@ export async function runBaseline(options, environment = process.env, dependenci
     assertSupportedNodeVersion();
     validateCandidateShas(options);
     stage = "candidate_approval_validated";
+    await reserveReport(options.reportPath);
+    reportPathOwned = true;
     validateToolingApproval(options, environment);
     if (options.write) validateWriteEnvironment(environment);
     stage = "tooling_approval_validated";
@@ -1354,9 +1383,18 @@ export async function runBaseline(options, environment = process.env, dependenci
           : "known_failed",
       error: safeMessage,
     });
-    await saveReport(options.reportPath, report).catch(() => undefined);
     const safeError = new Error(safeMessage);
     if (outcomeUnknown) safeError.writeOutcomeUnknown = true;
+    if (reportPathOwned) {
+      try {
+        await saveReport(options.reportPath, report);
+      } catch (reportError) {
+        const reportMessage =
+          reportError instanceof Error ? reportError.message : "未知报告写入错误";
+        safeError.message = `${safeError.message}（报告写入失败：${reportMessage}）`;
+        Object.assign(safeError, { reportWriteFailure: reportMessage });
+      }
+    }
     throw safeError;
   }
 }

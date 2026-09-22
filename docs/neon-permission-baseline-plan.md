@@ -2,7 +2,21 @@
 
 日期：2026-09-17
 
-状态：2026-09-21 第二次返工轮次（P1/P2 最小修复）已在最终代码上完成本地实现与验证：Docker 与 `postgres:18.6` 重跑 46/46、项目级检查退出码全为 0、`pnpm verify:gate1:isolated` 第二次执行退出码 0（第一次在同一子步骤以原生崩溃码 `3221226505` 失败，两次结果不一致已如实记录）。本轮代码修复已于 2026-09-21 以单次提交提交（`104f4b0f`，15 个文件）并通过独立复查；远程 Neon 尚未连接，tooling SHA 取包含文档修正的当前 HEAD 且尚未批准，本文件不是远程完成证明或操作授权。
+状态（2026-09-22，当前）：第三次修复轮次已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正；未再次连接 Neon、未提交、未推送、未激活远程发布、未部署。新 tooling SHA 需在本提交生成后重新独立批准，因此本文件仍不是远程完成证明或操作授权。完整命令、逐次 Gate 1 结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
+
+本轮实测：`NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 下三个脚本测试文件 57 passed、0 skipped、退出码 0；`postgres:18.4` 与 18.6 下 baseline + audit 均 50 passed、0 skipped；无 Docker 48 passed、2 skipped。计数口径更正：baseline 文件由 37 项增至 40 项（新增 1 项真实库 ACL 检查路径回归与 2 项报告路径测试），此前「Docker 46/46」「无 Docker 46 passed + 1 skipped」作废。项目级 `pnpm test` 95 passed、11 skipped，`pnpm test:coverage` 退出码 0（95.51% stmts / 87.5% branch / 95.66% lines），`pnpm lint`、`pnpm typecheck`、`pnpm build` 退出码 0。`pnpm verify:gate1:isolated` 执行 6 次：第 1、3 次退出码 1，第 2、4、5、6 次退出码 0（第 4、5、6 次连续正常退出）；两次失败分别位于 Firefox 核心冒烟与快照集成，均为轮询/等待超时类，根因未定位，**Gate 1 不得记为稳定通过**。
+
+独立审查：2026-09-22 由独立只读子代理在固定点 `06cccf2` 判定 PASS、无 P0/P1、列出 6 项 P2；1 项按最小改动收紧（relation ACL 断言显式校验同一 relname 的关系类型一致），1 项按既有规则彻底关闭（`scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`，闭包由 24 条增至 25 条，并删除 `neon-baseline.mjs` 内的重复进程树终止实现），其余为既有或文档精度问题。
+
+本轮记录、未修复的遗留项：
+
+1. `packages/db/src/publish-release.ts:128/230` 与 `migrate.ts:143` 仍吞掉 advisory unlock 与 `mark_failed` 的失败。
+2. `packages/db/src/publish-release.ts:197` 候选已 COMMIT 之后读状态失败仍以退出码 1 结束，应区分「读取失败」与「写入失败」。
+3. 真实 ACL 用例受 `NEON_BASELINE_TEST_DOCKER` 门控，默认 `pnpm test` 不执行被修复的 SQL（由 Gate 1 编排注入该变量覆盖）。
+4. Gate 1 浏览器与快照环节长期不稳定（本轮 6 次中 2 次失败、2026-09-21 6 次中 2 次异常），根因未定位。
+5. 测试卫生：新增的 ACL 容器在一次异常结束的首跑中泄漏，正常通过与断言失败路径均能清理，未复现。
+
+上一轮（2026-09-21）状态：
 
 本轮最新结果摘要：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时 `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）；`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0；`pnpm verify:gate1:isolated` 第二次执行退出码 0。全仓 `pnpm format:check` 仍因 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产失败，本轮只做定向格式检查，未执行全仓 `prettier --write`。
 

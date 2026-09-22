@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Client } from "pg";
 
-import { runMigrationTransaction } from "./migrate";
+import { ensureMigrationTable, runMigrationTransaction } from "./migrate";
 
 function transactionClient(failure?: (sql: string) => Error | undefined): {
   client: Client;
@@ -18,6 +18,32 @@ function transactionClient(failure?: (sql: string) => Error | undefined): {
   } as unknown as Client;
   return { client, statements };
 }
+
+describe("ensureMigrationTable", () => {
+  it("迁移表创建在事务内执行，成功时以 COMMIT 结束", async () => {
+    const { client, statements } = transactionClient();
+
+    await ensureMigrationTable(client);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements[1]).toContain("public._schema_migrations");
+    expect(statements[2]).toBe("COMMIT");
+  });
+
+  it("迁移表创建的 COMMIT 结果未知时传播未知写入结果", async () => {
+    const { client, statements } = transactionClient((sql) =>
+      sql === "COMMIT"
+        ? Object.assign(new Error("statement completion unknown"), { code: "40003" })
+        : undefined,
+    );
+
+    await expect(ensureMigrationTable(client)).rejects.toMatchObject({
+      writeOutcomeUnknown: true,
+    });
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements[2]).toBe("COMMIT");
+  });
+});
 
 describe("runMigrationTransaction", () => {
   it("生产迁移入口在 COMMIT 确认丢失时传播未知结果", async () => {
@@ -59,6 +85,47 @@ describe("runMigrationTransaction", () => {
     await expect(runMigrationTransaction(client, async () => undefined)).rejects.toMatchObject({
       writeOutcomeUnknown: true,
     });
+    expect(statements).toEqual(["BEGIN", "COMMIT", "ROLLBACK"]);
+  });
+
+  it("生产迁移入口把 SQLSTATE 40003 判为未知提交结果", async () => {
+    const { client, statements } = transactionClient((sql) =>
+      sql === "COMMIT"
+        ? Object.assign(new Error("statement completion unknown"), { code: "40003" })
+        : undefined,
+    );
+
+    await expect(runMigrationTransaction(client, async () => undefined)).rejects.toMatchObject({
+      writeOutcomeUnknown: true,
+    });
+    expect(statements).toEqual(["BEGIN", "COMMIT", "ROLLBACK"]);
+  });
+
+  it("生产迁移入口把未枚举的 COMMIT 错误码判为未知提交结果", async () => {
+    const { client } = transactionClient((sql) =>
+      sql === "COMMIT" ? Object.assign(new Error("disk full"), { code: "53100" }) : undefined,
+    );
+
+    await expect(runMigrationTransaction(client, async () => undefined)).rejects.toMatchObject({
+      writeOutcomeUnknown: true,
+    });
+  });
+
+  it("生产迁移入口把 COMMIT 阶段的无效事务状态判为确定未提交", async () => {
+    const { client, statements } = transactionClient((sql) =>
+      sql === "COMMIT"
+        ? Object.assign(new Error("in failed sql transaction"), { code: "25P02" })
+        : undefined,
+    );
+
+    let failure: unknown;
+    try {
+      await runMigrationTransaction(client, async () => undefined);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ rollbackConfirmed: true });
+    expect(failure).not.toHaveProperty("writeOutcomeUnknown");
     expect(statements).toEqual(["BEGIN", "COMMIT", "ROLLBACK"]);
   });
 

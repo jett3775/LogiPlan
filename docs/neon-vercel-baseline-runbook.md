@@ -3,7 +3,34 @@
 版本：V1.0
 日期：2026-09-11
 
-## 0. 2026-09-21 验收状态与后续执行包
+## 0. 2026-09-22 验收状态与后续执行包
+
+2026-09-22 轮次（第三次修复轮次：交接文件 7 项阻滞中的 1—5 项代码修复，外加 ACL 断言口径修正与 PowerShell 入口编码修正）已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮未再次连接 Neon、未提交、未推送、未激活远程发布、未部署 Vercel；新 tooling SHA 待本提交生成后另行独立批准。
+
+本轮实际修复（七项）：
+
+1. **`acldefault` 类型错误**（`scripts/neon-baseline.mjs`）：原写法 `acldefault(CASE WHEN object.relkind = 'S' THEN 'S' ELSE 'r' END, object.relowner)` 改为 `acldefault((CASE WHEN object.relkind = 'S' THEN 's' ELSE 'r' END)::"char", object.relowner)`。根因：`CASE` 两个分支都是 unknown 字面量，结果类型被解析为 `text`，而 `pg_catalog` 只有 `acldefault("char", oid)`，`text` 无隐式转换。真实现象：在 PostgreSQL 18.4 与 18.6 上原写法报 `function acldefault(text, oid) does not exist`（SQLSTATE 42883），与 2026-09-21 远程 `-Write` 的失败信息逐字一致。同时把四段 ACL 查询提取为导出函数 `queryPrivilegeAclRows(admin)`、导出 `assertRolePrivilegeBaseline`，使真实数据库测试直接执行生产路径而不是复制实现。
+2. **ACL 断言口径修正**（同一文件）：原逻辑以 `relkind !== "S"` 作为「预期 data_publisher INSERT」的判据，既没有排除视图（PostgreSQL 视图不可授予 INSERT），也没有覆盖 `0001_gate1_schema.sql:1317-1320` 对 `data_release`、`active_data_release` 的显式 `REVOKE INSERT`（这两张表的写入按设计走 SECURITY DEFINER 函数）。现改为「只有 `relkind` 为 `r` 或 `p` 的关系才预期 INSERT」，并新增 `publisherReadOnlyRelations = {data_release, active_data_release}`。真实授权事实（一次性容器内跑完 0001—0010 后全量导出）：`data_release`、`active_data_release` 仅 `data_publisher SELECT`；14 个 `active_*` 视图为 `app_reader SELECT` + `data_publisher SELECT`；`active_release`、`active_business_event_note`、`evidence_snapshot` 仅 `app_reader SELECT`；其余普通表为 `data_publisher SELECT` + `INSERT`；函数 EXECUTE 与 `schema_migrator` 默认 ACL 与断言一致。该断言路径此前从未在任何环境真实执行，属零覆盖缺陷。
+3. **事务失败分类保守化**（`packages/db/src/migrate.ts`、`packages/db/src/publish-release.ts`）：`isConfirmedCommitFailure` 由「任意 5 位码、仅排除 `08xxx` 与 `57014`」的黑名单改为白名单——只有 `25xxx` 前缀与 `2D000` 才视为「事务已终止且不可能提交」，`40003`（statement completion unknown）、`53100`、`08xxx`、`57014` 以及任何未枚举码一律判为写入结果未知。改前红灯证据：`40003`、`53100` 在 COMMIT 阶段被判为 `rollbackConfirmed: true`，即已提交写入会被误报为确定失败。
+4. **事务外自动提交写入收进事务 helper**（同一两个文件）：`migrate.ts` 新增导出 `ensureMigrationTable(client)` 承载 `CREATE TABLE IF NOT EXISTS public._schema_migrations`；`publish-release.ts` 新增导出 `createReleaseCandidate(client, bundle, releaseId)` 承载 `logiplan.create_data_release_candidate(...)`。两处此前在 helper 之外自动提交，响应丢失时无法被判定为未知。
+5. **报告路径语义**（`scripts/neon-baseline.mjs`）：新增 `reserveReportPath(path)`，在任何 localConfig、git 预检与数据库连接之前以 `open(path, "wx", 0o600)` 独占预留；路径被占用时立即以已知失败结束、零连接、不覆盖已有文件；预留成功后写入不再吞错，写入失败时把 `reportWriteFailure` 并入错误信息。**这是相对 2026-09-21 的行为变化：复用旧路径将从「仍会执行远程写入但报告丢失」变为「连接前即失败」。**
+6. **进程树终止**（`scripts/verify-gate1-isolated.mjs`）：`terminateProcessTree` 落到 `scripts/wait-for-server.mjs` 并导出，应用于超时路径、`stopServer` 与信号处理共 6 处；两处 spawn 增加 `detached: process.platform !== "win32"`（与 `neon-baseline.mjs` 既有做法一致），使 POSIX 的进程组终止分支真正生效。Windows 使用 `taskkill /PID <pid> /T /F`：Windows 无 SIGTERM 语义，因此不做「先温和后强制」的宽限升级，直接终止整棵树；POSIX 使用进程组终止并回退直接信号。
+7. **PowerShell 入口编码**（`scripts/neon-baseline.ps1`）：只新增 UTF-8 BOM（3 字节，内容未改，文件由 2703 字节变 2706 字节）。根因：Windows PowerShell 5.1 对无 BOM 脚本按控制台 ANSI 代码页解码，控制台代码页为 437 时中文被错误解码并破坏引号配对，报 `ParserError`（`neon-baseline.ps1:39 char:53`）；加 BOM 后 5.1 与 7.6.6 均正常执行。
+
+本轮实测结果（最终版本）：
+
+- `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs scripts/verify-gate1-isolated.test.mjs`：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 为 **57 passed、0 skipped、退出码 0**；`postgres:18.4` 下 baseline + audit 为 50 passed、0 skipped、退出码 0；无 Docker 下 baseline + audit 为 48 passed、2 skipped、退出码 0。
+- **计数口径更正**：baseline 文件由 37 项增至 40 项（新增 1 项真实库 ACL 检查路径回归与 2 项报告路径测试），audit 文件 10 项，Gate 1 继续运行同一 baseline 文件。此前文档中的「Docker 46/46（Neon baseline 36 + 权限 audit 10）」与「无 Docker 46 passed + 1 skipped」均已作废。
+- `vitest run`：13 文件、95 passed、11 skipped、退出码 0；`vitest run --coverage` 退出码 0，All files 95.51% stmts / 87.5% branch / 95.96% funcs / 95.66% lines。
+- 完整 `eslint --max-warnings 0` 与 `tsc -p packages/db/tsconfig.json --noEmit` 退出码 0。本次改动的 9 个文件全部通过 `prettier --check`；全仓 `pnpm format:check` 仍为退出码 1，失败项为 9 个既有用户资产（`AGENTS.md` + 根目录 8 份 `neon-baseline-report-*.json`）。
+- `pnpm verify:gate1:isolated` 本轮共执行 6 次：第 1、3 次退出码 1，第 2、4、5、6 次退出码 0；**第 4、5、6 次构成连续三次正常退出**。退出码 0 的执行覆盖 PostgreSQL 18.4 迁移/V1/V2/发布幂等/显式激活/三角色权限/查询计划（`temp_written_blocks` 全为 0）、生产构建、快照持久化证据 28/28、Chromium 双视口基础 10 passed、Chromium 双视口历史证据 22/22、Firefox 3/3，以及并发 5 的 100 次热查询（第 2 次 P50 24.888ms / P95 42.693ms / P99 50.005ms；第 5 次 P50 26.253ms / P95 46.735ms / P99 53.58ms；第 6 次 P50 23.719ms / P95 42.28ms / P99 46.258ms）。第 2、4、5、6 次执行后的残留检查均为：无 gate1 / acl 容器、卷、网络，Chromium 进程 0，Firefox 进程数与运行前一致，pnpm 0。
+- Gate 1 两次失败必须保留，不得记为稳定通过：第 1 次为 Firefox 核心冒烟 3 项中 1 项失败（`apps/web/tests/gate1.spec.ts:118`）——URL 已正确跳转 `/attribution?destination=GB`，但 5 秒内未出现标题「英国履约变动成本归因」，失败现场的可访问性快照显示页面仍停在加载壳（`heading "正在加载分析工作台"` 与 `paragraph: 正在读取已发布的确定性结果，请稍候。`），同轮第二项同页用例通过；第 3 次为 `packages/db/src/evidence-snapshot.test.ts:837-849` 的 `browserExpect.poll` 在 10 秒内未观测到 4 条快照落库（期望 `[1,1,1,1]`、实际 `[0,0,0,0]`），用例 `preserves historical release evidence across both Chromium viewports`（第 2 次 6744ms 通过、本次 14558ms 失败），且该次中止早于浏览器套件，跳过了 Chromium 基础、历史证据、Firefox 与性能验证。两次失败位于不同步骤、均为轮询或等待超时类；第 1 次执行期间无任何并发操作，第 3 次与本轮并发的仓库操作有时间重叠（已排除并发为唯一原因）。与 2026-09-21 的 6 次执行（4 次退出码 0、2 次浏览器启动环节异常且均无用例断言失败）合并看，Gate 1 浏览器相关环节长期不稳定，根因未定位；在消除该不稳定前，Gate 1 不得记为稳定通过，复验必须记录执行次数与每次结果。
+
+独立审查：2026-09-22 由独立只读子代理（全新上下文、无写入权限）执行，固定点为修复前提交 `06cccf2`，判定 **PASS、无 P0/P1、列出 6 项 P2**。处置：1 项按最小改动收紧（relation ACL 断言显式校验同一 `relname` 的关系类型一致）；1 项按本仓库既有规则彻底关闭——进程树终止此前在 `scripts/neon-baseline.mjs` 与 `scripts/wait-for-server.mjs` 各有一份实现，而 `docs/neon-permission-baseline-plan.md` 第 271 行要求新脚本与 helper 不得以新增外部依赖绕过工具 SHA 保护，故已把 `scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`（执行闭包由 24 条路径增至 25 条）并删除 `neon-baseline.mjs` 内的重复实现，两处统一从该模块导入；其余 4 项为既有问题或文档精度问题——报告预留属行为变化（已在本节第 5 条写明）、真实 ACL 用例受 `NEON_BASELINE_TEST_DOCKER` 门控因而默认 `pnpm test` 不会执行被修复的 SQL（由 Gate 1 编排注入该变量覆盖）、`publish-release.ts:128/230` 与 `migrate.ts:143` 仍吞掉 advisory unlock 与 `mark_failed` 的失败（既有，不在本轮范围）、`publish-release.ts:197` 候选已 COMMIT 后读状态失败仍以退出码 1 结束（既有，不在本轮范围）。审查者明确标注的未验证项：真实 PostgreSQL/Neon 执行与 Docker 门控用例、未运行任何测试套件、ps1 在代码页 437 下的实际解析、以及文档中的历史测试数字。
+
+保留为历史证据（不替代本轮结果）：2026-09-21 的 Docker `postgres:18.6` 46/46、`pnpm test` 85 passed / 11 skipped 与 6 次 Gate 1（4 次退出码 0）；2026-09-20 的 audit 9/9；以及更早的 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3）。
+
+### 0.1 2026-09-21 轮次（历史证据）
 
 本轮（第二次返工轮次：P1/P2 最小修复）已在最终代码上取得新的实际结果。启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时，`node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）；`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0；`pnpm verify:gate1:isolated` 共执行 6 次（4 次退出码 0），每次退出码 0 的执行覆盖 PostgreSQL 18.4 迁移/V1/V2/发布幂等/显式激活/三角色权限/查询计划、生产构建、快照持久化证据 28/28、Chromium 双视口基础 10 passed 与 22 项设计性跳过、Chromium 双视口历史证据 22/22、Firefox 3/3、6 条查询计划 `temp_written_blocks` 全为 0，以及并发 5 的 100 次热查询（第 2 次 P50 23.083ms / P95 38.898ms / P99 42.123ms；第 3 次 P50 23.865ms / P95 42.099ms / P99 44.621ms；第 5 次 P50 23.165ms / P95 43.537ms / P99 47.975ms；第 6 次 P50 22.521ms / P95 40.066ms / P99 45.452ms）；临时容器、网络与卷已清理。axe serious/critical 断言位于 `gate1.spec.ts` 内，随上述 Chromium 与 Firefox 用例执行。
 
@@ -19,7 +46,7 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 
 裸执行两个 Node 测试文件 41 项（40 passed、1 项 Docker 条件 skip）、历次 PostgreSQL 18.6 定向验证 41/41，以及历史 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3，P95 43.954ms）全部保留为历史证据，不再是本轮最新结果。普通 Chromium 基础命令中 22 项历史用例按设计跳过，随后由历史证据专项完整执行。
 
-2026-09-20 的局部历史记录为 audit 9/9、相关五文件格式检查通过及独立复查 PASS，仅覆盖当时的 audit 改造，不代表完整本地基线、远程 Neon 基线或本轮最新 Gate 1。候选 SHA 固定为 `0229755a097dff94c8de67954b36ab4f9412c0f5`，新的 tooling SHA 尚未生成，不得用候选 SHA 或任意占位值冒充 tooling SHA。audit 只输出脱敏 JSON、拒绝 `--report` 且不保存文件；正式 `neon-baseline --report` 保留。H1 仅是本地 PostgreSQL 机制证据，不是 Neon 根因确认；当前未连接 Neon、未激活远程发布、未部署或推送。
+2026-09-20 的局部历史记录为 audit 9/9、相关五文件格式检查通过及独立复查 PASS，仅覆盖当时的 audit 改造，不代表完整本地基线、远程 Neon 基线或本轮最新 Gate 1。候选 SHA 固定为 `0229755a097dff94c8de67954b36ab4f9412c0f5`，新的 tooling SHA 尚未生成，不得用候选 SHA 或任意占位值冒充 tooling SHA。audit 只输出脱敏 JSON、拒绝 `--report` 且不保存文件；正式 `neon-baseline --report` 保留。H1 仅是本地 PostgreSQL 机制证据，不是 Neon 根因确认。该轮后续实际执行了远程只读核对与一次 `-Write` 尝试：管理 API 只读核对的项目、分支、数据库与 endpoint 与冻结值一致；数据库只读预检通过并返回 `status = preflight_passed`（`writes = []`、`last_completed_stage = git_validated`）；随后一次 `-Write` prepare 失败并据此定位出 `acldefault` 类型错误（本轮修复项 1）。未激活远程发布、未部署、未推送；该次尝试之前的远程持久化状态尚无新的只读事实证明，因此不得把「写入结果未知」记为已澄清。
 
 本轮全仓 `pnpm format:check` 仍为退出码 1，失败文件固定为 `AGENTS.md` 与根目录 7 份 `neon-baseline-report-*.json` 共 8 个用户资产；本轮只对改动文件做定向格式检查，未执行全仓 `prettier --write`。注意 `.workbuddy/memory/*.md` 也在全仓检查范围内，新增未格式化记忆文件会把失败数从 8 变 9。本机环境补充事实：`node` 必须显式使用 24.15.0（`C:\nvm4w\nodejs\node.exe`），PATH 默认的 22.22.2 不满足 `engines.node`；`pnpm exec <bin>` 在当前 shell 下无法解析到本地二进制，需改用 `pnpm <script>` 或 `node_modules/.bin/<bin>.cmd`；`prettier --check` 显式指定 `.ps1` 会因无解析器报错（退出码 2），需加 `--ignore-unknown`。
 
@@ -196,7 +223,7 @@ pnpm neon:baseline -- \
 ```
 
 默认预检不读取上述四个秘密、不建立数据库连接；只有 `--write` 才进行实时角色检测和初始化。
-不要写入 `.env`、shell profile 或仓库文件。报告路径必须是不存在的新文件；入口以 `0600` 创建，拒绝覆盖。
+不要写入 `.env`、shell profile 或仓库文件。报告路径必须是不存在的新文件：入口在参数校验之后、任何本地预检、Git 检查与数据库连接之前以 `0600` 独占预留该路径；路径已被占用时立即以已知失败结束、不执行任何数据库操作，也不会覆盖已有文件。预留成功后的写入失败会以 `reportWriteFailure` 并入错误信息，不再静默吞掉。
 
 连接建立最多重试三次，仅覆盖尚未开始写入的连接故障。`--write` 使用管理直连持有覆盖角色、迁移、发布和权限验收全流程的 advisory lock；无法取得锁时立即拒绝并发任务。迁移或发布命令不自动重试，避免把未知提交结果误报为已回滚。
 

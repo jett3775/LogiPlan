@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { Client } from "pg";
 
 import { loadReleaseBundle, validateReleasePackage } from "./release-package";
+import type { LoadedReleaseBundle } from "./release-package";
 import { activateAndMaterialize } from "./activate-and-materialize";
 import {
   assertDatabaseSchemaVersion,
@@ -33,15 +34,19 @@ type TransactionError = Error & {
   writeOutcomeUnknown?: true;
 };
 
+// COMMIT 阶段只有在 SQLSTATE 明确表示事务已终止且不可能提交时，才允许判定为确定失败。
+// 40003（statement completion unknown）、08xxx（连接异常）、57014（查询取消）以及任何
+// 未枚举的错误码都必须归入写入结果未知，避免把已提交的写入误报为已知失败。
+const definitelyUncommittedCodePrefixes = ["25"];
+const definitelyUncommittedCodes = new Set(["2D000"]);
+
 function isConfirmedCommitFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = error.code;
+  if (typeof code !== "string") return false;
   return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    /^[0-9A-Z]{5}$/u.test(error.code) &&
-    !error.code.startsWith("08") &&
-    error.code !== "57014"
+    definitelyUncommittedCodes.has(code) ||
+    definitelyUncommittedCodePrefixes.some((prefix) => code.startsWith(prefix))
   );
 }
 
@@ -123,6 +128,29 @@ export async function markPublishFailedIfKnown(
     .catch(() => undefined);
 }
 
+export async function createReleaseCandidate(
+  client: Client,
+  bundle: LoadedReleaseBundle,
+  releaseId: string,
+): Promise<void> {
+  await runPublishValidationTransaction(client, async () => {
+    await client.query(
+      `SELECT logiplan.create_data_release_candidate(
+         $1, $1, $2, $3, $4, $5, $6, $7
+       )`,
+      [
+        releaseId,
+        bundle.dataSha256,
+        bundle.manifest.database_schema_version,
+        bundle.manifest.calculation_version,
+        `sha256:${bundle.generatorSha256}`,
+        bundle.manifest.source_description,
+        `${bundle.package.metadata.generated_on}T00:00:00.000Z`,
+      ],
+    );
+  });
+}
+
 async function publish(): Promise<void> {
   if (publishMode !== "activate" && publishMode !== "validate-only") {
     throw new Error("LOGIPLAN_PUBLISH_MODE 只允许 activate 或 validate-only");
@@ -163,20 +191,7 @@ async function publish(): Promise<void> {
     }
 
     if (initialStatus === null) {
-      await client.query(
-        `SELECT logiplan.create_data_release_candidate(
-           $1, $1, $2, $3, $4, $5, $6, $7
-         )`,
-        [
-          releaseId,
-          bundle.dataSha256,
-          bundle.manifest.database_schema_version,
-          bundle.manifest.calculation_version,
-          `sha256:${bundle.generatorSha256}`,
-          bundle.manifest.source_description,
-          `${bundle.package.metadata.generated_on}T00:00:00.000Z`,
-        ],
-      );
+      await createReleaseCandidate(client, bundle, releaseId);
     }
 
     const currentStatus = await getReleaseStatus(client, releaseId);

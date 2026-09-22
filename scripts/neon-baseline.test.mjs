@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -16,12 +16,14 @@ import {
   exitCodeForBaselineError,
   assertExactPrivileges,
   assertRoleDefinitions,
+  assertRolePrivilegeBaseline,
   assertSupportedNodeVersion,
   classifyBootstrapTransactionFailure,
   classifyRoleBootstrap,
   isolatedGitEnvironment,
   isUnknownWriteProcessExit,
   parseArguments,
+  queryPrivilegeAclRows,
   runCli,
   runProcess,
   runBaseline,
@@ -79,11 +81,13 @@ function dependencies(prepareDatabase) {
     }),
     prepareDatabase,
     persistReport: async () => undefined,
+    reserveReport: async () => undefined,
   };
 }
 
 const runRoleBootstrapIntegration = process.env.NEON_BASELINE_TEST_DOCKER === "1";
 const roleBootstrapContainerNamePattern = /^logiplan-role-bootstrap-test-\d+-[0-9a-f]{16}$/u;
+const aclBaselineContainerNamePattern = /^logiplan-acl-baseline-test-\d+-[0-9a-f]{16}$/u;
 
 function roleBootstrapConnections(overrides = {}) {
   return {
@@ -143,11 +147,15 @@ function runDocker(docker, args, environment = process.env) {
   return result.stdout.trim();
 }
 
-async function startRoleBootstrapPostgres() {
+async function startRoleBootstrapPostgres({
+  prefix = "logiplan-role-bootstrap-test",
+  containerNamePattern = roleBootstrapContainerNamePattern,
+  containerNameEnvironment = "NEON_BASELINE_TEST_CONTAINER_NAME",
+} = {}) {
   const docker = findDockerCli();
-  const generatedContainerName = `logiplan-role-bootstrap-test-${process.pid}-${randomBytes(8).toString("hex")}`;
-  const containerName = process.env.NEON_BASELINE_TEST_CONTAINER_NAME ?? generatedContainerName;
-  assert.match(containerName, roleBootstrapContainerNamePattern);
+  const generatedContainerName = `${prefix}-${process.pid}-${randomBytes(8).toString("hex")}`;
+  const containerName = process.env[containerNameEnvironment] ?? generatedContainerName;
+  assert.match(containerName, containerNamePattern);
   const password = randomBytes(24).toString("hex");
   const dockerEnvironment = { ...process.env, POSTGRES_PASSWORD: password };
   let cleanupRequired = false;
@@ -388,6 +396,76 @@ test(
         },
       );
       assert.deepEqual(await existingManagedRoles(admin), []);
+    } finally {
+      await admin.end().catch(() => undefined);
+      postgres.stop();
+    }
+  },
+);
+
+test(
+  "真实 PostgreSQL 权限基线检查路径执行生产 ACL 查询",
+  { skip: !runRoleBootstrapIntegration },
+  async () => {
+    const postgres = await startRoleBootstrapPostgres({
+      prefix: "logiplan-acl-baseline-test",
+      containerNamePattern: aclBaselineContainerNamePattern,
+      containerNameEnvironment: "NEON_BASELINE_ACL_TEST_CONTAINER_NAME",
+    });
+    const admin = new Client({ connectionString: postgres.connectionString });
+    try {
+      await admin.connect();
+      const databaseIdentifier = await admin.query(
+        "SELECT format('%I', current_database()) AS name",
+      );
+      const databaseName = databaseIdentifier.rows[0].name;
+      await executeRoleBootstrapTransaction(
+        admin,
+        roleBootstrapConnections(),
+        databaseName,
+        classifyRoleBootstrap([]),
+      );
+
+      const { hostname, port } = new URL(postgres.connectionString);
+      const migration = spawnSync(
+        process.execPath,
+        ["--import", "tsx", "packages/db/src/migrate.ts"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            MIGRATION_DATABASE_URL: `postgresql://schema_migrator:migration-secret@${hostname}:${port}/logiplan`,
+            MIGRATION_DIRECTORY: resolve("database/migrations"),
+          },
+          timeout: 300_000,
+          windowsHide: true,
+        },
+      );
+      assert.equal(
+        migration.status,
+        0,
+        `隔离迁移执行失败：${(migration.stderr || migration.stdout || "").slice(-2000)}`,
+      );
+
+      await assertRolePrivilegeBaseline(admin, "postgres");
+
+      await admin.query("CREATE SEQUENCE logiplan.acl_probe_sequence");
+      await admin.query("ALTER SEQUENCE logiplan.acl_probe_sequence OWNER TO schema_migrator");
+      const withoutGrant = await queryPrivilegeAclRows(admin);
+      assert.deepEqual(
+        withoutGrant.relationAcl.filter((row) => row.relname === "acl_probe_sequence"),
+        [],
+        "无显式授权的序列不得产生 ACL 行",
+      );
+      await admin.query("GRANT USAGE ON SEQUENCE logiplan.acl_probe_sequence TO app_reader");
+      const withGrant = await queryPrivilegeAclRows(admin);
+      assert.deepEqual(
+        withGrant.relationAcl
+          .filter((row) => row.relname === "acl_probe_sequence")
+          .map((row) => `${row.relkind}:${row.grantee}:${row.privilege_type}`),
+        ["S:app_reader:USAGE"],
+        "序列 ACL 行必须按 relkind S 与授权对象如实返回",
+      );
     } finally {
       await admin.end().catch(() => undefined);
       postgres.stop();
@@ -894,6 +972,58 @@ test("中途失败后可从入口完整重试", async () => {
   const recovered = await runBaseline(options, validEnvironment(), deps);
   assert.equal(recovered.status, "prepared");
   assert.equal(recovered.last_completed_stage, "permissions_verified");
+});
+
+test("报告路径在任何预检副作用之前原子预留，被占用时立即失败", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "logiplan-report-reservation-"));
+  const reportPath = join(directory, "report.json");
+  await writeFile(reportPath, "{}\n", "utf8");
+  const calls = [];
+  try {
+    await assert.rejects(
+      runBaseline({ ...options, reportPath }, validEnvironment(), {
+        localConfigPreflight: async () => {
+          calls.push("local_config");
+        },
+        gitPreflight: async () => {
+          calls.push("git");
+          return {
+            branch: target.candidateBranch,
+            head: options.toolingSha,
+            assetsClean: true,
+            closureClean: true,
+          };
+        },
+        prepareDatabase: async () => {
+          calls.push("prepare_database");
+          return {};
+        },
+        persistReport: async () => {
+          calls.push("persist_report");
+        },
+      }),
+      /EEXIST/u,
+    );
+    assert.deepEqual(calls, []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("失败路径不再吞掉报告写入错误", async () => {
+  const writeFailure = "报告目录不可写";
+  const error = await runBaseline({ ...options, reportPath: "unused" }, validEnvironment(), {
+    ...dependencies(async () => {
+      throw Object.assign(new Error("prepare 失败"), { writeOutcomeUnknown: true });
+    }),
+    reserveReport: async () => undefined,
+    persistReport: async () => {
+      throw new Error(writeFailure);
+    },
+  }).catch((caught) => caught);
+  assert.equal(error.writeOutcomeUnknown, true);
+  assert.equal(error.reportWriteFailure, writeFailure);
+  assert.match(error.message, /报告写入失败/u);
 });
 
 test("失败消息和报告不泄露连接串或密码", async () => {

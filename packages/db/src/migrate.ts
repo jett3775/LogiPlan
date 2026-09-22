@@ -24,15 +24,19 @@ type TransactionError = Error & {
   writeOutcomeUnknown?: true;
 };
 
+// COMMIT 阶段只有在 SQLSTATE 明确表示事务已终止且不可能提交时，才允许判定为确定失败。
+// 40003（statement completion unknown）、08xxx（连接异常）、57014（查询取消）以及任何
+// 未枚举的错误码都必须归入写入结果未知，避免把已提交的写入误报为已知失败。
+const definitelyUncommittedCodePrefixes = ["25"];
+const definitelyUncommittedCodes = new Set(["2D000"]);
+
 function isConfirmedCommitFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = error.code;
+  if (typeof code !== "string") return false;
   return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    /^[0-9A-Z]{5}$/u.test(error.code) &&
-    !error.code.startsWith("08") &&
-    error.code !== "57014"
+    definitelyUncommittedCodes.has(code) ||
+    definitelyUncommittedCodePrefixes.some((prefix) => code.startsWith(prefix))
   );
 }
 
@@ -82,6 +86,19 @@ export async function runMigrationTransaction(
   }
 }
 
+export async function ensureMigrationTable(client: Client): Promise<void> {
+  await runMigrationTransaction(client, async () => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS public._schema_migrations (
+        version text PRIMARY KEY,
+        name text NOT NULL,
+        checksum_sha256 char(64) NOT NULL,
+        executed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+      )
+    `);
+  });
+}
+
 async function migrate(): Promise<void> {
   const client = new Client({
     connectionString: requiredEnvironment("MIGRATION_DATABASE_URL"),
@@ -94,14 +111,7 @@ async function migrate(): Promise<void> {
   await client.connect();
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS public._schema_migrations (
-        version text PRIMARY KEY,
-        name text NOT NULL,
-        checksum_sha256 char(64) NOT NULL,
-        executed_at timestamptz NOT NULL DEFAULT clock_timestamp()
-      )
-    `);
+    await ensureMigrationTable(client);
 
     for (const migration of migrations) {
       const existing = await client.query<{ checksum_sha256: string }>(

@@ -1,5 +1,26 @@
+import { spawn } from "node:child_process";
+
 export function childHasStopped(child) {
   return child.exitCode !== null || child.signalCode !== null || child.pid === undefined;
+}
+
+// Windows 下 child.kill 只终止直接子进程，会遗留 pnpm、Playwright、浏览器与 Next 等后代；
+// 必须按进程树终止。POSIX 下以进程组为单位终止，失败时退回直接子进程信号。
+export function terminateProcessTree(child, signal) {
+  if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    killer.once("error", () => child.kill(signal));
+    return;
+  }
+  try {
+    child.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
 }
 
 export async function waitForServer(url, child, timeoutMs = 30_000) {

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { waitForServer } from "./wait-for-server.mjs";
+import { childHasStopped, terminateProcessTree, waitForServer } from "./wait-for-server.mjs";
 
 function runningChild() {
   return Object.assign(new EventEmitter(), {
@@ -147,4 +148,68 @@ test("服务子进程启动错误会在下一次轮询时报告", async () => {
   const pending = waitForServer("http://127.0.0.1:1", child, 800);
   setTimeout(() => child.emit("error", new Error("spawn failed")), 10);
   await assert.rejects(pending, /本地 API 服务无法启动：spawn failed/u);
+});
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code !== "ESRCH";
+  }
+}
+
+async function waitForChildStop(child, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!childHasStopped(child) && Date.now() < deadline) {
+    await delay(50);
+  }
+  assert(childHasStopped(child), "包装进程未在限定时间内退出");
+}
+
+async function waitForProcessGone(pid, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessAlive(pid) && Date.now() < deadline) {
+    await delay(50);
+  }
+  assert.equal(isProcessAlive(pid), false, `后代进程 ${pid} 未被终止`);
+}
+
+test("进程树终止会一并结束后代进程", async () => {
+  const wrapperSource = [
+    'const { spawn } = require("node:child_process");',
+    'const grandchild = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {',
+    '  stdio: "ignore",',
+    "});",
+    "process.stdout.write(String(grandchild.pid));",
+    "setTimeout(() => {}, 60000);",
+  ].join("\n");
+  const wrapper = spawn(process.execPath, ["-e", wrapperSource], {
+    stdio: ["ignore", "pipe", "ignore"],
+    detached: process.platform !== "win32",
+  });
+  let grandchildPid;
+  try {
+    grandchildPid = await new Promise((resolve, reject) => {
+      let buffer = "";
+      wrapper.once("error", reject);
+      wrapper.once("exit", () => reject(new Error("包装进程提前退出")));
+      wrapper.stdout.on("data", (chunk) => {
+        buffer += String(chunk);
+        const parsed = Number.parseInt(buffer, 10);
+        if (Number.isSafeInteger(parsed) && parsed > 0) resolve(parsed);
+      });
+    });
+    assert(isProcessAlive(grandchildPid), "后代进程应处于运行状态");
+
+    terminateProcessTree(wrapper, "SIGKILL");
+    await waitForChildStop(wrapper, 10_000);
+    await waitForProcessGone(grandchildPid, 10_000);
+  } finally {
+    terminateProcessTree(wrapper, "SIGKILL");
+  }
+});
+
+test("进程树终止在缺少 pid 时安全返回", () => {
+  terminateProcessTree({ pid: undefined }, "SIGKILL");
 });

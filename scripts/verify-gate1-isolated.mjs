@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 
-import { childHasStopped, waitForServer } from "./wait-for-server.mjs";
+import { childHasStopped, terminateProcessTree, waitForServer } from "./wait-for-server.mjs";
 
 const projectName = `logiplan-gate1-${process.pid}-${randomBytes(4).toString("hex")}`;
 const projectNamePattern = /^logiplan-gate1-[a-z0-9-]+$/u;
@@ -223,6 +223,7 @@ function runProcess(label, command, args, env, options = {}) {
       cwd: process.cwd(),
       env,
       shell: options.shell ?? false,
+      detached: process.platform !== "win32",
       stdio: "inherit",
       windowsHide: true,
     });
@@ -251,10 +252,10 @@ function runProcess(label, command, args, env, options = {}) {
       const killGraceMs = options.killGraceMs ?? 2_000;
       timeoutTimer = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGTERM");
+        terminateProcessTree(child, "SIGTERM");
         forceKillTimer = setTimeout(() => {
           if (settled) return;
-          child.kill("SIGKILL");
+          terminateProcessTree(child, "SIGKILL");
           hardStopTimer = setTimeout(() => {
             finish(new Error(`${label} 超时，已执行受限终止`));
           }, killGraceMs);
@@ -296,12 +297,12 @@ function waitForChildExit(child, timeoutMs) {
 
 async function stopServer(child) {
   if (childHasStopped(child)) return;
-  child.kill("SIGTERM");
+  terminateProcessTree(child, "SIGTERM");
   try {
     await waitForChildExit(child, 5_000);
   } catch {
     if (childHasStopped(child)) return;
-    child.kill("SIGKILL");
+    terminateProcessTree(child, "SIGKILL");
     await waitForChildExit(child, 5_000);
   }
 }
@@ -323,6 +324,7 @@ async function runSnapshotIntegration(appUrl, appEnv, testEnv) {
       cwd: resolve("apps/web"),
       env: appEnv,
       shell: false,
+      detached: process.platform !== "win32",
       stdio: "inherit",
       windowsHide: true,
     },
@@ -400,10 +402,10 @@ function handleSignal(signal) {
   receivedSignalCount += 1;
   if (receivedSignal === undefined) receivedSignal = signal;
   if (!cleanupStarted && activeChild !== undefined) {
-    activeChild.kill(receivedSignalCount > 1 ? "SIGKILL" : signal);
+    terminateProcessTree(activeChild, receivedSignalCount > 1 ? "SIGKILL" : signal);
   }
   if (!cleanupStarted && activeServerChild !== undefined) {
-    activeServerChild.kill(receivedSignalCount > 1 ? "SIGKILL" : signal);
+    terminateProcessTree(activeServerChild, receivedSignalCount > 1 ? "SIGKILL" : signal);
   }
 }
 

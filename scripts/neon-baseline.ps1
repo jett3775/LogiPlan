@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$CandidateSha,
   [Parameter(Mandatory = $true)][string]$ApprovedSha,
