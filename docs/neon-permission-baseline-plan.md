@@ -2,7 +2,9 @@
 
 日期：2026-09-17
 
-状态（2026-09-22，当前）：第三次修复轮次已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正；未再次连接 Neon、未推送、未激活远程发布、未部署。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7；写模式前置检查已通过（HEAD 精确匹配、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a…` 无改动、工作区仅剩 11 项约定排除资产）。工具 SHA 最终取 `e03d192ed023699e38df6bc8c12d8ca5cc54892d` 并经用户独立批准。完整命令、逐次 Gate 1 结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
+状态（2026-09-23，当前）：第二轮（事务语义与 Gate 1 稳定性）已在工作区完成本地实现、真实 PostgreSQL 回归与独立审查，**尚未提交**。本轮完成：① 三类写入结果契约（新增 `writeCommittedObservationFailed`，退出码仍为 0/1/75，既有取值含义不变）；② `migrate.ts` 与 `publish-release.ts` 的 advisory unlock 与 `client.end()` 各自独立尝试、失败可见；③ `markPublishFailedIfKnown` 改为可判定 COMMIT 的显式事务；④ 候选创建与校验写入之后的状态读取改走 `observeCommittedWrite`；⑤ 新增数据库集成入口 `pnpm test:db-integration`（18.4 与 18.6 各跑真实角色事务与 ACL，零 fail 零 skip），Gate 1 的三处脚本测试调用收敛到同一入口，执行闭包 25 → 26 条；⑥ Gate 1 定向重复模式与 JSONL 时间线埋点（Firefox 20/20、快照 20/20，未改动任何断言或超时值）；⑦ 宿主侧可达性探测吸收 Docker 端口转发的偶发 `ECONNRESET`。本地验收：完整 Gate 1 四批各 5 次＝20 次退出码 0（最后一批 5 次完整日志留存并逐项核对，前 15 次仅终端汇总行），每次四条腿 44/44、44/44、10/10、7/7 零 skip；覆盖率 95.51/87.5/95.96/95.66；eslint、`tsc -p packages/db`、prettier 均退出码 0。独立审查（固定点 `da0d769`）PASS、无 P0/P1、6 项 P2，全部按下述遗留项处理。**完成标准 1 的适用范围如实收窄**：「advisory unlock、`mark_failed` 与提交后读取失败不再被静默吞掉或错误归类」本轮只对**迁移与发布两个入口**成立，`activate-and-materialize.ts:59-63` 仍吞 advisory unlock。本轮未执行：推送、远程 CI、Vercel 部署、数据激活、部署后复验。
+
+上一轮（2026-09-22）状态：第三次修复轮次已在最终代码上完成本地实现、真实 PostgreSQL 回归与独立审查。本轮完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正；未再次连接 Neon、未推送、未激活远程发布、未部署。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7；写模式前置检查已通过（HEAD 精确匹配、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a…` 无改动、工作区仅剩 11 项约定排除资产）。工具 SHA 最终取 `e03d192ed023699e38df6bc8c12d8ca5cc54892d` 并经用户独立批准。完整命令、逐次 Gate 1 结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
 
 **远程执行结果（2026-09-22，由用户在本机终端完成）**：阶段 A 只读核查未命中任何停止条件，`latest_migration = 0010`、`release_status = VALIDATED`、`active_release = null`，迁移 0001—0010 与 V2 数据包校验和与本地冻结资产逐字一致，2026-09-21 的写入结果未知由此清账；随后两次 validate-only prepare（工具 SHA `e03d192ed023699e38df6bc8c12d8ca5cc54892d`，经用户独立批准；报告 `neon-baseline-report-20260922-1400.json` 与 `…-1405.json`，逐字节相同）均退出码 0 且达到 `status = prepared`、`last_completed_stage = permissions_verified`、`write_outcome = known`、`active_release_switch = false`。本任务终点已达成：Neon 准备完成、候选已校验、活动发布保持原状。Vercel 部署、数据激活、推送与远程 CI 仍未执行。
 
@@ -10,13 +12,18 @@
 
 独立审查：2026-09-22 由独立只读子代理在固定点 `06cccf2` 判定 PASS、无 P0/P1、列出 6 项 P2；1 项按最小改动收紧（relation ACL 断言显式校验同一 relname 的关系类型一致），1 项按既有规则彻底关闭（`scripts/wait-for-server.mjs` 纳入 `executionClosurePaths`，闭包由 24 条增至 25 条，并删除 `neon-baseline.mjs` 内的重复进程树终止实现），其余为既有或文档精度问题。
 
-本轮记录、未修复的遗留项：
+本轮记录、未修复的遗留项（含独立审查 6 项 P2 与本轮新发现）：
 
-1. `packages/db/src/publish-release.ts:128/230` 与 `migrate.ts:143` 仍吞掉 advisory unlock 与 `mark_failed` 的失败。
-2. `packages/db/src/publish-release.ts:197` 候选已 COMMIT 之后读状态失败仍以退出码 1 结束，应区分「读取失败」与「写入失败」。
-3. 真实 ACL 用例受 `NEON_BASELINE_TEST_DOCKER` 门控，默认 `pnpm test` 不执行被修复的 SQL（由 Gate 1 编排注入该变量覆盖）。
-4. Gate 1 浏览器与快照环节长期不稳定（本轮 6 次中 2 次失败、2026-09-21 6 次中 2 次异常），根因未定位。
-5. 测试卫生：新增的 ACL 容器在一次异常结束的首跑中泄漏，正常通过与断言失败路径均能清理，未复现。
+1. `packages/db/src/activate-and-materialize.ts:59-63` 仍以 `catch(() => undefined)` 吞掉 advisory unlock 失败，与本轮修复的两个入口属同类残留；完成标准 1 因此只对迁移与发布入口成立（审查 P2-4）。
+2. `scripts/verify-gate1-isolated.mjs` 的定向快照重复只判子进程退出码、不解析 `tests`/`skipped`；目标用例若被跳过仍记通过（当前路径恒注入 `SNAPSHOT_TEST_*`，实际不触发）（P2-1）。
+3. 数据库集成外层超时 900 秒与每腿 900 秒不一致（四条腿上界 3600 秒），外层超时会杀死入口并丢掉逐腿汇总（P2-2）。
+4. `packages/db/src/transaction-outcome.ts:136-143/161-166`：主错误已带 `subsequentFailures` 时会被清理失败覆盖，观察失败仅留在 message 与 `cause`（P2-3）。
+5. `packages/db/src/evidence-snapshot.test.ts:916-918` 的 `classifySnapshotFailure` 内 `await count()` 未包 try，抛错会替换带结论的错误（P2-5）。
+6. `scripts/verify-gate1-isolated.mjs:31` 的注释称默认路径与既有「完全一致」已不实（步骤 5 已收敛入口、超时 420s → 900s）（P2-6）。
+7. Firefox 每次迭代必现 React 水合失败 `#418`：元素级服务端/客户端不匹配，最强候选为 `apps/web/app/loading.tsx` 的 Suspense fallback 与页面根 `<div class="workspace">` 的差异；修复需改动 `apps/web`，超出本轮范围。Firefox 冒烟目前只记录 `pageerror` 而不断言，是否改为「任何 pageerror 即失败」需单独决定。
+8. Gate 1 浏览器与快照的两次历史超时（2026-09-22 第 1、3 次）根因未定位；本轮 40 次定向复现零失败，余量分别为约 3 倍与约 14 倍，已排除「边缘超时」；另发现并吸收 Docker 端口转发的偶发 `ECONNRESET`（宿主侧可达性探测：≤12 次 × 250ms，失败时仍失败并报出镜像、容器、端口与末次错误码）。
+
+本轮已关闭的遗留项：原遗留项 1（`migrate.ts`/`publish-release.ts` 吞 advisory unlock）与 2（候选 COMMIT 后读状态失败以退出码 1 结束）已在类3 契约下修复；原遗留项 3（真实 ACL 受门控）由 `pnpm test:db-integration` 入口加 Gate 1 收敛解决；原遗留项 5（ACL 容器泄漏）由入口的 finally 兜底清理覆盖。
 
 上一轮（2026-09-21）状态：
 
@@ -258,6 +265,8 @@ H1 不需要远程删除自动管理关系，不修改三角色密码，不赋�
 
 ```bash
 node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs
+# 数据库集成验收：PostgreSQL 18.4 与 18.6 的真实角色事务与 ACL 查询，要求零 skip
+pnpm test:db-integration
 pnpm format:check
 pnpm lint
 pnpm typecheck

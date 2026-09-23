@@ -12,7 +12,20 @@
 
 第二阶段数据基线已经完成。第三阶段按 D-093 推进“全年 Latest Outlook 异常 → 2026 年 8 月英国下钻 → 五因素归因 → 数字级证据 → AI 管理分析”的核心纵向切片。方案 B 桌面原型已通过 D-124 验收，查询与证据契约已按 D-125 冻结为 V1.0，当前进入正式 Next.js 实现准备；该切片实现并验收通过后，再扩展 Forecast 和情景模拟。
 
-## 0. 2026-09-22 最新本地验收状态
+## 0. 2026-09-23 最新本地验收状态
+
+2026-09-23 轮次处理两件事：迁移与发布入口的事务/清理结果语义收口，以及 Gate 1 中 Firefox 首次导航与证据快照轮询的间歇性超时定位。全部改动在工作区、尚未提交；未触碰任何远程环境。
+
+- **三类写入结果**：新增内部模块 `packages/db/src/transaction-outcome.ts`（未进 `packages/db/src/index.ts`）。类1 `rollbackConfirmed` → 退出码 1；类2 `writeOutcomeUnknown` → 75；类3 新增 `writeCommittedObservationFailed` → 退出码 1、stderr 前缀 `[WRITE_COMMITTED_OBSERVATION_FAILED]`、消息固定含「写入已提交，失败发生在后续观察或清理阶段」，报告新增布尔 `write_committed_observation_failed` 与 `write_outcome=committed_observation_failed`。既有 0/1/75 与既有 `write_outcome` 取值含义不变。
+- **入口接线**：`migrate.ts` 与 `publish-release.ts` 的加锁流程统一由 `runWithConnectionCleanup` 包裹（unlock 与 `client.end()` 各自独立尝试、任一失败不阻止另一步）；`markPublishFailedIfKnown` 改为可判定 COMMIT 的显式事务；候选创建后与校验写入后两处读取失败改走 `observeCommittedWrite`，不重做创建、不标记失败。
+- **数据库集成入口**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`；四条腿＝`postgres:18.4`、`18.6` 上跑真实角色事务与 ACL 查询，另加只读诊断与本地 API 等待逻辑回归），要求零 fail、零 skip；Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条，并把新入口与 Gate 1 编排脚本纳入 `pnpm lint` 清单。
+- **间歇性超时定位**：为 Gate 1 增加环境变量驱动的定向重复模式（`LOGIPLAN_GATE1_TARGET=firefox|snapshot`、`LOGIPLAN_GATE1_REPEAT=N`）与 JSONL 时间线埋点。实测余量：Firefox 导航→目标标题 1.55—1.86s（预算 5s）；快照首次轮询采样即为 `[1,1,1,1]`（约 1.18s，且此时客户端请求尚未发出，四条快照由服务端首屏 SSR 提交），预算 10s。**未改动任何断言或超时值**。
+- **偶发连接重置**：Docker 门控用例的偶发失败为 `read ECONNRESET`，发生在容器就绪、宿主机建立 TCP 连接的时刻，重复执行结果不同。已在 `startRoleBootstrapPostgres` 增加有界的宿主侧可达性探测（≤12 次 × 250ms，失败时报出镜像、容器、端口与末次错误码），属「等待可观察状态」而非放宽超时。
+- **本地验收**：完整 Gate 1 四批各 5 次＝20 次全部退出码 0（最后一批 5 次的完整日志保留并逐项核对；前 15 次仅有终端汇总行）；每次四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 skip；Chromium 双视口基础 10、历史证据 22、Firefox 3；查询计划 `temp_written_blocks` 全 0；并发 5 × 100 热查询 p50 22.2—23.9ms、p95 37.6—46.5ms、p99 42.8—48.3ms；运行后无容器、卷、网络与浏览器残留；无 Docker 时脚本测试退出码 0 并跳过 2 条门控用例；覆盖率 95.51% stmts / 87.5% branch / 95.96% funcs / 95.66% lines；eslint、`tsc -p packages/db`、14 个改动文件的 prettier 均退出码 0。
+- **独立审查**：以 `da0d769` 为固定点判定 PASS、无 P0/P1、6 项 P2；P2 全部按「后续任务」记录（见 `docs/neon-permission-baseline-plan.md` 遗留项），本轮不修，以保住已取得的稳定性证据。
+- **未关闭事项**：① Firefox 每次迭代必现 React 水合失败 `#418`（元素级不匹配，最强候选为 `apps/web/app/loading.tsx` 的 Suspense fallback 与页面根差异），修复需改动 `apps/web`，超出本轮范围；② `packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock，属同类残留，因此「advisory unlock 不再被静默吞掉」这一条**仅对迁移与发布两个入口成立**。
+
+## 0.1 2026-09-22 轮次（历史证据）
 
 2026-09-22 轮次（第三次修复轮次）已完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正。本轮未再次连接 Neon、未推送、未激活远程发布、未部署 Vercel。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7。写模式前置检查已通过：HEAD 精确匹配该提交、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 无改动、工作区仅剩 11 项约定排除资产。工具 SHA 最终取 `e03d192ed023699e38df6bc8c12d8ca5cc54892d` 并经用户独立批准。详细命令、逐次结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
 
@@ -26,7 +39,7 @@
 
 远程执行（2026-09-22，由用户在本机终端完成）：阶段 A 只读核查未命中任何停止条件——身份为 `neondb_owner`、`server_version` 18.6、三角色属性与严格成员关系（grantor OID 10、`ADMIN=true`/`INHERIT=false`/`SET=false`）全部符合基线、`latest_migration = 0010`、`release_status = VALIDATED`、`active_release = null`；迁移 0001—0010 与 V2 数据包校验和与本地冻结资产逐字一致，2026-09-21 那次 `-Write` 的写入结果未知由此清账。随后两次 validate-only prepare（报告 `neon-baseline-report-20260922-1400.json` 与 `…-1405.json`，经逐字节比对完全相同）均退出码 0，报告字段为 `status = prepared`、`last_completed_stage = permissions_verified`、`write_outcome = known`、`active_release_switch = false`、`release_status = VALIDATED`、`observed_active_release = null`。本任务终点「Neon 准备完成、候选已校验、活动发布保持原状」已经达到；Vercel 部署、数据激活、分支推送、远程 CI 与部署后复验均未执行，第一闸门整体仍不因此关闭。
 
-### 0.1 2026-09-21 轮次（历史证据）
+#### 0.1.1 2026-09-21 轮次（历史证据）
 
 本轮（第二次返工轮次：P1/P2 最小修复）已在最终代码上取得新的实际结果，详细命令与结果见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。基线与 audit：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时 `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）。项目级：`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0，覆盖率 All files 95.51% stmts / 87.5% branch / 95.66% lines，分包阈值满足。
 

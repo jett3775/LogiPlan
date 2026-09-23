@@ -36,6 +36,8 @@
 
 保留为历史证据（不替代本轮结果）：2026-09-21 的 Docker `postgres:18.6` 46/46、`pnpm test` 85 passed / 11 skipped 与 6 次 Gate 1（4 次退出码 0）；2026-09-20 的 audit 9/9；以及更早的 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3）。
 
+数据库集成验收的测试分层（2026-09-22 步骤 5）：普通 `pnpm test`（Vitest）**不自动拉起 Docker，也不包含真实 ACL SQL**；真实 PostgreSQL 18.4 与 18.6 上的角色事务与 ACL 验收统一走 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`，先在 18.4、18.6 各跑一次 `node --test scripts/neon-baseline.test.mjs`，再各跑一次与镜像无关的权限只读诊断与本地 API 等待逻辑回归），该入口**要求零 skip**——任一腿出现 fail、任一 skip、或 Docker 前置条件不满足，均以非零退出结束，不得把 skip 计为通过。Gate 1 编排中原先的三处脚本测试调用已收敛到同一入口，不再维护第二套隐藏命令。该入口脚本已纳入执行闭包（`executionClosurePaths` 25 条 → 26 条），因此未来远程写模式必须按包含它的新 HEAD 重新生成并独立批准 tooling SHA。
+
 ### 0.1 2026-09-21 轮次（历史证据）
 
 本轮（第二次返工轮次：P1/P2 最小修复）已在最终代码上取得新的实际结果。启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时，`node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）；`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0；`pnpm verify:gate1:isolated` 共执行 6 次（4 次退出码 0），每次退出码 0 的执行覆盖 PostgreSQL 18.4 迁移/V1/V2/发布幂等/显式激活/三角色权限/查询计划、生产构建、快照持久化证据 28/28、Chromium 双视口基础 10 passed 与 22 项设计性跳过、Chromium 双视口历史证据 22/22、Firefox 3/3、6 条查询计划 `temp_written_blocks` 全为 0，以及并发 5 的 100 次热查询（第 2 次 P50 23.083ms / P95 38.898ms / P99 42.123ms；第 3 次 P50 23.865ms / P95 42.099ms / P99 44.621ms；第 5 次 P50 23.165ms / P95 43.537ms / P99 47.975ms；第 6 次 P50 22.521ms / P95 40.066ms / P99 45.452ms）；临时容器、网络与卷已清理。axe serious/critical 断言位于 `gate1.spec.ts` 内，随上述 Chromium 与 Firefox 用例执行。
@@ -61,6 +63,35 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 `verify-schema` 含事务内写入权限探针，因此按写入敏感子进程处理：它被信号或异常退出码终止时同样判为写入结果未知，这不属于“只读子进程不受影响”的例外说明——该例外只适用于 git 与本地预检等真正的只读子进程。本节契约覆盖 baseline 入口；`packages/db/src/activate-release.ts` 与 `scripts/publish-gate1-v1-baseline.ts` 的 CLI 包装仍固定以退出码 1 结束，二者的底层事务模块已具备 `writeOutcomeUnknown` 语义，但包装层未传播 75。激活被远程执行包显式排除，`publish-gate1-v1-baseline.ts` 只用于本地 Gate 1 夹具，因此二者不影响本轮远程准备；如需把它们纳入统一契约，应作为单独的最小改动处理。
 
 远程执行包在 tooling SHA 生成并独立批准前不可执行。固定目标为 `logiplan-public-test` / `mute-mouse-49732061`、`aws-ap-southeast-1`、PostgreSQL `18.6`、`main` / `br-patient-smoke-b3f5jtui`；准备顺序为：只读目标/身份/迁移/V2/活动发布预检 → 一次 `neon-baseline.ps1 -Write -Report <新报告路径>` 的 `validate-only` prepare → 仅在首次成功且获明确授权时使用新报告路径重复同一入口作幂等复验。前置批准必须同时覆盖精确 candidate SHA、已提交且独立批准的 tooling SHA、目标项目/分支/数据库、一次 prepare、一次幂等复验和只读状态核查；不包括激活、部署、密码变更或额外 GRANT/REVOKE。任何目标漂移、成员/ACL/校验和差异、V2 为 FAILED、状态未知、首个写入失败或提交确认丢失均立即停止；未知结果只做只读复核，不声称 rollback/success。本轮代码修复已于 2026-09-21 以单次提交提交（`104f4b0f`，15 个文件）并通过独立复查；本段文案修正为紧随其后的独立文档提交，因此 tooling SHA 应取包含本次文案修正的当前 HEAD 并仍需独立批准。未连接 Neon、未部署 Vercel、未推送，也未准备远程执行包。
+
+### 0.2 2026-09-23 轮次（事务语义与 Gate 1 稳定性）
+
+本轮任务定义见 `%TEMP%\logiplan-next-round-handoff-2026-09-22.md`（步骤 1—9）。全部改动在工作区、未提交，未触碰任何远程环境。
+
+**事务与清理语义（步骤 2—4）**：新增内部模块 `packages/db/src/transaction-outcome.ts`（未进 `packages/db/src/index.ts`）。三类结果＝类1 `rollbackConfirmed`（退出码 1）、类2 `writeOutcomeUnknown`（退出码 75，语义未变）、类3 新增 `writeCommittedObservationFailed`（退出码 1、stderr 前缀 `[WRITE_COMMITTED_OBSERVATION_FAILED]`、消息固定含「写入已提交，失败发生在后续观察或清理阶段」、报告新增布尔 `write_committed_observation_failed` 与 `write_outcome=committed_observation_failed`）。`migrate.ts` 与 `publish-release.ts` 的加锁流程改由 `runWithConnectionCleanup` 包裹，advisory unlock 与 `client.end()` 各自独立尝试；`markPublishFailedIfKnown` 改为可判定 COMMIT 的显式事务；候选创建后与校验写入后两处读取失败改走 `observeCommittedWrite`。红灯证据：修复前定向测试 10 failed | 19 passed（退出码 1），修复后 29 passed（退出码 0）。
+
+**数据库集成入口（步骤 5）**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`）＝四条腿：`postgres:18.4` 与 `18.6` 各跑一次真实角色事务与生产 ACL 查询，另加只读诊断与本地 API 等待逻辑回归；零 fail 且零 skip 才退出 0，Docker 不可用时以「前置条件不满足」非零退出。Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条；新入口与 Gate 1 编排脚本进入 `pnpm lint` 清单。
+
+**Gate 1 稳定性（步骤 6—8）**：新增环境变量驱动的定向重复模式（`LOGIPLAN_GATE1_TARGET=firefox|snapshot`、`LOGIPLAN_GATE1_REPEAT=N`）与 JSONL 时间线埋点；**未改动任何断言或超时值**。实测余量：Firefox 导航→目标标题 1.55—1.86s（预算 5s，首迭代冷启动最慢 1.65s）；快照首次轮询采样即 `[1,1,1,1]`（约 1.18s，且 `started_requests=0`，四条快照由服务端首屏 SSR 提交），预算 10s。定向重复各 20/20。
+
+**失败现场（必须保留）**
+
+- 2026-09-23 上午完整 Gate 1 四批各 5 次中有 16 次失败，全部倒在第一步数据库集成，错误为 `read ECONNRESET`（errno -4077）或 `Connection terminated unexpectedly`，耗时 1.9—2.1s，即容器就绪后宿主机建立 TCP 连接的瞬间；同轮其余 42/44 项全绿，腿 3 与腿 4 始终通过。隔离复现（异步通道、单进程、六轮：18.4、18.6、以及先 18.4 后 18.6 的连续两轮）全部成功，容器单独运行 15s 稳定，就绪与连接时序复刻成功 → 判定为宿主侧端口转发的偶发抖动。处置：在 `startRoleBootstrapPostgres` 增加有界宿主侧可达性探测（≤12 次 × 250ms；失败时报出镜像、容器、发布端口、尝试次数与末次错误码），属「等待可观察状态」而非放宽超时。此后用户终端连续 6 次集成入口与 20 次完整 Gate 1 均未再现连接重置，且探测未触发过重试（总耗时与改动前同量级）。
+- 两次历史浏览器超时（2026-09-22 第 1 次 Firefox 首次导航、第 3 次快照轮询）在本轮 40 次定向复现中零复现；余量分别约 3 倍与约 14 倍，据此排除「边缘超时」，根因仍未定位。
+- Firefox 每次迭代必现 React 水合失败 `#418`（`args[]=HTML` ⇒ 元素级不匹配），本轮未修复，列入遗留项。
+
+**本轮逐次执行记录**
+
+- 完整 Gate 1：20 次（四批各 5 次）全部退出码 0。其中**最后一批 5 次的完整日志已留存并逐项核对**：每次四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 skip；Chromium 双视口基础 10 passed（14.2—19.5s）；历史证据 22 passed（41.1—42.8s）；Firefox 3 passed（9.1—32.0s）；查询计划 `temp_written_blocks` 全 0；并发 5 × 100 热查询 p50 22.2—23.9ms、p95 37.6—46.5ms、p99 42.8—48.3ms。前 15 次仅有终端汇总行（`[accept N] exit=0`）为证据，未留存完整日志。
+- 数据库集成入口：用户终端连续执行 6 次全部退出码 0（可归档日志覆盖其中 5 次，逐腿 `44/44`、`44/44`、`10/10`、`7/7`）。
+- 无 Docker 时脚本测试：退出码 0，跳过 2 条门控用例。
+- 覆盖率 `vitest run --coverage`：退出码 0，All files 95.51% stmts / 87.5% branch / 95.96% funcs / 95.66% lines。eslint、`tsc -p packages/db`、14 个改动文件的 prettier 均退出码 0。
+
+**运行后残留检查**：无 gate1 容器、网络、卷；Chromium 进程 0；Firefox 进程数与运行前一致（为用户自身浏览器）；pnpm 进程 0。
+
+**独立审查**：以 `da0d769` 为固定点判定 PASS、无 P0/P1、6 项 P2；P2 全部按后续任务记录，见 `docs/neon-permission-baseline-plan.md` 遗留项 1—6。审查者未能独立验证 Gate 1、Playwright 与 Docker 实跑，并指出「20 次」「6 次」中可核对的只有留存的 5 次——本节已按此收窄表述。
+
+**未执行项**：推送分支、远程 CI、Vercel 配置与部署、数据激活、部署后区域与健康检查复验；`#418` 修复与 `activate-and-materialize.ts` 同类吞错收口均需超出本轮批准范围。另需注意：`scripts/neon-baseline.mjs` 与 `scripts/run-db-integration-tests.mjs` 都在执行闭包内，若未来需要远程 `--write`，必须按新 HEAD 重新生成工具 SHA 并独立批准。
 
 ## 1. 固定目标与边界
 
