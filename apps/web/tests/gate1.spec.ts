@@ -1,6 +1,118 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import { appendFileSync } from "node:fs";
+import type { Page, Request } from "@playwright/test";
+
+// 诊断时间线：仅在设置了 LOGIPLAN_GATE1_TIMELINE_FILE 时写文件，每行一个 JSON 对象
+// （iteration/event/at_ms/detail）。断言失败时把「停滞在哪一阶段」写进错误消息。
+const timelineFile = process.env.LOGIPLAN_GATE1_TIMELINE_FILE;
+const timelineIteration = Number.parseInt(process.env.LOGIPLAN_GATE1_ITERATION ?? "1", 10);
+const timelineStartMs = Date.now();
+
+function recordTimeline(event: string, detail?: unknown): void {
+  if (timelineFile === undefined || timelineFile === "") return;
+  try {
+    appendFileSync(
+      timelineFile,
+      `${JSON.stringify({
+        iteration: Number.isSafeInteger(timelineIteration) ? timelineIteration : 1,
+        event,
+        at_ms: Date.now() - timelineStartMs,
+        detail: detail ?? null,
+      })}\n`,
+    );
+  } catch {
+    // 诊断埋点不得改变测试结果。
+  }
+}
+
+function createStageTracker(scope: string) {
+  let stage = "start";
+  return {
+    mark(event: string, detail?: unknown): void {
+      stage = event;
+      recordTimeline(event, detail);
+    },
+    current(): string {
+      return stage;
+    },
+    async track(run: () => Promise<void>): Promise<void> {
+      try {
+        await run();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        recordTimeline("failure", { stage, message });
+        const annotated = `[${scope}] 停滞阶段「${stage}」：${message}`;
+        if (error instanceof Error) {
+          Object.assign(error, { message: annotated });
+          throw error;
+        }
+        throw new Error(annotated);
+      }
+    },
+  };
+}
+
+const isQueryRequest = (request: Request): boolean =>
+  request.method() === "POST" && new URL(request.url()).pathname === "/api/v1/query";
+
+function queryRequestBody(request: Request): unknown {
+  try {
+    return request.postDataJSON();
+  } catch {
+    return null;
+  }
+}
+
+// 常驻页面埋点：导航、document、/api/v1/query 的请求与响应生命周期、console 与 pageerror。
+function instrumentPage(page: Page): void {
+  page.on("console", (message) => {
+    if (message.type() === "error") recordTimeline("console_error", { text: message.text() });
+  });
+  page.on("pageerror", (error) => recordTimeline("pageerror", { message: error.message }));
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") {
+      recordTimeline("navigation_request", { url: request.url() });
+      return;
+    }
+    if (isQueryRequest(request)) {
+      recordTimeline("api_query_request_start", {
+        url: request.url(),
+        body: queryRequestBody(request),
+      });
+    }
+  });
+  page.on("response", (response) => {
+    const request = response.request();
+    if (request.resourceType() === "document") {
+      recordTimeline("document_response", { url: request.url(), status: response.status() });
+      return;
+    }
+    if (!isQueryRequest(request)) return;
+    recordTimeline("api_query_response_status", { status: response.status() });
+    response.finished().then(
+      () => recordTimeline("api_query_response_end", { status: response.status() }),
+      () => undefined,
+    );
+  });
+  page.on("requestfailed", (request) => {
+    if (!isQueryRequest(request)) return;
+    recordTimeline("api_query_request_failed", { failure: request.failure()?.errorText ?? null });
+  });
+}
+
+// 记录路由级 loading 壳（apps/web/app/loading.tsx）是否已经消失。
+async function recordLoadingShell(page: Page, stage: string): Promise<void> {
+  try {
+    const count = await page.getByRole("heading", { name: "正在加载分析工作台" }).count();
+    recordTimeline("loading_shell_gone", { stage, gone: count === 0 });
+  } catch (error) {
+    recordTimeline("loading_shell_probe_failed", {
+      stage,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 const diagnosticIntent = {
   question_type: "DIAGNOSTIC_METRICS",
@@ -92,31 +204,48 @@ async function expectNoSeriousAccessibilityViolations(page: Page) {
 test("@firefox-smoke V01-V04 dashboard is readable, expandable and navigates to GB attribution", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "预算执行驾驶舱" })).toBeVisible();
-  await expect(page.getByText("完全虚构的求职作品集演示数据")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "六项核心 KPI" })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Budget / Actual / Forecast 月度趋势" }),
-  ).toBeVisible();
-  await expect(page.getByText("8—9 月结账分界")).toBeVisible();
-  const fixedRegion = page
-    .getByRole("heading", { name: "物流运营固定成本" })
-    .locator("xpath=ancestor::section[1]");
-  const fixedButton = fixedRegion.getByRole("button", { name: "展开固定成本" });
-  await fixedButton.click();
-  const expandedFixedButton = fixedRegion.getByRole("button", { name: "收起固定成本" });
-  await expect(expandedFixedButton).toHaveAttribute("aria-expanded", "true");
-  await expect(fixedRegion.getByText("一线作业基础人工", { exact: true })).toBeVisible();
-  await expect(fixedRegion.getByText("仓库管理人工", { exact: true })).toBeVisible();
-  const warehouseRegion = page
-    .getByRole("heading", { name: "发货仓差异" })
-    .locator("xpath=ancestor::section[1]");
-  await expect(warehouseRegion.getByText("+589,251.09 CNY", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "进入归因" }).click();
-  await expect(page).toHaveURL(/\/attribution\?.*destination=GB/u);
-  await expect(page.getByRole("heading", { name: "英国履约变动成本归因" })).toBeVisible();
-  await expectNoSeriousAccessibilityViolations(page);
+  const tracker = createStageTracker("Firefox 目标用例");
+  instrumentPage(page);
+  await tracker.track(async () => {
+    tracker.mark("navigation_start", { url: "/" });
+    await page.goto("/");
+    tracker.mark("first_document_loaded");
+    tracker.mark("dashboard_heading_wait");
+    await expect(page.getByRole("heading", { name: "预算执行驾驶舱" })).toBeVisible();
+    tracker.mark("dashboard_heading_visible");
+    await recordLoadingShell(page, "dashboard");
+    await expect(page.getByText("完全虚构的求职作品集演示数据")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "六项核心 KPI" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Budget / Actual / Forecast 月度趋势" }),
+    ).toBeVisible();
+    await expect(page.getByText("8—9 月结账分界")).toBeVisible();
+    const fixedRegion = page
+      .getByRole("heading", { name: "物流运营固定成本" })
+      .locator("xpath=ancestor::section[1]");
+    const fixedButton = fixedRegion.getByRole("button", { name: "展开固定成本" });
+    await fixedButton.click();
+    const expandedFixedButton = fixedRegion.getByRole("button", { name: "收起固定成本" });
+    await expect(expandedFixedButton).toHaveAttribute("aria-expanded", "true");
+    await expect(fixedRegion.getByText("一线作业基础人工", { exact: true })).toBeVisible();
+    await expect(fixedRegion.getByText("仓库管理人工", { exact: true })).toBeVisible();
+    const warehouseRegion = page
+      .getByRole("heading", { name: "发货仓差异" })
+      .locator("xpath=ancestor::section[1]");
+    await expect(warehouseRegion.getByText("+589,251.09 CNY", { exact: true })).toBeVisible();
+    tracker.mark("attribution_link_click");
+    await page.getByRole("link", { name: "进入归因" }).click();
+    tracker.mark("attribution_url_wait");
+    await expect(page).toHaveURL(/\/attribution\?.*destination=GB/u);
+    tracker.mark("attribution_url_matched");
+    await recordLoadingShell(page, "attribution");
+    tracker.mark("target_heading_wait");
+    await expect(page.getByRole("heading", { name: "英国履约变动成本归因" })).toBeVisible();
+    tracker.mark("target_heading_visible");
+    tracker.mark("accessibility_audit");
+    await expectNoSeriousAccessibilityViolations(page);
+    tracker.mark("accessibility_passed");
+  });
 });
 
 test("@firefox-smoke V05-V09 and V11 attribution supports factors, drilldown, evidence and history", async ({

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   createReport,
+  committedObservationFailedWriteOutcome,
   executionClosurePaths,
   executeRoleBootstrapTransaction,
   exitCodeForBaselineError,
@@ -28,6 +29,7 @@ import {
   runProcess,
   runBaseline,
   target,
+  writeCommittedObservationFailedMarker,
   writeOutcomeUnknownExitCode,
   validateConnectionEnvironment,
   validateGitIdentity,
@@ -206,8 +208,44 @@ async function startRoleBootstrapPostgres({
     assert(ready, "隔离 PostgreSQL 未就绪");
     const port = runDocker(docker, ["port", containerId, "5432/tcp"]).split(":").at(-1);
     assert.match(port, /^\d+$/u);
+    const connectionString = `postgresql://postgres:${password}@127.0.0.1:${port}/logiplan`;
+    // 宿主侧端口可达性探测：容器内 pg_isready 成功只证明容器内 PostgreSQL 已就绪，
+    // 不证明宿主机到发布端口的 TCP 通道已经建立。既有证据显示这两条 Docker 用例的
+    // 偶发失败固定为 read ECONNRESET（errno -4077）或 Connection terminated
+    // unexpectedly，耗时约 1.9—2.1s，正好落在容器就绪后宿主机建立连接的那一刻；
+    // 同一命令重复执行结果不同（曾 2 fail，重跑 4 条腿全绿），隔离进程复刻六轮全绿。
+    // 因此这里等待的是「宿主侧可观察到的可达状态」，不是放宽既有超时。
+    const hostReachabilityAttempts = 12;
+    const hostReachabilityIntervalMs = 250;
+    let hostReachable = false;
+    let lastHostProbeError;
+    for (let attempt = 0; attempt < hostReachabilityAttempts; attempt += 1) {
+      const probe = new Client({ connectionString });
+      // 连接建立之后 socket 才被重置时，pg 会额外 emit 'error'；该错误已由下面
+      // 查询的 promise 拒绝如实上报并触发重试，此处只避免它冒泡为未捕获异常。
+      probe.on("error", () => undefined);
+      try {
+        await probe.connect();
+        await probe.query("SELECT 1");
+        hostReachable = true;
+      } catch (error) {
+        lastHostProbeError = error;
+      } finally {
+        await probe.end().catch(() => undefined);
+      }
+      if (hostReachable) break;
+      await new Promise((resolve) => setTimeout(resolve, hostReachabilityIntervalMs));
+    }
+    assert(
+      hostReachable,
+      `宿主侧端口可达性探测失败：镜像 ${postgresTestImage()}、容器 ${containerName}、` +
+        `发布端口 ${port}，已尝试 ${hostReachabilityAttempts} 次` +
+        `（间隔 ${hostReachabilityIntervalMs}ms）仍无法建立连接，` +
+        `最后一次失败 code=${lastHostProbeError?.code ?? "无"} ` +
+        `message=${lastHostProbeError?.message ?? "无"}`,
+    );
     return {
-      connectionString: `postgresql://postgres:${password}@127.0.0.1:${port}/logiplan`,
+      connectionString,
       stop() {
         runDocker(docker, ["container", "rm", "--force", "--volumes", containerName]);
         cleanupRequired = false;
@@ -1091,6 +1129,44 @@ test("未知写入结果会进入 unknown 报告并保留只读复核结果", as
   assert.equal(report.observed_database_state.state_check, "completed_read_only");
 });
 
+test("已提交写入的提交后观察失败进入独立结果，不冒充未知写入或 known_failed", async () => {
+  let report;
+  const committed = new Error(
+    "发布写入已提交，失败发生在后续观察或清理阶段：释放 advisory 锁：connection closed；不得把它当作写入失败重做",
+  );
+  committed.writeCommittedObservationFailed = true;
+  await assert.rejects(
+    runBaseline({ ...options, reportPath: "unused" }, validEnvironment(), {
+      ...dependencies(async () => {
+        throw committed;
+      }),
+      persistReport: async (_path, value) => {
+        report = value;
+      },
+    }),
+    /写入已提交/u,
+  );
+  assert.equal(report.status, "failed");
+  assert.equal(report.write_outcome, committedObservationFailedWriteOutcome);
+  assert.notEqual(report.write_outcome, "unknown_requires_read_only_review");
+  assert.notEqual(report.write_outcome, "known_failed");
+  assert.equal(report.write_committed_observation_failed, true);
+});
+
+test("未发生提交后观察失败的报告中该标志为 false", async () => {
+  const report = await runBaseline(
+    options,
+    validEnvironment(),
+    dependencies(async (_options, _environment, _connections, complete) => {
+      complete("permissions_verified");
+      return { releaseStatus: "VALIDATED", observedActiveRelease: "LOGIPLAN_2026_DEMO_V1" };
+    }),
+  );
+  assert.equal(report.write_committed_observation_failed, false);
+  assert.equal(report.write_outcome, "known");
+  assert.equal(createReport(options, {}).write_committed_observation_failed, false);
+});
+
 test("数据库子进程超时会终止进程树并标记未知写入结果", async () => {
   await assert.rejects(
     runProcess(process.execPath, ["-e", "setTimeout(() => {}, 60_000)"], {
@@ -1137,6 +1213,40 @@ test("数据库写入子进程异常退出码不再被当作已知失败", async
       },
     );
   }
+});
+
+test("写入口自报提交后观察失败时保留独立结果，不再归为未知写入", async () => {
+  await assert.rejects(
+    runProcess(
+      process.execPath,
+      [
+        "-e",
+        `process.stderr.write('${writeCommittedObservationFailedMarker} 数据发布失败：写入已提交，失败发生在后续观察或清理阶段'); process.exit(1)`,
+      ],
+      { timeoutMs: 5_000, writeOperation: true },
+    ),
+    (error) => {
+      assert.equal(error.writeCommittedObservationFailed, true);
+      assert.equal(error.writeOutcomeUnknown, undefined);
+      assert.equal(error.childExitCode, 1);
+      return true;
+    },
+  );
+});
+
+test("写入子进程以退出码 1 失败但没有该前缀时仍不是提交后观察失败", async () => {
+  await assert.rejects(
+    runProcess(process.execPath, ["-e", "process.stderr.write('plain failure'); process.exit(1)"], {
+      timeoutMs: 5_000,
+      writeOperation: true,
+    }),
+    (error) => {
+      assert.equal(error.writeCommittedObservationFailed, undefined);
+      assert.equal(error.writeOutcomeUnknown, undefined);
+      assert.equal(error.childExitCode, 1);
+      return true;
+    },
+  );
 });
 
 test("只读子进程失败和启动失败仍是已知失败", async () => {

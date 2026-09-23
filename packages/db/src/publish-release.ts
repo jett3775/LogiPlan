@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { Client } from "pg";
 
 import { loadReleaseBundle, validateReleasePackage } from "./release-package";
-import type { LoadedReleaseBundle } from "./release-package";
+import type { LoadedReleaseBundle, PackageValidationSummary } from "./release-package";
 import { activateAndMaterialize } from "./activate-and-materialize";
 import {
   assertDatabaseSchemaVersion,
@@ -14,8 +14,21 @@ import {
   validateCandidateInDatabase,
   validationSummaryJson,
 } from "./release-store";
+import {
+  combineOutcomeWithSubsequentFailures,
+  exitCodeForTransactionFailure,
+  hasOutcomeFlag,
+  observeCommittedWrite,
+  runTransaction,
+  runWithConnectionCleanup,
+  transactionFailureLogPrefix,
+} from "./transaction-outcome";
 
 const publishingLockKey = "logiplan-data-publishing-v1";
+const advisoryUnlock = {
+  statement: "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+  parameters: [publishingLockKey],
+} as const;
 const publishMode = process.env.LOGIPLAN_PUBLISH_MODE || "activate";
 const defaultManifestPath = fileURLToPath(
   new URL("../../../database/releases/LOGIPLAN_2026_DEMO_V2.json", import.meta.url),
@@ -29,103 +42,43 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
-type TransactionError = Error & {
-  rollbackConfirmed?: true;
-  writeOutcomeUnknown?: true;
-};
-
-// COMMIT 阶段只有在 SQLSTATE 明确表示事务已终止且不可能提交时，才允许判定为确定失败。
-// 40003（statement completion unknown）、08xxx（连接异常）、57014（查询取消）以及任何
-// 未枚举的错误码都必须归入写入结果未知，避免把已提交的写入误报为已知失败。
-const definitelyUncommittedCodePrefixes = ["25"];
-const definitelyUncommittedCodes = new Set(["2D000"]);
-
-function isConfirmedCommitFailure(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  const code = error.code;
-  if (typeof code !== "string") return false;
-  return (
-    definitelyUncommittedCodes.has(code) ||
-    definitelyUncommittedCodePrefixes.some((prefix) => code.startsWith(prefix))
-  );
-}
-
-function markRollbackConfirmed(error: unknown): TransactionError {
-  const confirmed = error instanceof Error ? error : new Error("数据库事务失败");
-  Object.assign(confirmed, { rollbackConfirmed: true });
-  return confirmed as TransactionError;
-}
-
-function unknownCommitOutcome(): TransactionError {
-  const error = new Error("COMMIT 确认丢失，发布结果未知；必须先只读核对再重试");
-  Object.assign(error, { writeOutcomeUnknown: true });
-  return error as TransactionError;
-}
-
-function unknownRollbackOutcome(): TransactionError {
-  const error = new Error("事务回滚确认丢失，发布结果未知；必须先只读核对再重试");
-  Object.assign(error, { writeOutcomeUnknown: true });
-  return error as TransactionError;
-}
-
 export async function runPublishValidationTransaction(
   client: Client,
   operation: () => Promise<void>,
 ): Promise<void> {
-  await client.query("BEGIN");
-  let commitAttempted = false;
-  try {
-    await operation();
-    commitAttempted = true;
-    await client.query("COMMIT");
-  } catch (error: unknown) {
-    if (commitAttempted && !isConfirmedCommitFailure(error)) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {
-        throw unknownRollbackOutcome();
-      }
-      throw unknownCommitOutcome();
-    }
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      throw unknownRollbackOutcome();
-    }
-    throw markRollbackConfirmed(error);
-  }
+  await runTransaction(client, operation, "发布");
 }
 
-function hasTransactionFlag(
-  error: unknown,
-  flag: "rollbackConfirmed" | "writeOutcomeUnknown",
-): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    flag in error &&
-    (error as Record<string, unknown>)[flag] === true
-  );
-}
-
+// mark_data_release_failed 自身是写操作：它必须跑在可以判定 COMMIT 结果的事务里。
+// 已知失败、COMMIT 未知与成功三种结果分别传播；已经提交或结果未知的候选绝不再标记失败。
 export async function markPublishFailedIfKnown(
   client: Client,
   releaseId: string,
   error: unknown,
 ): Promise<void> {
   if (
-    hasTransactionFlag(error, "writeOutcomeUnknown") ||
-    !hasTransactionFlag(error, "rollbackConfirmed")
+    hasOutcomeFlag(error, "writeOutcomeUnknown") ||
+    hasOutcomeFlag(error, "writeCommittedObservationFailed") ||
+    !hasOutcomeFlag(error, "rollbackConfirmed")
   ) {
     return;
   }
   const message = error instanceof Error ? error.message : "未知候选发布错误";
-  await client
-    .query("SELECT logiplan.mark_data_release_failed($1, $2::jsonb)", [
-      releaseId,
-      JSON.stringify({ status: "FAIL", message }),
-    ])
-    .catch(() => undefined);
+  try {
+    await runPublishValidationTransaction(client, async () => {
+      await client.query("SELECT logiplan.mark_data_release_failed($1, $2::jsonb)", [
+        releaseId,
+        JSON.stringify({ status: "FAIL", message }),
+      ]);
+    });
+  } catch (markError: unknown) {
+    throw combineOutcomeWithSubsequentFailures(
+      error,
+      [{ stage: "标记发布失败状态", error: markError }],
+      "发布",
+      "标记失败状态",
+    );
+  }
 }
 
 export async function createReleaseCandidate(
@@ -151,22 +104,16 @@ export async function createReleaseCandidate(
   });
 }
 
-async function publish(): Promise<void> {
-  if (publishMode !== "activate" && publishMode !== "validate-only") {
-    throw new Error("LOGIPLAN_PUBLISH_MODE 只允许 activate 或 validate-only");
-  }
-  const shouldActivate = publishMode === "activate";
-  const manifestPath = process.env.RELEASE_MANIFEST ?? defaultManifestPath;
-  const bundle = await loadReleaseBundle(manifestPath);
-  const packageSummary = validateReleasePackage(bundle);
-  const releaseId = bundle.manifest.release_version;
-  const client = new Client({
-    connectionString: requiredEnvironment("PUBLISHER_DATABASE_URL"),
-    application_name: "logiplan-data-publisher",
-  });
+export interface PublishPlan {
+  readonly bundle: LoadedReleaseBundle;
+  readonly packageSummary: PackageValidationSummary;
+  readonly releaseId: string;
+  readonly shouldActivate: boolean;
+}
 
-  await client.connect();
-  try {
+export async function runPublishWithLock(client: Client, plan: PublishPlan): Promise<void> {
+  const { bundle, packageSummary, releaseId, shouldActivate } = plan;
+  await runWithConnectionCleanup(client, advisoryUnlock, "发布", async () => {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [publishingLockKey]);
     await assertDatabaseSchemaVersion(client, bundle.manifest.database_schema_version);
     const initialStatus = await getReleaseStatus(client, releaseId);
@@ -190,11 +137,22 @@ async function publish(): Promise<void> {
       throw new Error(`发布 ${releaseId} 此前已失败；修正数据后必须使用新的发布版本`);
     }
 
+    let candidateCreated = false;
     if (initialStatus === null) {
       await createReleaseCandidate(client, bundle, releaseId);
+      candidateCreated = true;
     }
 
-    const currentStatus = await getReleaseStatus(client, releaseId);
+    // 候选创建一旦 COMMIT 成功，后续读取失败只能是提交后观察失败：既不重做创建，也不标记失败。
+    const currentStatus = candidateCreated
+      ? await observeCommittedWrite(
+          "发布",
+          `候选 ${releaseId} 创建事务已提交，但紧接着读取发布状态失败`,
+          () => getReleaseStatus(client, releaseId),
+        )
+      : await getReleaseStatus(client, releaseId);
+
+    let validationWriteCommitted = false;
     if (currentStatus === "CANDIDATE") {
       try {
         await runPublishValidationTransaction(client, async () => {
@@ -206,6 +164,7 @@ async function publish(): Promise<void> {
             validationSummary,
           ]);
         });
+        validationWriteCommitted = true;
       } catch (error: unknown) {
         await markPublishFailedIfKnown(client, releaseId, error);
         throw error;
@@ -214,7 +173,13 @@ async function publish(): Promise<void> {
       await validateCandidateInDatabase(client, bundle, packageSummary);
     }
 
-    const validatedStatus = await getReleaseStatus(client, releaseId);
+    const validatedStatus = validationWriteCommitted
+      ? await observeCommittedWrite(
+          "发布",
+          `候选 ${releaseId} 校验写入已提交，但紧接着读取发布状态失败`,
+          () => getReleaseStatus(client, releaseId),
+        )
+      : await getReleaseStatus(client, releaseId);
     if (validatedStatus !== "VALIDATED") {
       throw new Error(`发布 ${releaseId} 未进入 VALIDATED 状态：${validatedStatus ?? "NOT_FOUND"}`);
     }
@@ -224,12 +189,25 @@ async function publish(): Promise<void> {
     }
     await activateAndMaterialize(client, releaseId);
     process.stdout.write(`发布 ${releaseId} 已完成校验并原子激活\n`);
-  } finally {
-    await client
-      .query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [publishingLockKey])
-      .catch(() => undefined);
-    await client.end();
+  });
+}
+
+async function publish(): Promise<void> {
+  if (publishMode !== "activate" && publishMode !== "validate-only") {
+    throw new Error("LOGIPLAN_PUBLISH_MODE 只允许 activate 或 validate-only");
   }
+  const shouldActivate = publishMode === "activate";
+  const manifestPath = process.env.RELEASE_MANIFEST ?? defaultManifestPath;
+  const bundle = await loadReleaseBundle(manifestPath);
+  const packageSummary = validateReleasePackage(bundle);
+  const releaseId = bundle.manifest.release_version;
+  const client = new Client({
+    connectionString: requiredEnvironment("PUBLISHER_DATABASE_URL"),
+    application_name: "logiplan-data-publisher",
+  });
+
+  await client.connect();
+  await runPublishWithLock(client, { bundle, packageSummary, releaseId, shouldActivate });
 }
 
 const isMain =
@@ -237,11 +215,7 @@ const isMain =
 if (isMain) {
   await publish().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "未知数据发布错误";
-    const writeOutcomeUnknown =
-      typeof error === "object" && error !== null && "writeOutcomeUnknown" in error;
-    process.stderr.write(
-      `${writeOutcomeUnknown ? "[WRITE_OUTCOME_UNKNOWN] " : ""}数据发布失败：${message}\n`,
-    );
-    process.exitCode = writeOutcomeUnknown ? 75 : 1;
+    process.stderr.write(`${transactionFailureLogPrefix(error)}数据发布失败：${message}\n`);
+    process.exitCode = exitCodeForTransactionFailure(error);
   });
 }

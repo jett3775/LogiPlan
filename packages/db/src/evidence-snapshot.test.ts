@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Client, Pool } from "pg";
 import { LogiPlanDecimal } from "@logiplan/domain";
@@ -30,6 +31,44 @@ import {
   validateCandidateInDatabase,
   validationSummaryJson,
 } from "./release-store";
+
+// 诊断时间线：仅在设置了 LOGIPLAN_GATE1_TIMELINE_FILE 时写文件，每行一个 JSON 对象
+// （iteration/event/at_ms/detail）；失败时在断言消息里给出可判定的停滞结论。
+const timelineFile = process.env.LOGIPLAN_GATE1_TIMELINE_FILE;
+const timelineIteration = Number.parseInt(process.env.LOGIPLAN_GATE1_ITERATION ?? "1", 10);
+const timelineStartMs = Date.now();
+
+function recordTimeline(event: string, detail?: unknown): void {
+  if (timelineFile === undefined || timelineFile === "") return;
+  try {
+    appendFileSync(
+      timelineFile,
+      `${JSON.stringify({
+        iteration: Number.isSafeInteger(timelineIteration) ? timelineIteration : 1,
+        event,
+        at_ms: Date.now() - timelineStartMs,
+        detail: detail ?? null,
+      })}\n`,
+    );
+  } catch {
+    // 诊断埋点不得改变测试结果。
+  }
+}
+
+function queryRequestBody(request: Request): unknown {
+  try {
+    return request.postDataJSON();
+  } catch {
+    return null;
+  }
+}
+
+function queryQuestionType(request: Request): string | null {
+  const body = queryRequestBody(request);
+  if (typeof body !== "object" || body === null) return null;
+  const questionType = (body as { question_type?: unknown }).question_type;
+  return typeof questionType === "string" ? questionType : null;
+}
 
 const intent: QueryIntentV11 = {
   contract_version: "V1.1",
@@ -789,9 +828,47 @@ describe.skipIf(!process.env.SNAPSHOT_TEST_DATABASE_URL)("snapshot PostgreSQL in
             const requests: Request[] = [];
             const isQuery = (request: Request) =>
               request.method() === "POST" && new URL(request.url()).pathname === "/api/v1/query";
-            const observe = (target: Page) => {
+            // 本轮首屏的请求生命周期，用于在轮询失败时判定「未发出 / 未完成 / 未提交」。
+            const lifecycle = {
+              started: 0,
+              responded: 0,
+              statuses: [] as number[],
+              failures: [] as string[],
+            };
+            const observe = (target: Page, label: string) => {
               target.on("request", (request) => {
-                if (isQuery(request)) requests.push(request);
+                if (!isQuery(request)) return;
+                requests.push(request);
+                lifecycle.started += 1;
+                recordTimeline("api_query_request_start", {
+                  page: label,
+                  question_type: queryQuestionType(request),
+                  body: queryRequestBody(request),
+                });
+              });
+              target.on("response", (response) => {
+                if (!isQuery(response.request())) return;
+                lifecycle.responded += 1;
+                lifecycle.statuses.push(response.status());
+                recordTimeline("api_query_response_status", {
+                  page: label,
+                  question_type: queryQuestionType(response.request()),
+                  status: response.status(),
+                });
+                response.finished().then(
+                  () =>
+                    recordTimeline("api_query_response_end", {
+                      page: label,
+                      status: response.status(),
+                    }),
+                  () => undefined,
+                );
+              });
+              target.on("requestfailed", (request) => {
+                if (!isQuery(request)) return;
+                const failure = request.failure()?.errorText ?? "未知请求失败";
+                lifecycle.failures.push(failure);
+                recordTimeline("api_query_request_failed", { page: label, failure });
               });
             };
             const requestWindow = (
@@ -800,6 +877,11 @@ describe.skipIf(!process.env.SNAPSHOT_TEST_DATABASE_URL)("snapshot PostgreSQL in
                  FROM logiplan.active_release`,
               )
             ).rows[0]!;
+            recordTimeline("request_window", {
+              viewport: `${viewport.width}x${viewport.height}`,
+              started_at: requestWindow.started_at,
+              data_release_id: requestWindow.data_release_id,
+            });
             // Scope counts to this viewport's request window, release and full intents.
             // Include observed lookups so an accidental save cannot escape the assertion.
             const counts = async () =>
@@ -827,26 +909,91 @@ describe.skipIf(!process.env.SNAPSHOT_TEST_DATABASE_URL)("snapshot PostgreSQL in
                   "SELECT count(*)::int AS count FROM logiplan.evidence_snapshot",
                 )
               ).rows[0]!.count;
+            // 轮询失败时给出四种可判定结论之一，而不是只报「计数不为 1」。
+            const classifySnapshotFailure = async (): Promise<string> => {
+              if (lifecycle.started === 0) return "请求未发出";
+              if (lifecycle.failures.length > 0)
+                return `请求未完成：${lifecycle.failures.join("、")}`;
+              const errorStatus = lifecycle.statuses.find((status) => status !== 200);
+              if (errorStatus !== undefined)
+                return `请求完成但返回非 200 状态码（${String(errorStatus)}）`;
+              if (lifecycle.responded < lifecycle.started) return "请求未完成";
+              const scoped = await count();
+              if (scoped > 0) return `查询看到新状态（窗口内计数=${String(scoped)}）`;
+              try {
+                const persisted =
+                  (
+                    await reader.query<{ count: number }>(
+                      `SELECT count(*)::int AS count FROM logiplan.evidence_snapshot
+                       WHERE result->'query_intent' = ANY($1::jsonb[])`,
+                      [initialIntents.map((query) => JSON.stringify(query))],
+                    )
+                  ).rows[0]?.count ?? 0;
+                if (persisted > 0)
+                  return `查询看到旧状态：已提交的 ${String(persisted)} 条快照被 requestWindow 或 data_release_id 过滤排除`;
+              } catch (error) {
+                return `请求完成但事务未提交（附加判定查询失败：${
+                  error instanceof Error ? error.message : String(error)
+                }）`;
+              }
+              return "请求完成但事务未提交";
+            };
             const page = await context.newPage();
-            observe(page);
+            observe(page, "primary");
+            recordTimeline("navigation_start", {
+              viewport: `${viewport.width}x${viewport.height}`,
+              url: `${base}/attribution`,
+            });
             await page.goto(`${base}/attribution`);
+            recordTimeline("first_screen_loaded", {
+              viewport: `${viewport.width}x${viewport.height}`,
+            });
             await browserExpect(
               page.getByRole("heading", { name: "英国履约变动成本归因" }),
             ).toBeVisible();
+            recordTimeline("target_heading_visible", {
+              viewport: `${viewport.width}x${viewport.height}`,
+            });
             // Each server-side first-screen V1.1 query must have committed its own new snapshot.
-            await browserExpect
-              .poll(
-                async () => {
-                  const committed = await counts();
-                  return initialIntents.map(
-                    (query) =>
-                      committed.find((row) => row.question_type === query.question_type)?.count ??
-                      0,
-                  );
-                },
-                { timeout: 10_000 },
-              )
-              .toEqual([1, 1, 1, 1]);
+            let pollSamples = 0;
+            try {
+              await browserExpect
+                .poll(
+                  async () => {
+                    const committed = await counts();
+                    const sample = initialIntents.map(
+                      (query) =>
+                        committed.find((row) => row.question_type === query.question_type)?.count ??
+                        0,
+                    );
+                    pollSamples += 1;
+                    recordTimeline("poll_sample", {
+                      viewport: `${viewport.width}x${viewport.height}`,
+                      sample: pollSamples,
+                      counts: sample,
+                      started_requests: lifecycle.started,
+                      responded_requests: lifecycle.responded,
+                    });
+                    return sample;
+                  },
+                  { timeout: 10_000 },
+                )
+                .toEqual([1, 1, 1, 1]);
+            } catch (error) {
+              const conclusion = await classifySnapshotFailure();
+              recordTimeline("failure", {
+                stage: "snapshot_count_poll",
+                message: conclusion,
+                poll_samples: pollSamples,
+              });
+              const message = error instanceof Error ? error.message : String(error);
+              const annotated = `[证据快照目标用例] 停滞阶段「目标快照计数轮询（10s 内未达到 [1,1,1,1]）」：${conclusion}；原始错误：${message}`;
+              if (error instanceof Error) {
+                Object.assign(error, { message: annotated });
+                throw error;
+              }
+              throw new Error(annotated);
+            }
             const row = page
               .getByRole("row", { name: /德国仓/u })
               .filter({ has: page.getByRole("button", { name: "数字证据", exact: true }) });
@@ -945,7 +1092,7 @@ describe.skipIf(!process.env.SNAPSHOT_TEST_DATABASE_URL)("snapshot PostgreSQL in
             const shared = await browser.newContext({ viewport });
             try {
               const sharedPage = await shared.newPage();
-              observe(sharedPage);
+              observe(sharedPage, "shared");
               await restore(sharedPage, () => sharedPage.goto(sharedUrl));
               await browserExpect(sharedPage.getByText(snapshotId!, { exact: true })).toBeVisible();
               await browserExpect(
@@ -1045,7 +1192,7 @@ describe.skipIf(!process.env.SNAPSHOT_TEST_DATABASE_URL)("snapshot PostgreSQL in
               const historicalShared = await browser.newContext({ viewport });
               try {
                 const historicalSharedPage = await historicalShared.newPage();
-                observe(historicalSharedPage);
+                observe(historicalSharedPage, "historical-shared");
                 await restoreHistorical(historicalSharedPage, () =>
                   historicalSharedPage.goto(historicalUrl),
                 );

@@ -5,8 +5,19 @@ import { resolve } from "node:path";
 import { Client } from "pg";
 
 import { loadMigrationFiles } from "./migration-files";
+import type { MigrationFile } from "./migration-files";
+import {
+  exitCodeForTransactionFailure,
+  runTransaction,
+  runWithConnectionCleanup,
+  transactionFailureLogPrefix,
+} from "./transaction-outcome";
 
 const lockKey = "logiplan-schema-migrations-v1";
+const advisoryUnlock = {
+  statement: "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+  parameters: [lockKey],
+} as const;
 const defaultMigrationDirectory = fileURLToPath(
   new URL("../../../database/migrations/", import.meta.url),
 );
@@ -19,71 +30,11 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
-type TransactionError = Error & {
-  rollbackConfirmed?: true;
-  writeOutcomeUnknown?: true;
-};
-
-// COMMIT 阶段只有在 SQLSTATE 明确表示事务已终止且不可能提交时，才允许判定为确定失败。
-// 40003（statement completion unknown）、08xxx（连接异常）、57014（查询取消）以及任何
-// 未枚举的错误码都必须归入写入结果未知，避免把已提交的写入误报为已知失败。
-const definitelyUncommittedCodePrefixes = ["25"];
-const definitelyUncommittedCodes = new Set(["2D000"]);
-
-function isConfirmedCommitFailure(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  const code = error.code;
-  if (typeof code !== "string") return false;
-  return (
-    definitelyUncommittedCodes.has(code) ||
-    definitelyUncommittedCodePrefixes.some((prefix) => code.startsWith(prefix))
-  );
-}
-
-function markRollbackConfirmed(error: unknown): TransactionError {
-  const confirmed = error instanceof Error ? error : new Error("数据库事务失败");
-  Object.assign(confirmed, { rollbackConfirmed: true });
-  return confirmed as TransactionError;
-}
-
-function unknownCommitOutcome(): TransactionError {
-  const error = new Error("COMMIT 确认丢失，迁移结果未知；必须先只读核对再重试");
-  Object.assign(error, { writeOutcomeUnknown: true });
-  return error as TransactionError;
-}
-
-function unknownRollbackOutcome(): TransactionError {
-  const error = new Error("事务回滚确认丢失，迁移结果未知；必须先只读核对再重试");
-  Object.assign(error, { writeOutcomeUnknown: true });
-  return error as TransactionError;
-}
-
 export async function runMigrationTransaction(
   client: Client,
   operation: () => Promise<void>,
 ): Promise<void> {
-  await client.query("BEGIN");
-  let commitAttempted = false;
-  try {
-    await operation();
-    commitAttempted = true;
-    await client.query("COMMIT");
-  } catch (error: unknown) {
-    if (commitAttempted && !isConfirmedCommitFailure(error)) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {
-        throw unknownRollbackOutcome();
-      }
-      throw unknownCommitOutcome();
-    }
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      throw unknownRollbackOutcome();
-    }
-    throw markRollbackConfirmed(error);
-  }
+  await runTransaction(client, operation, "迁移");
 }
 
 export async function ensureMigrationTable(client: Client): Promise<void> {
@@ -99,17 +50,11 @@ export async function ensureMigrationTable(client: Client): Promise<void> {
   });
 }
 
-async function migrate(): Promise<void> {
-  const client = new Client({
-    connectionString: requiredEnvironment("MIGRATION_DATABASE_URL"),
-    application_name: "logiplan-schema-migrator",
-  });
-  const migrations = await loadMigrationFiles(
-    process.env.MIGRATION_DIRECTORY ?? defaultMigrationDirectory,
-  );
-
-  await client.connect();
-  try {
+export async function runMigrationsWithLock(
+  client: Client,
+  migrations: readonly MigrationFile[],
+): Promise<void> {
+  await runWithConnectionCleanup(client, advisoryUnlock, "迁移", async () => {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
     await ensureMigrationTable(client);
 
@@ -137,12 +82,20 @@ async function migrate(): Promise<void> {
       });
       process.stdout.write(`已执行迁移 ${migration.fileName}\n`);
     }
-  } finally {
-    await client
-      .query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey])
-      .catch(() => undefined);
-    await client.end();
-  }
+  });
+}
+
+async function migrate(): Promise<void> {
+  const client = new Client({
+    connectionString: requiredEnvironment("MIGRATION_DATABASE_URL"),
+    application_name: "logiplan-schema-migrator",
+  });
+  const migrations = await loadMigrationFiles(
+    process.env.MIGRATION_DIRECTORY ?? defaultMigrationDirectory,
+  );
+
+  await client.connect();
+  await runMigrationsWithLock(client, migrations);
 }
 
 const isMain =
@@ -150,11 +103,7 @@ const isMain =
 if (isMain) {
   await migrate().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "未知迁移错误";
-    const writeOutcomeUnknown =
-      typeof error === "object" && error !== null && "writeOutcomeUnknown" in error;
-    process.stderr.write(
-      `${writeOutcomeUnknown ? "[WRITE_OUTCOME_UNKNOWN] " : ""}数据库迁移失败：${message}\n`,
-    );
-    process.exitCode = writeOutcomeUnknown ? 75 : 1;
+    process.stderr.write(`${transactionFailureLogPrefix(error)}数据库迁移失败：${message}\n`);
+    process.exitCode = exitCodeForTransactionFailure(error);
   });
 }

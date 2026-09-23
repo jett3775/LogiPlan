@@ -74,6 +74,7 @@ export const executionClosurePaths = Object.freeze([
   "scripts/neon-baseline.test.mjs",
   "scripts/neon-permission-audit.mjs",
   "scripts/neon-permission-audit.test.mjs",
+  "scripts/run-db-integration-tests.mjs",
   "scripts/verify-gate1-isolated.mjs",
   "scripts/wait-for-server.mjs",
   "packages/db/package.json",
@@ -92,6 +93,11 @@ export const executionClosurePaths = Object.freeze([
   "data/generated",
 ]);
 export const writeOutcomeUnknownExitCode = 75;
+// 数据库写入口在“写入已提交、提交后观察或清理失败”时输出的前缀：此时写入结果是已知的、已提交的，
+// 不能归入 writeOutcomeUnknown，也不能回落为普通 known_failed。
+export const writeCommittedObservationFailedMarker = "[WRITE_COMMITTED_OBSERVATION_FAILED]";
+// 第 3 类结果在报告中的 write_outcome 取值；既有取值含义不变，只是新增一个可机器识别的取值。
+export const committedObservationFailedWriteOutcome = "committed_observation_failed";
 const managedRoleNames = Object.freeze(["schema_migrator", "data_publisher", "app_reader"]);
 const roleMembershipSql = `SELECT membership.roleid AS parent_oid,
        parent.rolname AS parent_role,
@@ -501,6 +507,7 @@ export function createReport(options, context = {}) {
     last_completed_stage: context.lastCompletedStage,
     failure_after_stage: context.failureAfterStage,
     write_outcome: context.writeOutcome,
+    write_committed_observation_failed: context.writeCommittedObservationFailed === true,
     error: context.error,
   };
 }
@@ -607,6 +614,9 @@ export async function runProcess(
         error.childSignal = signal ?? null;
         if (isUnknownWriteProcessExit({ writeOperation, spawned, timedOut, code, signal })) {
           error.writeOutcomeUnknown = true;
+        } else if (safeOutput.includes(writeCommittedObservationFailedMarker)) {
+          // 写入口自报“写入已提交、随后观察或清理失败”：写入结果已知且已提交，只是后续阶段失败。
+          error.writeCommittedObservationFailed = true;
         }
         settle(reject, error);
       }
@@ -1367,6 +1377,8 @@ export async function runBaseline(options, environment = process.env, dependenci
       : [];
     const safeMessage = redact(error instanceof Error ? error.message : "未知错误", secrets);
     const outcomeUnknown = Boolean(error?.writeOutcomeUnknown);
+    const committedObservationFailed =
+      !outcomeUnknown && Boolean(error?.writeCommittedObservationFailed);
     databaseState = error?.observedState ?? databaseState;
     const report = createReport(options, {
       status: outcomeUnknown ? "unknown" : "failed",
@@ -1378,13 +1390,17 @@ export async function runBaseline(options, environment = process.env, dependenci
       failureAfterStage: stage,
       writeOutcome: outcomeUnknown
         ? "unknown_requires_read_only_review"
-        : error?.rollbackConfirmed
-          ? "confirmed_rollback"
-          : "known_failed",
+        : committedObservationFailed
+          ? committedObservationFailedWriteOutcome
+          : error?.rollbackConfirmed
+            ? "confirmed_rollback"
+            : "known_failed",
+      writeCommittedObservationFailed: committedObservationFailed,
       error: safeMessage,
     });
     const safeError = new Error(safeMessage);
     if (outcomeUnknown) safeError.writeOutcomeUnknown = true;
+    if (committedObservationFailed) safeError.writeCommittedObservationFailed = true;
     if (reportPathOwned) {
       try {
         await saveReport(options.reportPath, report);
