@@ -12,7 +12,61 @@
 
 第二阶段数据基线已经完成。第三阶段按 D-093 推进“全年 Latest Outlook 异常 → 2026 年 8 月英国下钻 → 五因素归因 → 数字级证据 → AI 管理分析”的核心纵向切片。方案 B 桌面原型已通过 D-124 验收，查询与证据契约已按 D-125 冻结为 V1.0，当前进入正式 Next.js 实现准备；该切片实现并验收通过后，再扩展 Forecast 和情景模拟。
 
-## 0. 2026-09-23 最新本地验收状态
+## 0. 2026-09-24 轮次：`#418` 根因定位与最小修复
+
+本轮处理 2026-09-23 遗留项 ①（Firefox 每次迭代必现 React 水合失败 `#418`），给出确定性结论并应用最小修复（改动 `apps/web`，经用户单独批准）。全部改动仍在工作区、尚未提交；未触碰 Neon、未推送、未部署 Vercel、未激活数据发布。
+
+**根因（已证）**：`apps/web/app/dashboard-workspace.tsx:509` 的月度趋势条形图把 `<title>` 的子节点写成 5 个相邻表达式（`{month.month_id}`、空格、`{month.series_type}`、空格、`{formatMoney(...)}`）。React 对 `<title>` 的子节点有类型限制：子节点数组长度大于 1 时不受支持，服务端渲染为**空** `<title></title>`，客户端水合时按真实文本重建，形成元素级不匹配并报 `#418`。`args[]=HTML` 中的 `HTML` 是 `fromText === false` 的固定字面量，并非名为 HTML 的标签，此前的「元素级不匹配」方向正确但落点有误。
+
+排查中证伪两个候选：`apps/web/app/loading.tsx` 的 Suspense fallback（`#418` 出现在 `first_document_loaded` 之后约 5ms，加载壳已消失且目标标题已存在）与 `next-route-announcer`（服务端与客户端首帧均返回 `null`）。同时确认 `#418` 在 chromium-1440、chromium-1280、firefox-smoke 三者均出现，故 2026-09-23 的「Firefox 独有」判断不成立，`#418` 并非浏览器差异问题。
+
+**修复**：改为单个模板字符串，3 行 → 1 行，不改变可见文本与结构：
+
+```tsx
+<title>{`${month.month_id} ${month.series_type} ${formatMoney(month.current.total_cost)}`}</title>
+```
+
+**证据**：生产 SSR 中 `/` 的 `<title>` 共 14 个、空 0 个、12/12 月度条形图标题文本正确（修复前 13 个 SVG 标题中 12 个为空）；`/attribution?destination=GB` 共 2 个、空 0 个；DEV 模式 chromium-1440、chromium-1280、firefox-smoke 三者 `#418` 计数均为 0；生产 Firefox 连续 20 次迭代 `pageerror` 与 `#418` 均为 0。全仓仅此一处使用该写法，其余两个 `<title>` 均为单条静态字符串；无测试断言该标题文本。
+
+**静态检查**：`pnpm test` 14 文件 113 passed / 11 skipped、`pnpm lint`、`pnpm typecheck`（4 个 workspace）、8 个改动文件的 prettier 全部退出码 0。
+
+**用户终端验收：单次完整执行（2026-09-24，退出码 0）**。生产构建完整通过（`✓ Finalizing page optimization in 56ms`），证实会话内 E2E 失败确为未定稿构建所致，而非应用缺陷。分项：数据库集成 4 条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构、精度与三角色权限验证；不可变发布升级与核心查询验证；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；**Firefox 核心冒烟 3/3（`V01-V04` 8.5s 通过，含此前会话内 20/20 失败的展开固定成本一步）**；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms（P95 预算 1s）；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 独立执行一次同样 4 条腿零 fail 零 skip。
+
+**用户终端验收：两批「完整 Gate 1 × 5 连续」（均未达成 5/5）**
+
+批次一（原始命令，无迭代间清理）：`0, 0, 0, 1, 1`，即 3/5。第 4 次在 `Firefox 核心冒烟` 以原生崩溃码 `3221226505` 失败且**零用例输出**（此前各阶段全部通过：数据库集成四条腿、迁移/发布/激活/查询计划、生产构建、快照 28/28、Chromium 双视口基础 10 passed、Chromium 双视口历史证据 22 passed）。第 5 次在 `Chromium 双视口基础冒烟` 以 `Error: http://127.0.0.1:4173/api/health/live is already used` 失败——根因是第 4 次崩溃时 Playwright 进程先于收尾退出，`webServer` 的 `next start` 泄漏并占住 4173（实测泄漏进程 `next start --hostname 127.0.0.1 --port 4173`，父进程已消失），属**纯级联**，非独立失败。
+
+批次二（加固编排：每次迭代前后清理 4173/4174 监听进程与泄漏的 `next start`，**不触碰断言、超时与用例选择**）：`0, 0, 0, 0, 1`，即 4/5。第 1—4 次全部退出码 0；第 5 次在 `Chromium 双视口历史证据验收` 失败，错误为 `Error: worker process exited unexpectedly (code=3221226505, signal=null)`，首个用例 `[chromium-1440] historical-evidence.spec.ts:326:5` 在 **0ms** 即失败（worker 在用例体执行前崩溃），其余 **21 passed**。该次运行后隔离容器、命名卷、网络残留均为 `none`，端口无泄漏。
+
+**崩溃定性**：`3221226505` = `0xC0000005` = `STATUS_ACCESS_VIOLATION`，为 Windows 进程级崩溃。本轮两批次共执行 10 次，出现 2 次原生崩溃（`Firefox 核心冒烟` 1 次、`Chromium 双视口历史证据验收` 1 次），**零断言失败**；崩溃跨两个不同阶段，但均落在浏览器阶段的启动边界。同一崩溃码与同一阶段在 2026-09-21 已有记录（该次为「Chromium 双视口历史证据验收」+ `3221226505` + 无用例输出，见第 0.2.1 节），故判定为**既有环境不稳定**，非本轮代码缺陷。
+
+**已排除的归因**：批次二运行期间用户已关闭本机浏览器（`firefox.exe` 计数为 0），系统盘剩余 434 GB，故不可归因于用户浏览器负载或磁盘空间。泄漏类级联已在批次二被加固编排消除。
+
+**本轮计划要求「完整 Gate 1 × 5 连续（5/5 退出码 0）」，两批次分别为 3/5 与 4/5，均未达成。** 按本文件既有规则「在消除该不稳定前 Gate 1 不得记为稳定通过」以及计划「任何失败保留现场、不重新计数」，本轮**不得**记为「Gate 1 稳定通过」。正式结论为：**代码侧验收全部通过**（10 次执行零断言失败、集成入口零 fail 零 skip、静态检查全绿、独立复查 PASS），**唯一未达成项是被既有环境不稳定阻塞的「连续 5/5 退出码 0」**。
+
+**本会话环境限制（供后续会话复用，避免重复试错）**：
+
+- `spawnSync`/`execSync` 在本会话对任意命令恒返回 `EBUSY`（`node -v`、`git --version`、`docker --version` 皆然），异步 `spawn` 正常。因此以 `spawnSync` 为基础的 `scripts/run-docker-compose.mjs`、`scripts/verify-gate1-isolated.mjs`、`scripts/run-db-integration-tests.mjs` 均无法在会话内运行。
+- 宿主 `node-safe-delete-shim` 拦截任何单次删除 ≥50 个文件的操作（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，`scope=turn`，按用户回合累计，拦截时不累计计数）。`next build` 的「Finalizing page optimization」与 Playwright 启动时清理 `test-results/` 都会触发，Bash 通道的 `rm -rf` 同样受管。**不得**以 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 关闭该保护。可用规避：给 Playwright 传 `--output=<全新空目录>`，使启动清理的删除计数为 0。
+- 本会话内 `next build` 因上述拦截在收尾阶段失败，产出的 `.next` 属**未完成定稿**的构建。用它做 E2E 得到的失败（导航期 `_rsc` 重定向循环、Firefox 显示「The page isn't redirecting properly」）**不能**作为应用缺陷的证据，须以用户终端完成的正式构建复验。
+- Playwright 在收尾阶段挂起（`next start` 子进程不退出、4173 端口被占），需人工终止。以 `--repeat-each=20` 调用时重复用例实际并行执行（20 次 `first_document_loaded` 落在 458ms 窗口内），不满足「串行冷启动」语义，故该方式的结果不作为证据；仓库既定机制是 `LOGIPLAN_GATE1_TARGET`/`LOGIPLAN_GATE1_REPEAT` 的逐次串行调用。
+- PowerShell 工具通道无输出；如需 PowerShell 语义，改由异步 `spawn` 调用 `powershell -NoProfile -NonInteractive -Command`。
+- 会话内残留已清理：`node.exe` 回到基线、4173 无监听、无 gate1 容器/卷/网络、用户自身 Firefox 进程未被触碰。
+
+**独立审查（2026-09-24）**：以 `bc5383d` 为固定点、由全新上下文的只读子代理完成，判定 **PASS、无 P0/P1**、4 项 P2。已确认：`closeConnection=false` 语义正确（`releaseConnection` 在 `transaction-outcome.ts:232-234` 提前返回，不代调用方关闭连接，解锁失败仍以 `SubsequentFailure` 上报）；`40001` 现归类为**未知写入**（保守方向正确，白名单仍为 `25*` + `2D000`，改动来自 `activate-and-materialize.ts` 弃用本地宽正则改用共享 `runTransaction`）；CLI 退出码与 stderr 前缀互斥且不可能同时出现；**未改动任何既有断言或超时值**；环境变量透传不夹带凭据、未设置时行为逐字节不变；`<title>` 修复为最小正确改动且全仓无同类残留；`transaction-outcome.ts` 未进入 `packages/db/src/index.ts`，公共 API 无变化；测试为真实行为断言且 `process.exitCode` 在 `finally` 中还原，不会污染 vitest 退出码。
+
+**遗留项（本轮新增，含独立审查 4 项 P2）**：
+
+1. （P2，文档精度）`apps/web/tests/gate1.spec.ts:153-180` 的 `recordHydrationDomProbe` 未做环境变量门控，`LOGIPLAN_GATE1_TIMELINE_FILE` 未设置时仍执行两次页面内只读往返（`page.evaluate` 与 `getByRole(...).count()`）。它不写文件、不发网络请求、且被 try/catch 包裹，**不影响用例结果**；但「未设置时零副作用」仅对 `recordHydrationHtmlSnapshot`（`:190` 提前返回）成立，不适用于本函数。
+2. （P2，覆盖）`packages/db/src/activate-release.test.ts:24-55` 覆盖了未知写入（75）、已确认回滚（1）与非 Error 输入，但**未**正面断言 `[WRITE_COMMITTED_OBSERVATION_FAILED]` → 退出码 1 的映射（仅 `:45` 反向断言）；该映射经 `migrate.test.ts:214` 与 `publish-release.test.ts:386` 间接覆盖，风险低。
+3. （P2，既有）`packages/db/src/transaction-outcome.ts:250-271` 以 `hasPrimaryError ? primaryError : undefined` 传递主错误：若 `operation()` 抛出 falsy 值（`undefined`/`null`/`0`/`""`）且清理成功，错误被吞掉；若清理同时失败则被误报为 `writeCommittedObservationFailed`。该行非本轮改动，当前所有调用方均抛 `Error`，属潜在问题。
+4. （P2，既有 + 本轮新相关）`packages/db/src/activate-release.ts:48-50` 的 `finally { await client.end() }` 若在 `withInitializationCoordinationLock` 抛出 `writeCommittedObservationFailed`（解锁失败）之后自身也 reject，`finally` 的拒绝会替换带标志的错误并丢失前缀（退出码仍 1，不会变 75）。`finally` 为既有写法，本轮新增的分类使其首次具备可观测影响。
+5. （P2，既有，非本轮引入）`pg` 弃用警告「Calling client.query() when the client is already executing a query」在 CLI、Web 服务端与测试中普遍出现。候选来源为 `packages/db/src/query-service.ts` 的三处并发 `pool.query()`（`:257` 2 条、`:1111` 6 条、`:1251` 3 条），配合 `packages/db/src/index.ts:4` 的池上限 `max: 2`；`pg` 内部的确切触发条件未在本轮确认。已核实本轮重构的 `transaction-outcome.ts`、`activate-and-materialize.ts` 内所有 `client.query()` 均为顺序 `await`，**未引入新的并发**。该警告是 `pg@9` 升级的阻塞项，属 D-183 兼容性闸门范围，本轮不修。
+6. （既有环境不稳定，未定位根因）Gate 1 浏览器阶段偶发 Windows 原生崩溃 `3221226505`（`0xC0000005`）。2026-09-21、2026-09-22、2026-09-24 三轮均有记录，累计样本中崩溃率约 20%（2026-09-24 两批次 10 次执行中 2 次）。特征：发生在浏览器阶段启动边界、无用例输出或 0ms 即失败、零断言失败、同一批用例在其余执行中通过。已排除用户浏览器负载与磁盘空间；**未定位根因**（未做 WER/崩溃转储级排查）。影响：无法取得「连续 5/5」，Gate 1 不能记为稳定通过。后续任务：如需消除，应采集 Windows 事件日志/WER 崩溃转储确认崩溃进程（Playwright worker 与浏览器进程需区分），再评估浏览器启动参数类缓解措施——**该类改动超出本轮允许范围，须先取得用户批准**。
+
+**未关闭事项**：① 已在本轮定位并修复（见上），2026-09-23 段落中该项不再有效；② 2026-09-23 记录的「`packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock」**已由本轮重构关闭**——`withInitializationCoordinationLock`（`:29-39`）现经 `runWithConnectionCleanup(client, advisoryUnlock, activationScope, operation, false)` 释放锁，解锁失败以 `SubsequentFailure` 上报并归入 `writeCommittedObservationFailed`（见 `transaction-outcome.ts:226-241`）。因此「advisory unlock 不再被静默吞掉」现对**迁移、发布、激活三个入口同时成立**，2026-09-23 段落中该限定不再需要。
+
+## 0.1 2026-09-23 轮次（历史证据）
 
 2026-09-23 轮次处理两件事：迁移与发布入口的事务/清理结果语义收口，以及 Gate 1 中 Firefox 首次导航与证据快照轮询的间歇性超时定位。全部改动在工作区、尚未提交；未触碰任何远程环境。
 
@@ -23,9 +77,9 @@
 - **偶发连接重置**：Docker 门控用例的偶发失败为 `read ECONNRESET`，发生在容器就绪、宿主机建立 TCP 连接的时刻，重复执行结果不同。已在 `startRoleBootstrapPostgres` 增加有界的宿主侧可达性探测（≤12 次 × 250ms，失败时报出镜像、容器、端口与末次错误码），属「等待可观察状态」而非放宽超时。
 - **本地验收**：完整 Gate 1 四批各 5 次＝20 次全部退出码 0（最后一批 5 次的完整日志保留并逐项核对；前 15 次仅有终端汇总行）；每次四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 skip；Chromium 双视口基础 10、历史证据 22、Firefox 3；查询计划 `temp_written_blocks` 全 0；并发 5 × 100 热查询 p50 22.2—23.9ms、p95 37.6—46.5ms、p99 42.8—48.3ms；运行后无容器、卷、网络与浏览器残留；无 Docker 时脚本测试退出码 0 并跳过 2 条门控用例；覆盖率 95.51% stmts / 87.5% branch / 95.96% funcs / 95.66% lines；eslint、`tsc -p packages/db`、14 个改动文件的 prettier 均退出码 0。
 - **独立审查**：以 `da0d769` 为固定点判定 PASS、无 P0/P1、6 项 P2；P2 全部按「后续任务」记录（见 `docs/neon-permission-baseline-plan.md` 遗留项），本轮不修，以保住已取得的稳定性证据。
-- **未关闭事项**：① Firefox 每次迭代必现 React 水合失败 `#418`（元素级不匹配，最强候选为 `apps/web/app/loading.tsx` 的 Suspense fallback 与页面根差异），修复需改动 `apps/web`，超出本轮范围；② `packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock，属同类残留，因此「advisory unlock 不再被静默吞掉」这一条**仅对迁移与发布两个入口成立**。
+- **未关闭事项**：① Firefox 每次迭代必现 React 水合失败 `#418`（元素级不匹配，最强候选为 `apps/web/app/loading.tsx` 的 Suspense fallback 与页面根差异），修复需改动 `apps/web`，超出本轮范围（**已于 2026-09-24 轮次定位并修复，根因与证据见第 0 节**）；② `packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock，属同类残留，因此「advisory unlock 不再被静默吞掉」这一条**仅对迁移与发布两个入口成立**。
 
-## 0.1 2026-09-22 轮次（历史证据）
+## 0.2 2026-09-22 轮次（历史证据）
 
 2026-09-22 轮次（第三次修复轮次）已完成交接文件 7 项阻滞中的 1—5 项代码修复，另加 ACL 断言口径修正与 PowerShell 入口编码修正。本轮未再次连接 Neon、未推送、未激活远程发布、未部署 Vercel。本轮修复已提交为 `245dc3017d2d5009844f7f4a35d07cab18bd0dba`（父提交 `06cccf2d855ff8355f0bbd73b61ee1f984bfc329`，14 个文件，加 619 行、减 130 行），分支相对 origin 领先 7。写模式前置检查已通过：HEAD 精确匹配该提交、执行闭包 25 条路径无未提交改动、冻结候选资产 `0229755a097dff94c8de67954b36ab4f9412c0f5` 无改动、工作区仅剩 11 项约定排除资产。工具 SHA 最终取 `e03d192ed023699e38df6bc8c12d8ca5cc54892d` 并经用户独立批准。详细命令、逐次结果与失败现场见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。
 
@@ -39,7 +93,7 @@
 
 远程执行（2026-09-22，由用户在本机终端完成）：阶段 A 只读核查未命中任何停止条件——身份为 `neondb_owner`、`server_version` 18.6、三角色属性与严格成员关系（grantor OID 10、`ADMIN=true`/`INHERIT=false`/`SET=false`）全部符合基线、`latest_migration = 0010`、`release_status = VALIDATED`、`active_release = null`；迁移 0001—0010 与 V2 数据包校验和与本地冻结资产逐字一致，2026-09-21 那次 `-Write` 的写入结果未知由此清账。随后两次 validate-only prepare（报告 `neon-baseline-report-20260922-1400.json` 与 `…-1405.json`，经逐字节比对完全相同）均退出码 0，报告字段为 `status = prepared`、`last_completed_stage = permissions_verified`、`write_outcome = known`、`active_release_switch = false`、`release_status = VALIDATED`、`observed_active_release = null`。本任务终点「Neon 准备完成、候选已校验、活动发布保持原状」已经达到；Vercel 部署、数据激活、分支推送、远程 CI 与部署后复验均未执行，第一闸门整体仍不因此关闭。
 
-#### 0.1.1 2026-09-21 轮次（历史证据）
+#### 0.2.1 2026-09-21 轮次（历史证据）
 
 本轮（第二次返工轮次：P1/P2 最小修复）已在最终代码上取得新的实际结果，详细命令与结果见 `docs/neon-vercel-baseline-runbook.md` 第 0 节。基线与 audit：启用 `NEON_BASELINE_TEST_DOCKER=1` 与 `postgres:18.6` 时 `node --test scripts/neon-baseline.test.mjs scripts/neon-permission-audit.test.mjs` 为 46 passed、0 skipped（Neon baseline 36 + 权限 audit 10）。项目级：`pnpm test` 为 85 passed、11 skipped；`pnpm lint`、`pnpm typecheck`、`pnpm test:coverage`、`pnpm build` 退出码均为 0，覆盖率 All files 95.51% stmts / 87.5% branch / 95.66% lines，分包阈值满足。
 

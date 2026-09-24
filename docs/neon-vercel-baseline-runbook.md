@@ -78,7 +78,7 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 
 - 2026-09-23 上午完整 Gate 1 四批各 5 次中有 16 次失败，全部倒在第一步数据库集成，错误为 `read ECONNRESET`（errno -4077）或 `Connection terminated unexpectedly`，耗时 1.9—2.1s，即容器就绪后宿主机建立 TCP 连接的瞬间；同轮其余 42/44 项全绿，腿 3 与腿 4 始终通过。隔离复现（异步通道、单进程、六轮：18.4、18.6、以及先 18.4 后 18.6 的连续两轮）全部成功，容器单独运行 15s 稳定，就绪与连接时序复刻成功 → 判定为宿主侧端口转发的偶发抖动。处置：在 `startRoleBootstrapPostgres` 增加有界宿主侧可达性探测（≤12 次 × 250ms；失败时报出镜像、容器、发布端口、尝试次数与末次错误码），属「等待可观察状态」而非放宽超时。此后用户终端连续 6 次集成入口与 20 次完整 Gate 1 均未再现连接重置，且探测未触发过重试（总耗时与改动前同量级）。
 - 两次历史浏览器超时（2026-09-22 第 1 次 Firefox 首次导航、第 3 次快照轮询）在本轮 40 次定向复现中零复现；余量分别约 3 倍与约 14 倍，据此排除「边缘超时」，根因仍未定位。
-- Firefox 每次迭代必现 React 水合失败 `#418`（`args[]=HTML` ⇒ 元素级不匹配），本轮未修复，列入遗留项。
+- Firefox 每次迭代必现 React 水合失败 `#418`（`args[]=HTML` ⇒ 元素级不匹配），本轮未修复，列入遗留项；**已于 2026-09-24 轮次定位并修复**：根因是 `apps/web/app/dashboard-workspace.tsx:509` 的 `<title>` 子节点数组长度为 5（React 不支持长度大于 1 的 `<title>` 子节点数组，服务端渲染为空 `<title>`），改为单个模板字符串后生产 SSR 空标题计数为 0、生产 Firefox 20 次迭代 `#418` 计数为 0。详见 `docs/development-roadmap.md` 第 0 节。
 
 **本轮逐次执行记录**
 
@@ -91,7 +91,38 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 
 **独立审查**：以 `da0d769` 为固定点判定 PASS、无 P0/P1、6 项 P2；P2 全部按后续任务记录，见 `docs/neon-permission-baseline-plan.md` 遗留项 1—6。审查者未能独立验证 Gate 1、Playwright 与 Docker 实跑，并指出「20 次」「6 次」中可核对的只有留存的 5 次——本节已按此收窄表述。
 
-**未执行项**：推送分支、远程 CI、Vercel 配置与部署、数据激活、部署后区域与健康检查复验；`#418` 修复与 `activate-and-materialize.ts` 同类吞错收口均需超出本轮批准范围。另需注意：`scripts/neon-baseline.mjs` 与 `scripts/run-db-integration-tests.mjs` 都在执行闭包内，若未来需要远程 `--write`，必须按新 HEAD 重新生成工具 SHA 并独立批准。
+**未执行项**：推送分支、远程 CI、Vercel 配置与部署、数据激活、部署后区域与健康检查复验；`#418` 修复与 `activate-and-materialize.ts` 同类吞错收口均需超出本轮批准范围（两者**均已**于 2026-09-24 轮次完成：`#418` 经用户单独批准后修复，`activate-and-materialize.ts` 的 advisory unlock 吞错由同一轮重构关闭）。另需注意：`scripts/neon-baseline.mjs` 与 `scripts/run-db-integration-tests.mjs` 都在执行闭包内，若未来需要远程 `--write`，必须按新 HEAD 重新生成工具 SHA 并独立批准。
+
+### 0.3 2026-09-24 轮次（`#418` 修复、Gate 1 两批次连续复跑与独立审查）
+
+**执行环境更正**：会话内环境无法运行仓库验收入口——`spawnSync`/`execSync` 恒返回 `EBUSY`，宿主 `node-safe-delete-shim` 拦截单次删除 ≥50 文件的操作（`next build` 的收尾清理与 Playwright 清理 `test-results/` 均会触发），导致会话内构建停留在未定稿状态。**结论：Gate 1、`pnpm test:db-integration` 与生产构建必须在本机终端执行**；会话内以未定稿构建跑出的 E2E 失败（导航期 `_rsc` 重定向循环、Firefox「The page isn't redirecting properly」）已确认与代码无关，正式构建下同一用例通过。
+
+**命令语法（本轮实际踩到）**：本项目脚本以 Git Bash 编写。在 **Windows PowerShell** 中，`rm -rf <path>` 与 `VAR=value pnpm ...` 均无效，须改用：
+
+```powershell
+Remove-Item -Recurse -Force apps/web/.next
+$env:LOGIPLAN_GATE1_TARGET = 'firefox'
+$env:LOGIPLAN_GATE1_REPEAT = '20'
+pnpm verify:gate1:isolated
+Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
+```
+
+**Gate 1（用户终端，单次）**：退出码 0。生产构建完整通过（`✓ Finalizing page optimization in 56ms`）。分项：数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构/精度/三角色权限；不可变发布升级与核心查询；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；Firefox 核心冒烟 3/3（`V01-V04` 8.5s，含会话内曾 20/20 失败的「展开固定成本」一步）；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 另独立执行一次，同样四条腿零 fail 零 skip。
+
+**未达成的计划要求（完整 Gate 1 × 5 连续，要求 5/5 退出码 0）**：两批次均已执行，均未达成。
+
+- **批次一**（原始命令，无迭代间清理）：`0, 0, 0, 1, 1`，即 3/5。第 4 次在 `Firefox 核心冒烟` 以原生崩溃码 `3221226505` 失败、**零用例输出**（此前各阶段全部通过：数据库集成四条腿、迁移/发布/激活/查询计划、生产构建、快照 28/28、Chromium 双视口基础 10 passed、Chromium 双视口历史证据 22 passed）。第 5 次在 `Chromium 双视口基础冒烟` 以 `Error: http://127.0.0.1:4173/api/health/live is already used` 失败——第 4 次崩溃时 Playwright 进程先于收尾退出，`next start` 泄漏并占住 4173（实测泄漏进程 `next start --hostname 127.0.0.1 --port 4173`，父进程已消失），属**纯级联**而非独立失败。
+- **批次二**（加固编排：每次迭代前后清理 4173/4174 监听进程与泄漏的 `next start`，**不触碰断言、超时与用例选择**）：`0, 0, 0, 0, 1`，即 4/5。第 1—4 次全部退出码 0；第 5 次在 `Chromium 双视口历史证据验收` 失败，错误为 `Error: worker process exited unexpectedly (code=3221226505, signal=null)`，首个用例 `[chromium-1440] historical-evidence.spec.ts:326:5` 在 **0ms** 失败（worker 在用例体执行前崩溃），其余 **21 passed**。该次结束后隔离容器、命名卷、网络残留均为 `none`，端口无泄漏。
+
+**崩溃定性**：`3221226505` = `0xC0000005` = `STATUS_ACCESS_VIOLATION`。两批次共 10 次执行、2 次原生崩溃（`Firefox 核心冒烟` 1 次、`Chromium 双视口历史证据验收` 1 次）、**零断言失败**；崩溃跨两个阶段但均落在浏览器阶段的启动边界。同一崩溃码与同一阶段在 2026-09-21 已有记录（见第 0.1 节），判定为**既有环境不稳定**。已排除用户浏览器负载（批次二运行期间 `firefox.exe` 计数为 0）与磁盘空间（系统盘剩余 434 GB）。故本轮只记「代码侧验收全部通过」，**不得**记「Gate 1 稳定通过」。
+
+**`#418` 修复**：根因、证据与修复见 `docs/development-roadmap.md` 第 0 节。要点：`apps/web/app/dashboard-workspace.tsx:509` 的 `<title>` 子节点数组长度为 5，React 服务端渲染为空 `<title></title>`，造成元素级水合不匹配；改为单个模板字符串后，生产 SSR 空 `<title>` 计数为 0（12/12 月度条形图标题文本正确），生产 Firefox 20 次迭代 `#418` 与 `pageerror` 计数均为 0。原「Firefox 独有」判断不成立（三个浏览器工程均出现）。
+
+**独立审查（固定点 `bc5383d`）**：全新上下文的只读子代理判定 **PASS、无 P0/P1、4 项 P2**。已确认：`closeConnection=false` 语义正确（`releaseConnection` 提前返回，不代调用方关闭连接）；`40001` 现归类为未知写入（保守方向正确，白名单仍为 `25*` + `2D000`）；CLI 退出码 75 与 `[WRITE_COMMITTED_OBSERVATION_FAILED]` 前缀互斥、不可能同时出现；**未改动任何既有断言或超时值**；环境变量透传不夹带凭据、未设置时行为逐字节不变；`<title>` 修复为最小正确改动且全仓无同类残留；`transaction-outcome.ts` 未进入 `packages/db/src/index.ts`，公共 API 无变化。4 项 P2（`recordHydrationDomProbe` 未做环境变量门控、激活 CLI 缺少提交后观察失败的正向断言、`transaction-outcome.ts` 吞 falsy 抛出、`activate-release.ts` 的 `finally` 可能掩盖第三类）与 `pg` 弃用警告一并列入 `docs/neon-permission-baseline-plan.md` 的本轮遗留项 1—5。
+
+**未执行项**：推送分支、远程 CI、Vercel 配置与部署、数据激活、部署后区域与健康检查复验。本轮计划要求的 Gate 1 连续 5 次复跑已执行两批次，均未达成 5/5（见上文），阻塞项为既有环境不稳定；原生崩溃 `3221226505` 的根因定位（Windows 事件日志 / WER 崩溃转储）未执行。
+
+**操作要点（供后续轮次复用）**：`next start` 会在 Playwright 进程异常终止时泄漏并占住 4173，使**下一次** Gate 1 在 `Chromium 双视口基础冒烟` 直接失败（`/api/health/live is already used`）。因此连续复跑的每次迭代**前后**都应清理 4173/4174 的监听进程与命令行匹配 `next*start*4173` 的 `node.exe`，并逐次报告隔离容器与命名卷残留。该清理只处理进程与端口，不涉及断言、超时或用例选择。
 
 ## 1. 固定目标与边界
 
