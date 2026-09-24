@@ -5,7 +5,11 @@ import process from "node:process";
 import { terminateProcessTree } from "./wait-for-server.mjs";
 
 // 数据库集成验收入口：普通 `pnpm test`（Vitest）不拉起 Docker，也不执行真实 ACL SQL；
-// 真实 PostgreSQL 的角色事务与 ACL 用例只能由本入口执行，且要求零 skip。
+// 真实 PostgreSQL 的角色事务与 ACL 用例只能由本入口执行。
+//
+// skip 口径：每条腿必须零 fail，且 skipped 必须**精确等于**该文件显式声明的平台门控
+// 跳过数（见 platformGatedSkipsByFile）。未声明的 skip 一律判失败，因此既不允许把跳过
+// 当作通过，也不允许声明过期后继续放行。
 const defaultImages = Object.freeze(["postgres:18.4", "postgres:18.6"]);
 const supportedImagePattern = /^postgres:18\.(?:4|6)$/u;
 const roleBootstrapContainerNamePattern = /^logiplan-role-bootstrap-test-\d+-[0-9a-f]{16}$/u;
@@ -15,6 +19,31 @@ const dockerProbeTimeoutMs = 60_000;
 const containerCleanupTimeoutMs = 60_000;
 const dockerUnavailableMessage =
   "前置条件不满足：Docker 不可用，数据库集成验收不能以 skip 计为通过";
+
+// 平台门控用例的显式声明表：只登记「在特定平台上必然被跳过」的用例数量。
+// 每个被本入口执行的测试文件都必须在此登记，否则 expectedPlatformSkipsFor 直接抛错。
+// 声明值是精确匹配：声明 1 而实际 0 同样判失败，避免声明过期后继续放行。
+const platformGatedSkipsByFile = Object.freeze({
+  // scripts/neon-baseline.test.mjs:1272
+  //   const runPowerShellPassthroughTest = process.platform === "win32";
+  // 用例「PowerShell 入口原样透传 Node 退出码」验证 Windows 专有的
+  // scripts/neon-baseline.ps1 入口，且 powershellHosts() 只探测 Windows 路径
+  // （%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe 与
+  // %ProgramFiles%\PowerShell\7\pwsh.exe），因此在 POSIX 上必然跳过 1 条。
+  "scripts/neon-baseline.test.mjs": process.platform === "win32" ? 0 : 1,
+  "scripts/neon-permission-audit.test.mjs": 0,
+  "scripts/verify-gate1-isolated.test.mjs": 0,
+});
+
+function expectedPlatformSkipsFor(file) {
+  const declared = platformGatedSkipsByFile[file];
+  if (declared === undefined) {
+    throw new Error(
+      `测试文件「${file}」未在 platformGatedSkipsByFile 中登记平台门控跳过数，拒绝执行`,
+    );
+  }
+  return declared;
+}
 
 let activeChild;
 let receivedSignal;
@@ -142,6 +171,7 @@ async function dockerServerVersion(environment) {
 
 function buildLegs(environment, images) {
   const legs = [];
+  const neonBaselineFile = "scripts/neon-baseline.test.mjs";
   for (const image of images) {
     const roleBootstrapContainerName = `logiplan-role-bootstrap-test-${process.pid}-${randomBytes(8).toString("hex")}`;
     const aclBaselineContainerName = `logiplan-acl-baseline-test-${process.pid}-${randomBytes(8).toString("hex")}`;
@@ -154,7 +184,8 @@ function buildLegs(environment, images) {
     legs.push({
       label: `Neon 基线入口与真实角色/ACL 回归测试（${image}）`,
       image,
-      args: ["--test", "scripts/neon-baseline.test.mjs"],
+      expectedPlatformSkips: expectedPlatformSkipsFor(neonBaselineFile),
+      args: ["--test", neonBaselineFile],
       // 容器名逐腿唯一，避免 18.4 与 18.6 两条腿复用同名容器而互相冲突。
       env: {
         ...environment,
@@ -171,7 +202,13 @@ function buildLegs(environment, images) {
     ["Neon 权限只读诊断回归测试（与镜像无关）", "scripts/neon-permission-audit.test.mjs"],
     ["本地 API 服务等待逻辑回归测试（与镜像无关）", "scripts/verify-gate1-isolated.test.mjs"],
   ]) {
-    legs.push({ label, image: undefined, args: ["--test", file], env: environment });
+    legs.push({
+      label,
+      image: undefined,
+      expectedPlatformSkips: expectedPlatformSkipsFor(file),
+      args: ["--test", file],
+      env: environment,
+    });
   }
   return legs.map((leg, index) => ({ ...leg, order: index + 1 }));
 }
@@ -209,10 +246,17 @@ function evaluateLeg(leg, result) {
     );
   }
   if (counts.tests === undefined || counts.fail === undefined || counts.skipped === undefined) {
-    reasons.push("无法解析 tests/fail/skipped 计数，不得以未经证明的零 skip 计为通过");
+    reasons.push("无法解析 tests/fail/skipped 计数，不得以未经证明的 skip 口径计为通过");
   } else {
     if (counts.fail > 0) reasons.push(`fail=${counts.fail}`);
-    if (counts.skipped > 0) reasons.push(`skipped=${counts.skipped}`);
+    const expectedSkips = leg.expectedPlatformSkips;
+    if (counts.skipped !== expectedSkips) {
+      reasons.push(
+        expectedSkips === 0
+          ? `skipped=${counts.skipped}（该文件显式声明零平台门控跳过）`
+          : `skipped=${counts.skipped}，与显式声明的平台门控跳过数 ${expectedSkips} 不一致`,
+      );
+    }
   }
   return { leg, counts, result, reasons, failed: reasons.length > 0 };
 }
@@ -315,6 +359,10 @@ async function main() {
 
   const failed = outcomes.filter((outcome) => outcome.failed);
   const skippedTotal = outcomes.reduce((sum, outcome) => sum + (outcome.counts.skipped ?? 0), 0);
+  const expectedSkipTotal = outcomes.reduce(
+    (sum, outcome) => sum + outcome.leg.expectedPlatformSkips,
+    0,
+  );
   const durationTotal = outcomes.reduce((sum, outcome) => sum + outcome.result.durationMs, 0);
   process.stdout.write("\n[DB 集成] 汇总\n");
   for (const outcome of outcomes) {
@@ -335,14 +383,17 @@ async function main() {
   if (failed.length > 0 || outcomes.length !== legs.length) {
     process.stderr.write(
       `[DB 集成] 数据库集成验收失败：${String(failed.length)}/${String(legs.length)} 腿未通过，` +
-        `合计 skipped=${String(skippedTotal)}；正式数据库验收要求零 fail、零 skip，` +
-        "不得把 skip 或未执行的腿计为通过\n",
+        `合计 skipped=${String(skippedTotal)}（已显式声明的平台门控跳过 ${String(expectedSkipTotal)}）；` +
+        "正式数据库验收要求零 fail，且 skipped 必须精确等于显式声明的平台门控跳过数，" +
+        "不得把未声明的 skip 或未执行的腿计为通过\n",
     );
     process.exitCode = 1;
     return;
   }
   process.stdout.write(
-    `[DB 集成] ${String(outcomes.length)} 条腿全部零 fail、零 skip，总耗时 ${formatDuration(durationTotal)}：` +
+    `[DB 集成] ${String(outcomes.length)} 条腿全部零 fail，skipped 与显式声明的平台门控跳过数一致` +
+      `（合计 skipped=${String(skippedTotal)}，已声明 ${String(expectedSkipTotal)}），` +
+      `总耗时 ${formatDuration(durationTotal)}：` +
       `真实 PostgreSQL 角色事务与 ACL 查询已在 ${images.join("、")} 上执行，` +
       "只读诊断与本地 API 等待逻辑回归通过\n",
   );
