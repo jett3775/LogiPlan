@@ -36,7 +36,7 @@
 
 保留为历史证据（不替代本轮结果）：2026-09-21 的 Docker `postgres:18.6` 46/46、`pnpm test` 85 passed / 11 skipped 与 6 次 Gate 1（4 次退出码 0）；2026-09-20 的 audit 9/9；以及更早的 Gate 1 退出码 0（Neon baseline 31/31、权限 audit 10/10、本地 API 5/5、快照持久化 28/28、Chromium 历史证据 22/22、Firefox 3/3）。
 
-数据库集成验收的测试分层（2026-09-22 步骤 5）：普通 `pnpm test`（Vitest）**不自动拉起 Docker，也不包含真实 ACL SQL**；真实 PostgreSQL 18.4 与 18.6 上的角色事务与 ACL 验收统一走 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`，先在 18.4、18.6 各跑一次 `node --test scripts/neon-baseline.test.mjs`，再各跑一次与镜像无关的权限只读诊断与本地 API 等待逻辑回归），该入口**要求零 skip**——任一腿出现 fail、任一 skip、或 Docker 前置条件不满足，均以非零退出结束，不得把 skip 计为通过。Gate 1 编排中原先的三处脚本测试调用已收敛到同一入口，不再维护第二套隐藏命令。该入口脚本已纳入执行闭包（`executionClosurePaths` 25 条 → 26 条），因此未来远程写模式必须按包含它的新 HEAD 重新生成并独立批准 tooling SHA。
+数据库集成验收的测试分层（2026-09-22 步骤 5）：普通 `pnpm test`（Vitest）**不自动拉起 Docker，也不包含真实 ACL SQL**；真实 PostgreSQL 18.4 与 18.6 上的角色事务与 ACL 验收统一走 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`，先在 18.4、18.6 各跑一次 `node --test scripts/neon-baseline.test.mjs`，再各跑一次与镜像无关的权限只读诊断与本地 API 等待逻辑回归），该入口的判定口径为**零 fail，且每条腿的 `skipped` 精确等于该测试文件显式声明的平台门控跳过数**（`scripts/run-db-integration-tests.mjs` 的 `platformGatedSkipsByFile`）——任一腿出现 fail、`skipped` 与声明不符、出现未登记的新测试文件、或 Docker 前置条件不满足，均以非零退出结束，不得把 skip 计为通过。**该口径于 2026-09-24 由 `counts.skipped > 0` 收紧为精确比较**，起因是该入口首次在 Linux CI 上执行时，Windows 专有门控用例必然跳过而被旧口径误判为失败（见第 0.3 节末「CI 首次 Linux 执行」）。Gate 1 编排中原先的三处脚本测试调用已收敛到同一入口，不再维护第二套隐藏命令。该入口脚本已纳入执行闭包（`executionClosurePaths` 25 条 → 26 条），因此未来远程写模式必须按包含它的新 HEAD 重新生成并独立批准 tooling SHA。
 
 ### 0.1 2026-09-21 轮次（历史证据）
 
@@ -70,7 +70,7 @@ Gate 1 在本机多次执行结果不稳定，必须如实记录（共 6 次：4
 
 **事务与清理语义（步骤 2—4）**：新增内部模块 `packages/db/src/transaction-outcome.ts`（未进 `packages/db/src/index.ts`）。三类结果＝类1 `rollbackConfirmed`（退出码 1）、类2 `writeOutcomeUnknown`（退出码 75，语义未变）、类3 新增 `writeCommittedObservationFailed`（退出码 1、stderr 前缀 `[WRITE_COMMITTED_OBSERVATION_FAILED]`、消息固定含「写入已提交，失败发生在后续观察或清理阶段」、报告新增布尔 `write_committed_observation_failed` 与 `write_outcome=committed_observation_failed`）。`migrate.ts` 与 `publish-release.ts` 的加锁流程改由 `runWithConnectionCleanup` 包裹，advisory unlock 与 `client.end()` 各自独立尝试；`markPublishFailedIfKnown` 改为可判定 COMMIT 的显式事务；候选创建后与校验写入后两处读取失败改走 `observeCommittedWrite`。红灯证据：修复前定向测试 10 failed | 19 passed（退出码 1），修复后 29 passed（退出码 0）。
 
-**数据库集成入口（步骤 5）**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`）＝四条腿：`postgres:18.4` 与 `18.6` 各跑一次真实角色事务与生产 ACL 查询，另加只读诊断与本地 API 等待逻辑回归；零 fail 且零 skip 才退出 0，Docker 不可用时以「前置条件不满足」非零退出。Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条；新入口与 Gate 1 编排脚本进入 `pnpm lint` 清单。
+**数据库集成入口（步骤 5）**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`）＝四条腿：`postgres:18.4` 与 `18.6` 各跑一次真实角色事务与生产 ACL 查询，另加只读诊断与本地 API 等待逻辑回归；零 fail 且零 skip 才退出 0（该口径已于 2026-09-24 收紧为「零 fail，且 `skipped` 精确等于显式声明的平台门控跳过数」，见第 0.3 节末「CI 首次 Linux 执行与两处修复」），Docker 不可用时以「前置条件不满足」非零退出。Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条；新入口与 Gate 1 编排脚本进入 `pnpm lint` 清单。
 
 **Gate 1 稳定性（步骤 6—8）**：新增环境变量驱动的定向重复模式（`LOGIPLAN_GATE1_TARGET=firefox|snapshot`、`LOGIPLAN_GATE1_REPEAT=N`）与 JSONL 时间线埋点；**未改动任何断言或超时值**。实测余量：Firefox 导航→目标标题 1.55—1.86s（预算 5s，首迭代冷启动最慢 1.65s）；快照首次轮询采样即 `[1,1,1,1]`（约 1.18s，且 `started_requests=0`，四条快照由服务端首屏 SSR 提交），预算 10s。定向重复各 20/20。
 
@@ -107,7 +107,7 @@ pnpm verify:gate1:isolated
 Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 ```
 
-**Gate 1（用户终端，单次）**：退出码 0。生产构建完整通过（`✓ Finalizing page optimization in 56ms`）。分项：数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构/精度/三角色权限；不可变发布升级与核心查询；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；Firefox 核心冒烟 3/3（`V01-V04` 8.5s，含会话内曾 20/20 失败的「展开固定成本」一步）；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 另独立执行一次，同样四条腿零 fail 零 skip。
+**Gate 1（用户终端，单次）**：退出码 0。生产构建完整通过（`✓ Finalizing page optimization in 56ms`）。分项：数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip（当时口径为「零 fail、零 skip」；该口径已于同日收紧为「零 fail，且 `skipped` 精确等于显式声明的平台门控跳过数」，Windows 上的声明值即为 0，故该次记录仍成立）；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构/精度/三角色权限；不可变发布升级与核心查询；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；Firefox 核心冒烟 3/3（`V01-V04` 8.5s，含会话内曾 20/20 失败的「展开固定成本」一步）；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 另独立执行一次，同样四条腿零 fail 零 skip。
 
 **未达成的计划要求（完整 Gate 1 × 5 连续，要求 5/5 退出码 0）**：两批次均已执行，均未达成。
 
@@ -120,9 +120,22 @@ Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 
 **独立审查（固定点 `bc5383d`）**：全新上下文的只读子代理判定 **PASS、无 P0/P1、4 项 P2**。已确认：`closeConnection=false` 语义正确（`releaseConnection` 提前返回，不代调用方关闭连接）；`40001` 现归类为未知写入（保守方向正确，白名单仍为 `25*` + `2D000`）；CLI 退出码 75 与 `[WRITE_COMMITTED_OBSERVATION_FAILED]` 前缀互斥、不可能同时出现；**未改动任何既有断言或超时值**；环境变量透传不夹带凭据、未设置时行为逐字节不变；`<title>` 修复为最小正确改动且全仓无同类残留；`transaction-outcome.ts` 未进入 `packages/db/src/index.ts`，公共 API 无变化。4 项 P2（`recordHydrationDomProbe` 未做环境变量门控、激活 CLI 缺少提交后观察失败的正向断言、`transaction-outcome.ts` 吞 falsy 抛出、`activate-release.ts` 的 `finally` 可能掩盖第三类）与 `pg` 弃用警告一并列入 `docs/neon-permission-baseline-plan.md` 的本轮遗留项 1—5。
 
-**未执行项**：推送分支、远程 CI、Vercel 配置与部署、数据激活、部署后区域与健康检查复验。本轮计划要求的 Gate 1 连续 5 次复跑已执行两批次，均未达成 5/5（见上文），阻塞项为既有环境不稳定；原生崩溃 `3221226505` 的根因定位（Windows 事件日志 / WER 崩溃转储）未执行。
+**未执行项**：Vercel 配置与部署、数据激活、部署后区域与健康检查复验。推送分支与远程 CI **已执行**（见下文「CI 首次 Linux 执行与两处修复」）。本轮计划要求的 Gate 1 连续 5 次复跑已执行两批次，均未达成 5/5（见上文），阻塞项为既有环境不稳定；原生崩溃 `3221226505` 的根因定位（Windows 事件日志 / WER 崩溃转储）未执行。
 
 **操作要点（供后续轮次复用）**：`next start` 会在 Playwright 进程异常终止时泄漏并占住 4173，使**下一次** Gate 1 在 `Chromium 双视口基础冒烟` 直接失败（`/api/health/live is already used`）。因此连续复跑的每次迭代**前后**都应清理 4173/4174 的监听进程与命令行匹配 `next*start*4173` 的 `node.exe`，并逐次报告隔离容器与命名卷残留。该清理只处理进程与端口，不涉及断言、超时或用例选择。
+
+**CI 首次 Linux 执行与两处修复（2026-09-24，同日续）**：提交与推送后，CI run `35977886490`（`pull_request` 触发）**失败**。步骤 1—10（Check formatting / Lint / Type-check / Test with coverage / Install Chromium and Firefox）全部通过，失败在步骤 11「Run isolated Gate 1 validation」，即 `pnpm test:db-integration` 的**首次 Linux 执行**。两个根因均为本地 Windows 验证结构上无法发现：
+
+1. **平台门控跳过与零 skip 策略冲突**：`scripts/neon-baseline.test.mjs` 的用例「Windows 入口原样透传 Node 退出码」由 `process.platform === "win32"` 硬门控（其宿主探测只查找 Windows 路径），在 POSIX 上必然跳过，于是 legs 1/2 报 `skipped=1`，被旧判定 `counts.skipped > 0` 判为失败（尽管 `fail=0`）。
+2. **POSIX 进程组终止实际是死代码**：`scripts/wait-for-server.mjs` 原写 `child.kill(-child.pid, signal)`；`ChildProcess.kill()` 只接受 `[signal]`，负 pid 被当作信号名解析并抛 `ERR_UNKNOWN_SIGNAL`（实测 `Unknown signal: -45592`），`catch` 必然触发、退化为只杀直接子进程，后代（pnpm / Playwright / 浏览器 / `next start`）全部残留并占住端口——与上文「操作要点」记录的 4173 泄漏属同一类故障。CI 用例「进程树终止会一并结束后代进程」因此失败（后代进程 5763 未被终止）。
+
+修复提交 `4ff4fb0`（`fix(gate1)`，2 文件 +67/−9）：POSIX 分支改用 `process.kill(-child.pid, signal)`（全部调用点均以 `detached: process.platform !== "win32"` 启动，故 POSIX 下 `child.pid` 即 PGID；Windows 的 `taskkill /PID /T /F` 分支逐字节未改动）；判定改为 `platformGatedSkipsByFile` 显式声明 + 精确比较。**未改动任何既有断言、超时值或用例选择。**
+
+**CI 已转绿**：`ubuntu-latest` 上连续四次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`（最新一次 `headSha` = `27f9c8b`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这是根因 2 唯一的独立证明**（POSIX 路径在 Windows 上无法验证）。
+
+**对后续写入模式的影响（硬前置）**：第 1 节冻结的候选 `0229755a097dff94c8de67954b36ab4f9412c0f5` 现已落后 18 个提交（实测 `git rev-list --count 0229755a…..HEAD` = 18），而第 2 节规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA，故**进入 `--write` 前必须重新冻结并独立批准新的工具 SHA**。
+
+**交接文档**：`docs/handoff-2026-09-25.md`（窗口 2026-09-25 → 2026-10-01，任务 T1—T8）与 `docs/handoff-2026-10-01.md`（窗口 2026-10-01 → 2026-10-05，任务 P1—P6 / E1—E5 / S1—S2）。第二窗口第一段 P1—P6 为只读准备（含上述工具 SHA 重新冻结），第二段 E1—E5 为远程写，未获授权前不执行。
 
 ## 1. 固定目标与边界
 

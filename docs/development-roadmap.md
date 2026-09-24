@@ -14,7 +14,7 @@
 
 ## 0. 2026-09-24 轮次：`#418` 根因定位与最小修复
 
-本轮处理 2026-09-23 遗留项 ①（Firefox 每次迭代必现 React 水合失败 `#418`），给出确定性结论并应用最小修复（改动 `apps/web`，经用户单独批准）。全部改动仍在工作区、尚未提交；未触碰 Neon、未推送、未部署 Vercel、未激活数据发布。
+本轮处理 2026-09-23 遗留项 ①（Firefox 每次迭代必现 React 水合失败 `#418`），给出确定性结论并应用最小修复（改动 `apps/web`，经用户单独批准）。全部改动已提交为 `68b9f11`（`fix(db,web)`，8 文件 +382/−84）与 `8d94b63`（`docs(round3)`，3 文件 +105/−9）并已推送至 `codex/gate1-delivery-baseline`（`0229755..8d94b63`）；未触碰 Neon、未部署 Vercel、未激活数据发布。提交后的 CI 执行与两处修复见本节末「提交、推送与 CI 首次 Linux 执行」。
 
 **根因（已证）**：`apps/web/app/dashboard-workspace.tsx:509` 的月度趋势条形图把 `<title>` 的子节点写成 5 个相邻表达式（`{month.month_id}`、空格、`{month.series_type}`、空格、`{formatMoney(...)}`）。React 对 `<title>` 的子节点有类型限制：子节点数组长度大于 1 时不受支持，服务端渲染为**空** `<title></title>`，客户端水合时按真实文本重建，形成元素级不匹配并报 `#418`。`args[]=HTML` 中的 `HTML` 是 `fromText === false` 的固定字面量，并非名为 HTML 的标签，此前的「元素级不匹配」方向正确但落点有误。
 
@@ -42,7 +42,7 @@
 
 **已排除的归因**：批次二运行期间用户已关闭本机浏览器（`firefox.exe` 计数为 0），系统盘剩余 434 GB，故不可归因于用户浏览器负载或磁盘空间。泄漏类级联已在批次二被加固编排消除。
 
-**本轮计划要求「完整 Gate 1 × 5 连续（5/5 退出码 0）」，两批次分别为 3/5 与 4/5，均未达成。** 按本文件既有规则「在消除该不稳定前 Gate 1 不得记为稳定通过」以及计划「任何失败保留现场、不重新计数」，本轮**不得**记为「Gate 1 稳定通过」。正式结论为：**代码侧验收全部通过**（10 次执行零断言失败、集成入口零 fail 零 skip、静态检查全绿、独立复查 PASS），**唯一未达成项是被既有环境不稳定阻塞的「连续 5/5 退出码 0」**。
+**本轮计划要求「完整 Gate 1 × 5 连续（5/5 退出码 0）」，两批次分别为 3/5 与 4/5，均未达成。** 按本文件既有规则「在消除该不稳定前 Gate 1 不得记为稳定通过」以及计划「任何失败保留现场、不重新计数」，本轮**不得**记为「Gate 1 稳定通过」。正式结论为：**代码侧验收全部通过**（10 次执行零断言失败、集成入口零 fail 零 skip（该口径已于同日收紧为「零 fail，且 `skipped` 精确等于显式声明的平台门控跳过数」，见本节末「提交、推送与 CI 首次 Linux 执行」）、静态检查全绿、独立复查 PASS），**唯一未达成项是被既有环境不稳定阻塞的「连续 5/5 退出码 0」**。
 
 **本会话环境限制（供后续会话复用，避免重复试错）**：
 
@@ -55,6 +55,19 @@
 
 **独立审查（2026-09-24）**：以 `bc5383d` 为固定点、由全新上下文的只读子代理完成，判定 **PASS、无 P0/P1**、4 项 P2。已确认：`closeConnection=false` 语义正确（`releaseConnection` 在 `transaction-outcome.ts:232-234` 提前返回，不代调用方关闭连接，解锁失败仍以 `SubsequentFailure` 上报）；`40001` 现归类为**未知写入**（保守方向正确，白名单仍为 `25*` + `2D000`，改动来自 `activate-and-materialize.ts` 弃用本地宽正则改用共享 `runTransaction`）；CLI 退出码与 stderr 前缀互斥且不可能同时出现；**未改动任何既有断言或超时值**；环境变量透传不夹带凭据、未设置时行为逐字节不变；`<title>` 修复为最小正确改动且全仓无同类残留；`transaction-outcome.ts` 未进入 `packages/db/src/index.ts`，公共 API 无变化；测试为真实行为断言且 `process.exitCode` 在 `finally` 中还原，不会污染 vitest 退出码。
 
+**提交、推送与 CI 首次 Linux 执行（2026-09-24，同日续）**：上述改动已提交为 `68b9f11` 与 `8d94b63` 并推送。推送后 CI run `35977886490`（`pull_request` 触发）**失败**——步骤 1—10（Check formatting / Lint / Type-check / Test with coverage / Install Chromium and Firefox）全部通过，失败在步骤 11「Run isolated Gate 1 validation」，即 `pnpm test:db-integration` 的**首次 Linux 执行**（该入口 2026-09-23 才接入 Gate 1）。失败暴露两个本地 Windows 验证结构上无法发现的真实缺陷：
+
+1. **平台门控跳过与零 skip 策略冲突**：`scripts/neon-baseline.test.mjs` 的用例「Windows 入口原样透传 Node 退出码」由 `process.platform === "win32"` 硬门控（其宿主探测只查找 Windows 路径），在 POSIX 上必然跳过，于是 legs 1/2 报 `skipped=1`，被旧判定 `counts.skipped > 0` 判为失败（尽管 `fail=0`）。
+2. **POSIX 进程组终止实际是死代码**：`scripts/wait-for-server.mjs` 原写 `child.kill(-child.pid, signal)`。`ChildProcess.kill()` 只接受 `[signal]`，负 pid 被当作信号名解析并抛 `ERR_UNKNOWN_SIGNAL`（实测 `Unknown signal: -45592`），`catch` 必然触发、退化为只杀直接子进程，后代（pnpm / Playwright / 浏览器 / `next start`）全部残留并占住端口。CI 用例「进程树终止会一并结束后代进程」因此失败（后代进程 5763 未被终止）。
+
+修复提交为 `4ff4fb0`（`fix(gate1)`，2 文件 +67/−9）：POSIX 分支改用 `process.kill(-child.pid, signal)`（全部调用点均以 `detached: process.platform !== "win32"` 启动，故 POSIX 下 `child.pid` 即 PGID；Windows 的 `taskkill /PID /T /F` 分支逐字节未改动）；判定改为显式声明表 `platformGatedSkipsByFile` + 精确比较 `counts.skipped !== leg.expectedPlatformSkips`（未登记的新测试文件直接抛错，声明值与实际不符同样判失败，防止声明过期后继续放行）。**未改动任何既有断言、超时值或用例选择。**
+
+**CI 已转绿**：修复推送后 `ubuntu-latest` 上连续四次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`（最新一次 `headSha` = `27f9c8b`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这同时是上述根因 2 唯一的独立证明**：POSIX 进程组终止路径在 Windows 上无法验证，只能由 CI 证明。
+
+**稳定性权威证据的定位**：Gate 1 稳定性的权威证据来源为 **CI `ubuntu-latest`**（Linux 无 `3221226505` 原生崩溃）；本地 Windows 执行记录为已记录的环境限制，附重试政策（失败保留现场、原样重跑、不掩盖、不重算）。该定位尚待按本节遗留项 6 的后续任务正式落为 `docs/decisions.md` 决策。
+
+**交接文档**：`docs/handoff-2026-09-25.md`（窗口 2026-09-25 → 2026-10-01，任务 T1—T8）与 `docs/handoff-2026-10-01.md`（窗口 2026-10-01 → 2026-10-05，任务 P1—P6 / E1—E5 / S1—S2）。两份均按用户指示放入仓库并推送；与既有 `%TEMP%` 约定的偏差已在 `docs/handoff-2026-09-25.md` §0 说明。
+
 **遗留项（本轮新增，含独立审查 4 项 P2）**：
 
 1. （P2，文档精度）`apps/web/tests/gate1.spec.ts:153-180` 的 `recordHydrationDomProbe` 未做环境变量门控，`LOGIPLAN_GATE1_TIMELINE_FILE` 未设置时仍执行两次页面内只读往返（`page.evaluate` 与 `getByRole(...).count()`）。它不写文件、不发网络请求、且被 try/catch 包裹，**不影响用例结果**；但「未设置时零副作用」仅对 `recordHydrationHtmlSnapshot`（`:190` 提前返回）成立，不适用于本函数。
@@ -64,15 +77,18 @@
 5. （P2，既有，非本轮引入）`pg` 弃用警告「Calling client.query() when the client is already executing a query」在 CLI、Web 服务端与测试中普遍出现。候选来源为 `packages/db/src/query-service.ts` 的三处并发 `pool.query()`（`:257` 2 条、`:1111` 6 条、`:1251` 3 条），配合 `packages/db/src/index.ts:4` 的池上限 `max: 2`；`pg` 内部的确切触发条件未在本轮确认。已核实本轮重构的 `transaction-outcome.ts`、`activate-and-materialize.ts` 内所有 `client.query()` 均为顺序 `await`，**未引入新的并发**。该警告是 `pg@9` 升级的阻塞项，属 D-183 兼容性闸门范围，本轮不修。
 6. （既有环境不稳定，未定位根因）Gate 1 浏览器阶段偶发 Windows 原生崩溃 `3221226505`（`0xC0000005`）。2026-09-21、2026-09-22、2026-09-24 三轮均有记录，累计样本中崩溃率约 20%（2026-09-24 两批次 10 次执行中 2 次）。特征：发生在浏览器阶段启动边界、无用例输出或 0ms 即失败、零断言失败、同一批用例在其余执行中通过。已排除用户浏览器负载与磁盘空间；**未定位根因**（未做 WER/崩溃转储级排查）。影响：无法取得「连续 5/5」，Gate 1 不能记为稳定通过。后续任务：如需消除，应采集 Windows 事件日志/WER 崩溃转储确认崩溃进程（Playwright worker 与浏览器进程需区分），再评估浏览器启动参数类缓解措施——**该类改动超出本轮允许范围，须先取得用户批准**。
 
+7. （P2，覆盖缺口，**本轮新增**）`package.json` 第 19 行的 `pnpm lint` 清单缺少两条路径：`scripts/wait-for-server.mjs`（本轮修复的文件）与 `scripts/verify-gate1-isolated.test.mjs`（该修复的回归测试）。即被改动或新增的脚本可能不被 lint 覆盖。`package.json` 属既有计划的排除项，改动需用户批准（第一窗口计划 T3）。
+8. （**写入模式硬前置**，本轮核实）`docs/neon-vercel-baseline-runbook.md:131` 冻结的候选提交 `0229755a097dff94c8de67954b36ab4f9412c0f5` 已落后 18 个提交（实测 `git rev-list --count 0229755a…..HEAD` = 18），而该 runbook 规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA。因此进入 `--write` 前必须重新冻结并独立批准新的工具 SHA（第一窗口计划 P1）。
+
 **未关闭事项**：① 已在本轮定位并修复（见上），2026-09-23 段落中该项不再有效；② 2026-09-23 记录的「`packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock」**已由本轮重构关闭**——`withInitializationCoordinationLock`（`:29-39`）现经 `runWithConnectionCleanup(client, advisoryUnlock, activationScope, operation, false)` 释放锁，解锁失败以 `SubsequentFailure` 上报并归入 `writeCommittedObservationFailed`（见 `transaction-outcome.ts:226-241`）。因此「advisory unlock 不再被静默吞掉」现对**迁移、发布、激活三个入口同时成立**，2026-09-23 段落中该限定不再需要。
 
 ## 0.1 2026-09-23 轮次（历史证据）
 
-2026-09-23 轮次处理两件事：迁移与发布入口的事务/清理结果语义收口，以及 Gate 1 中 Firefox 首次导航与证据快照轮询的间歇性超时定位。全部改动在工作区、尚未提交；未触碰任何远程环境。
+2026-09-23 轮次处理两件事：迁移与发布入口的事务/清理结果语义收口，以及 Gate 1 中 Firefox 首次导航与证据快照轮询的间歇性超时定位。全部改动当时在工作区、尚未提交（后已提交为 `baa1407` 与 `bc5383d`）；未触碰任何远程环境。
 
 - **三类写入结果**：新增内部模块 `packages/db/src/transaction-outcome.ts`（未进 `packages/db/src/index.ts`）。类1 `rollbackConfirmed` → 退出码 1；类2 `writeOutcomeUnknown` → 75；类3 新增 `writeCommittedObservationFailed` → 退出码 1、stderr 前缀 `[WRITE_COMMITTED_OBSERVATION_FAILED]`、消息固定含「写入已提交，失败发生在后续观察或清理阶段」，报告新增布尔 `write_committed_observation_failed` 与 `write_outcome=committed_observation_failed`。既有 0/1/75 与既有 `write_outcome` 取值含义不变。
 - **入口接线**：`migrate.ts` 与 `publish-release.ts` 的加锁流程统一由 `runWithConnectionCleanup` 包裹（unlock 与 `client.end()` 各自独立尝试、任一失败不阻止另一步）；`markPublishFailedIfKnown` 改为可判定 COMMIT 的显式事务；候选创建后与校验写入后两处读取失败改走 `observeCommittedWrite`，不重做创建、不标记失败。
-- **数据库集成入口**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`；四条腿＝`postgres:18.4`、`18.6` 上跑真实角色事务与 ACL 查询，另加只读诊断与本地 API 等待逻辑回归），要求零 fail、零 skip；Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条，并把新入口与 Gate 1 编排脚本纳入 `pnpm lint` 清单。
+- **数据库集成入口**：新增 `pnpm test:db-integration`（`scripts/run-db-integration-tests.mjs`；四条腿＝`postgres:18.4`、`18.6` 上跑真实角色事务与 ACL 查询，另加只读诊断与本地 API 等待逻辑回归），要求零 fail，且 `skipped` 精确等于该文件显式声明的平台门控跳过数（`scripts/run-db-integration-tests.mjs` 的 `platformGatedSkipsByFile`；未登记文件直接抛错，声明值与实际不符同样判失败——见本节末「提交、推送与 CI 首次 Linux 执行」）；Gate 1 的三处脚本测试调用收敛到该入口；`executionClosurePaths` 25 → 26 条，并把新入口与 Gate 1 编排脚本纳入 `pnpm lint` 清单。
 - **间歇性超时定位**：为 Gate 1 增加环境变量驱动的定向重复模式（`LOGIPLAN_GATE1_TARGET=firefox|snapshot`、`LOGIPLAN_GATE1_REPEAT=N`）与 JSONL 时间线埋点。实测余量：Firefox 导航→目标标题 1.55—1.86s（预算 5s）；快照首次轮询采样即为 `[1,1,1,1]`（约 1.18s，且此时客户端请求尚未发出，四条快照由服务端首屏 SSR 提交），预算 10s。**未改动任何断言或超时值**。
 - **偶发连接重置**：Docker 门控用例的偶发失败为 `read ECONNRESET`，发生在容器就绪、宿主机建立 TCP 连接的时刻，重复执行结果不同。已在 `startRoleBootstrapPostgres` 增加有界的宿主侧可达性探测（≤12 次 × 250ms，失败时报出镜像、容器、端口与末次错误码），属「等待可观察状态」而非放宽超时。
 - **本地验收**：完整 Gate 1 四批各 5 次＝20 次全部退出码 0（最后一批 5 次的完整日志保留并逐项核对；前 15 次仅有终端汇总行）；每次四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 skip；Chromium 双视口基础 10、历史证据 22、Firefox 3；查询计划 `temp_written_blocks` 全 0；并发 5 × 100 热查询 p50 22.2—23.9ms、p95 37.6—46.5ms、p99 42.8—48.3ms；运行后无容器、卷、网络与浏览器残留；无 Docker 时脚本测试退出码 0 并跳过 2 条门控用例；覆盖率 95.51% stmts / 87.5% branch / 95.96% funcs / 95.66% lines；eslint、`tsc -p packages/db`、14 个改动文件的 prettier 均退出码 0。
