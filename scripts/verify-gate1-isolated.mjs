@@ -109,6 +109,16 @@ function timelineEnvironmentFor(iteration) {
   };
 }
 
+// 浏览器步骤（Chromium 双视口基础冒烟与历史证据验收）的时间线透传：仅在当前进程显式设置了
+// 非空的 LOGIPLAN_GATE1_TIMELINE_FILE 时才注入。未设置时返回空对象，这些步骤收到的 env
+// 与改动前逐字相同——不会无中生有出空字符串键（那会与「未设置即关闭埋点」的约定混淆），
+// 也不会顺带放行任何其它变量。值复用已解析的 timelineFile，与 Firefox 全量步骤同源。
+function configuredTimelineEnvironment() {
+  const configured = (process.env.LOGIPLAN_GATE1_TIMELINE_FILE ?? "").trim();
+  if (configured === "") return {};
+  return timelineEnvironmentFor(1);
+}
+
 function readIterationFailure(iteration) {
   if (timelineFile === undefined) return undefined;
   let content;
@@ -755,9 +765,12 @@ async function verify() {
       skipTargetStep("完整持久化证据 PostgreSQL/API/Chromium 集成测试");
     }
     if (runsForTarget([])) {
-      await runPnpm("Chromium 双视口基础冒烟", ["test:e2e:gate1"], readerRuntimeEnv, {
-        timeoutMs: 300_000,
-      });
+      await runPnpm(
+        "Chromium 双视口基础冒烟",
+        ["test:e2e:gate1"],
+        { ...readerRuntimeEnv, ...configuredTimelineEnvironment() },
+        { timeoutMs: 300_000 },
+      );
       await runPnpm(
         "Chromium 双视口历史证据验收",
         [
@@ -769,7 +782,7 @@ async function verify() {
           "--workers=1",
           "apps/web/tests/historical-evidence.spec.ts",
         ],
-        historicalEvidenceTestEnv,
+        { ...historicalEvidenceTestEnv, ...configuredTimelineEnvironment() },
         { timeoutMs: 300_000 },
       );
     } else {

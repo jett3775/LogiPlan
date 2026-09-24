@@ -506,9 +506,7 @@ export function DashboardWorkspace({
                         month.series_type === "ACTUAL" ? styles.actualBar : styles.forecastBar
                       }
                     >
-                      <title>
-                        {month.month_id} {month.series_type} {formatMoney(month.current.total_cost)}
-                      </title>
+                      <title>{`${month.month_id} ${month.series_type} ${formatMoney(month.current.total_cost)}`}</title>
                     </rect>
                     <text x={x + 18} y="210" textAnchor="middle" className={styles.chartLabel}>
                       {index + 1}月

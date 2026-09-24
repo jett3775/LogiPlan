@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { Page, Request } from "@playwright/test";
 
 // 诊断时间线：仅在设置了 LOGIPLAN_GATE1_TIMELINE_FILE 时写文件，每行一个 JSON 对象
@@ -9,9 +10,39 @@ const timelineFile = process.env.LOGIPLAN_GATE1_TIMELINE_FILE;
 const timelineIteration = Number.parseInt(process.env.LOGIPLAN_GATE1_ITERATION ?? "1", 10);
 const timelineStartMs = Date.now();
 
+// 归属信息：让每条事件都能追溯到具体的 Playwright project（chromium-1440 / chromium-1280 /
+// firefox-smoke）与浏览器，否则同一 spec 在多 project 下并行时无法判断某条 pageerror 来自哪个浏览器。
+// 依据：test.info() 返回当前用例的 TestInfo，其 project 是 TestProject 的运行时形态：project.name 即
+// project 名；浏览器先取 project.use.browserName，未设置时回退 project.use.defaultBrowserType——这正是
+// Playwright 自己解析 browserName fixture 的顺序（index.js:193
+// `browserName: [({ defaultBrowserType }, use) => use(defaultBrowserType)]`）。本仓库 playwright.config.ts
+// 的三个 project 都只用 devices["Desktop Chrome"] / devices["Desktop Firefox"] 展开，只带
+// defaultBrowserType、不带 browserName（已实测），故该回退必须保留，否则 browser 恒为 null。
+// test.info() 只在用例运行期间可用——Playwright 在用例（含 afterEach）结束后会把 currentTestInfo 置空
+// （workerProcessEntry.js:1720 调用 globals.setCurrentTestInfo(null)），此后再调用会抛「test.info() can
+// only be called while test is running」（common/index.js:2252）。而页面事件回调可能在用例结束后才触发
+// （例如 api_query_response_end 来自 response.finished() 的 promise），故取不到实时值时回退到最近一次
+// 快照；快照也没有则记 null。
+let lastKnownTimelineAttribution: { project: string | null; browser: string | null } | null = null;
+
+function timelineAttribution(): { project: string | null; browser: string | null } {
+  try {
+    const { project } = test.info();
+    lastKnownTimelineAttribution = {
+      project: project.name,
+      browser: project.use?.browserName ?? project.use?.defaultBrowserType ?? null,
+    };
+    return lastKnownTimelineAttribution;
+  } catch {
+    return lastKnownTimelineAttribution ?? { project: null, browser: null };
+  }
+}
+
 function recordTimeline(event: string, detail?: unknown): void {
   if (timelineFile === undefined || timelineFile === "") return;
   try {
+    // 归属只在此处集中附加，事件名与既有字段保持原样。
+    const attribution = timelineAttribution();
     appendFileSync(
       timelineFile,
       `${JSON.stringify({
@@ -19,6 +50,8 @@ function recordTimeline(event: string, detail?: unknown): void {
         event,
         at_ms: Date.now() - timelineStartMs,
         detail: detail ?? null,
+        project: attribution.project,
+        browser: attribution.browser,
       })}\n`,
     );
   } catch {
@@ -108,6 +141,74 @@ async function recordLoadingShell(page: Page, stage: string): Promise<void> {
     recordTimeline("loading_shell_gone", { stage, gone: count === 0 });
   } catch (error) {
     recordTimeline("loading_shell_probe_failed", {
+      stage,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// 专为判定 React #418 的元素级服务端/客户端不匹配来源而加：记录水合瞬间 DOM 是否仍停在
+// Next 的 loading 壳（loading.tsx 的 <main aria-busy>）上，以及应用根元素的结构摘要。
+// 只读观测，不改变断言、超时或渲染产物；未设置时间线文件时仅在页面内做只读查询。
+async function recordHydrationDomProbe(page: Page, stage: string): Promise<void> {
+  try {
+    const probe = await page.evaluate(() => {
+      const loadingShell = document.querySelector("main[aria-busy]");
+      // 生产构建会把 CSS Module 类名哈希成纯 hash（不含 "workspace" 子串），故 [class*=workspace]
+      // 不可靠；改用 body 的首个元素子节点作为应用根元素，取不到时记 null。
+      const root = document.body.firstElementChild;
+      return {
+        loading_shell_present: loadingShell !== null,
+        app_root: root === null ? null : { tagName: root.tagName, className: root.className },
+        loading_shell_html_head:
+          loadingShell === null ? null : loadingShell.outerHTML.slice(0, 200),
+      };
+    });
+    const dashboardHeadingPresent =
+      (await page.getByRole("heading", { name: "预算执行驾驶舱" }).count()) > 0;
+    recordTimeline("hydration_dom_probe", {
+      stage,
+      ...probe,
+      dashboard_heading_present: dashboardHeadingPresent,
+    });
+  } catch (error) {
+    recordTimeline("hydration_dom_probe_failed", {
+      stage,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// 为定位 React #418（元素级 SSR/客户端不匹配）而加：把权威 SSR HTML 与水合完成后的 DOM 各自
+// 落盘，交由离线结构化 diff 找出发生不匹配的元素。仅当设置了时间线文件时才读取响应体/DOM 并
+// 写文件；未设置时零副作用（连响应体与 page.content() 都不取）。任何失败只记事件，绝不让用例失败。
+async function recordHydrationHtmlSnapshot(
+  page: Page,
+  ssrHtmlPromise: Promise<string | null>,
+  stage: string,
+): Promise<void> {
+  if (timelineFile === undefined || timelineFile === "") return;
+  try {
+    const ssrHtml = await ssrHtmlPromise;
+    if (ssrHtml === null) throw new Error("未捕获到主文档响应体");
+    const hydratedHtml = await page.content();
+    const iter = Number.isSafeInteger(timelineIteration) ? timelineIteration : 1;
+    const ssrPath = `${timelineFile}.iter${iter}.ssr.html`;
+    const hydratedPath = `${timelineFile}.iter${iter}.hydrated.html`;
+    writeFileSync(ssrPath, ssrHtml);
+    writeFileSync(hydratedPath, hydratedHtml);
+    const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+    recordTimeline("hydration_html_snapshot", {
+      stage,
+      ssr_bytes: Buffer.byteLength(ssrHtml),
+      hydrated_bytes: Buffer.byteLength(hydratedHtml),
+      ssr_sha256: digest(ssrHtml),
+      hydrated_sha256: digest(hydratedHtml),
+      ssr_path: ssrPath,
+      hydrated_path: hydratedPath,
+    });
+  } catch (error) {
+    recordTimeline("hydration_html_snapshot_failed", {
       stage,
       message: error instanceof Error ? error.message : String(error),
     });
@@ -208,12 +309,28 @@ test("@firefox-smoke V01-V04 dashboard is readable, expandable and navigates to 
   instrumentPage(page);
   await tracker.track(async () => {
     tracker.mark("navigation_start", { url: "/" });
+    // 只读捕获本次导航的主文档响应体作为权威 SSR HTML。waitForResponse 在主流程之外异步读取
+    // 响应体，不阻塞 goto 之后的任何既有断言/等待。未设置时间线文件时不安装监听（零副作用）。
+    const ssrHtmlPromise: Promise<string | null> =
+      timelineFile === undefined || timelineFile === ""
+        ? Promise.resolve(null)
+        : page
+            .waitForResponse(
+              (response) =>
+                response.request().resourceType() === "document" &&
+                response.status() === 200 &&
+                new URL(response.url()).pathname === "/",
+            )
+            .then((response) => response.text())
+            .catch(() => null);
     await page.goto("/");
     tracker.mark("first_document_loaded");
+    await recordHydrationDomProbe(page, "dashboard-first-paint");
     tracker.mark("dashboard_heading_wait");
     await expect(page.getByRole("heading", { name: "预算执行驾驶舱" })).toBeVisible();
     tracker.mark("dashboard_heading_visible");
     await recordLoadingShell(page, "dashboard");
+    await recordHydrationHtmlSnapshot(page, ssrHtmlPromise, "dashboard-hydrated");
     await expect(page.getByText("完全虚构的求职作品集演示数据")).toBeVisible();
     await expect(page.getByRole("heading", { name: "六项核心 KPI" })).toBeVisible();
     await expect(

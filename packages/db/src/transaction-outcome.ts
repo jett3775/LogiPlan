@@ -29,6 +29,9 @@ export interface AdvisoryUnlock {
   readonly parameters: readonly string[];
 }
 
+// 唯一的显式隔离级别入口：既有调用点不传该参数时仍发出裸 BEGIN，行为逐字不变。
+export type TransactionIsolationLevel = "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE";
+
 // 与 scripts/neon-baseline.mjs 的 writeOutcomeUnknownExitCode 保持一致；本包不反向依赖脚本。
 export const writeOutcomeUnknownExitCode = 75;
 export const writeCommittedObservationFailedLogPrefix = "[WRITE_COMMITTED_OBSERVATION_FAILED]";
@@ -170,8 +173,11 @@ export async function runTransaction(
   client: Client,
   operation: () => Promise<void>,
   scope: string,
+  isolationLevel?: TransactionIsolationLevel,
 ): Promise<void> {
-  await client.query("BEGIN");
+  await client.query(
+    isolationLevel === undefined ? "BEGIN" : `BEGIN ISOLATION LEVEL ${isolationLevel}`,
+  );
   let commitAttempted = false;
   try {
     await operation();
@@ -211,15 +217,20 @@ export async function observeCommittedWrite<T>(
 }
 
 // 按固定顺序分别尝试释放 advisory 锁与关闭连接；任一步失败都不阻止另一步执行。
+// closeConnection=false 时只释放 advisory 锁：连接由调用方拥有，不得代其关闭。
 async function releaseConnection(
   client: Client,
   unlock: AdvisoryUnlock,
+  closeConnection: boolean,
 ): Promise<readonly SubsequentFailure[]> {
   const failures: SubsequentFailure[] = [];
   try {
     await client.query(unlock.statement, [...unlock.parameters]);
   } catch (error: unknown) {
     failures.push({ stage: "释放 advisory 锁", error });
+  }
+  if (!closeConnection) {
+    return failures;
   }
   try {
     await client.end();
@@ -229,22 +240,24 @@ async function releaseConnection(
   return failures;
 }
 
-export async function runWithConnectionCleanup(
+export async function runWithConnectionCleanup<T = void>(
   client: Client,
   unlock: AdvisoryUnlock,
   scope: string,
-  operation: () => Promise<void>,
-): Promise<void> {
+  operation: () => Promise<T>,
+  closeConnection = true,
+): Promise<T> {
   let primaryError: unknown;
   let hasPrimaryError = false;
+  let result: T | undefined;
   try {
-    await operation();
+    result = await operation();
   } catch (error: unknown) {
     primaryError = error;
     hasPrimaryError = true;
   }
 
-  const cleanupFailures = await releaseConnection(client, unlock);
+  const cleanupFailures = await releaseConnection(client, unlock, closeConnection);
   const failure = combineOutcomeWithSubsequentFailures(
     hasPrimaryError ? primaryError : undefined,
     cleanupFailures,
@@ -254,4 +267,6 @@ export async function runWithConnectionCleanup(
   if (failure !== undefined) {
     throw failure;
   }
+  // 能走到这里等价于「主流程成功且清理无失败」，result 必定已赋值。
+  return result as T;
 }

@@ -1,9 +1,13 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { Client } from "pg";
 
 import {
   activateAndMaterialize,
   withInitializationCoordinationLock,
 } from "./activate-and-materialize";
+import { exitCodeForTransactionFailure, transactionFailureLogPrefix } from "./transaction-outcome";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -46,8 +50,16 @@ async function run(): Promise<void> {
   }
 }
 
-await run().catch((error: unknown) => {
+// 与 publish-release CLI 共用同一套失败归类：写入结果未知必须以 75 结束并带机器可识别前缀，
+// 好让调用方先只读核对再决定是否重试；可确认回滚的失败仍以 1 结束且不带前缀。
+export function reportActivationFailure(error: unknown): void {
   const message = error instanceof Error ? error.message : "未知发布切换错误";
-  process.stderr.write(`发布切换失败：${message}\n`);
-  process.exitCode = 1;
-});
+  process.stderr.write(`${transactionFailureLogPrefix(error)}发布切换失败：${message}\n`);
+  process.exitCode = exitCodeForTransactionFailure(error);
+}
+
+const isMain =
+  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (isMain) {
+  await run().catch(reportActivationFailure);
+}
