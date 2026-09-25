@@ -150,12 +150,40 @@ Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 
 本入口只准备以下冻结目标，不创建 Neon/Vercel/GitHub 资源，也不部署应用：
 
-- 候选：`codex/gate1-delivery-baseline`，提交 `0229755a097dff94c8de67954b36ab4f9412c0f5`；
+- 候选：`codex/gate1-delivery-baseline`，提交 `0229755a097dff94c8de67954b36ab4f9412c0f5`（**已于 2026-09-25 重新锚定，见第 1.1 节**）；
 - Neon：`logiplan-public-test` / `mute-mouse-49732061`，`aws-ap-southeast-1`，PostgreSQL `18.6`，`main` / `br-patient-smoke-b3f5jtui`；
 - Vercel：团队 `logi-plan`，项目 `logi-plan-web`，Root Directory `apps/web`，Next.js，Node.js 24.x，`sin1`；
 - 生产运行时只允许 `app_reader` 的池化 `DATABASE_URL`。Preview 不得获得公开测试数据库连接；应使用 PR 独立分支，无法提供时失败关闭。
 
 `apps/web/vercel.json` 只把 Function 区域固定为 `sin1`。它不创建项目、不修改 Vercel 设置、不注入环境变量，也不构成部署。
+
+### 1.1 冻结锚点的重新锚定（2026-09-25，第一窗口计划 P1）
+
+**候选资产冻结仍然有效**：
+
+- `protectedCandidatePaths`（`database/migrations`、`database/releases`、`data/generated`、`scripts/generate_demo_data.py`、`scripts/upgrade_demo_release_v2.py`）自 `0229755a…` 以来**逐字节未变**——`git diff --quiet 0229755a…..HEAD -- <protectedCandidatePaths>` 退出码 0。
+- 四项清单校验和与磁盘实际值**逐字一致**（用 `sha256sum` 独立复算，结果与 `packages/db/src/release-package.ts` 的 `createHash("sha256")` 相同）：
+
+| 资产                                             | 清单字段              | 校验和（前 16 位） |
+| ------------------------------------------------ | --------------------- | ------------------ |
+| `data/generated/logiplan-2026-demo-data-v2.json` | `V2.data_sha256`      | `4cbd7759d4a85a0c` |
+| `scripts/upgrade_demo_release_v2.py`             | `V2.generator_sha256` | `80cc8da0871a35df` |
+| `data/generated/logiplan-2026-demo-data.json`    | `V1.data_sha256`      | `4d7285a9d3cbe067` |
+| `scripts/generate_demo_data.py`                  | `V1.generator_sha256` | `d8b1e7ad997e35d7` |
+
+- 迁移 `0001`—`0010` 的 sha256 已一并复算并记录，供后续远程比对。
+
+**旧工具 SHA 已失效**：此前批准的 `e03d192ed023699e38df6bc8c12d8ca5cc54892d` 相对当前执行闭包有 **16 文件漂移（+2091/−396）**。漂移来源包括 `scripts/wait-for-server.mjs`（进程组终止修复 `4ff4fb0`）、`scripts/run-db-integration-tests.mjs`（新增数据库集成入口）、`package.json`（lint 清单补两条路径 `77b6797`）、`packages/db/src/transaction-outcome.ts`（新增）等。按 `defaultGitPreflight`，该 SHA 会使写入模式以「执行闭包存在未提交或偏离工具 SHA 的改动，拒绝数据库写入」直接拒绝。
+
+**执行闭包当前状态**：26 条路径 `git status --porcelain --untracked-files=all` 为空，即无未提交改动。
+
+**锚定规则（本记录不预设锚点值）**：
+
+- 工具 SHA 与候选 SHA 必须取 **`--write` 执行时的 `HEAD`**。因此锚点不是仓库产物，而是**运行时取值**：应在 `--write` 之前的**最后一次提交之后**立即确定，并由用户按值独立批准。本节只记录验证结论与规则，**不声明锚点值**——任何后续提交都会使其失效。
+- `validateGitIdentity` 对写入模式断言 `HEAD === toolingSha`（**精确相等**）；`validateToolingApproval` 要求环境变量 `LOGIPLAN_APPROVED_TOOLING_SHA` 存在、为 40 位小写十六进制、且与 `toolingSha` 相同。**独立批准必须按值给出，不得以「当前 HEAD」代替。**
+- 因此 `P3`—`P6` 若产生文档提交，**应先完成再锚定**；锚定与批准紧接在 `--write` 之前执行。
+- 两条断言彼此独立：闭包比对（`git diff --quiet <toolingSha> -- <executionClosurePaths>`）只看闭包内文件是否变化；`HEAD === toolingSha` 看的是提交指针。**两条都必须满足**，只满足其一仍会被拒绝。
+- 工作区的 11 项用户资产（`AGENTS.md` + 10 份 `neon-baseline-report-*.json`）不在执行闭包内，不影响锚定。
 
 ## 2. 默认预检
 
