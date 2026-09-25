@@ -96,9 +96,23 @@
 值的形态：`postgresql://app_reader:<密码>@<endpoint-id>-pooler.<region>.aws.neon.tech/<库名>?sslmode=require`
 —— 在 **Neon 控制台**该分支的 Connection Details 里，打开 **Pooled connection** 开关、角色选 `app_reader` 后复制。
 
-**Type 选 `Secret`**（不要选 `Config`）：这个值里含 `app_reader` 的密码，属于 UI 说明的
-「passwords, API keys, and tokens」。代价是保存后**无法再读回**，因此**必须在保存前**在 Value 框里逐项核对
-（对话框本身是明文显示，保存后才不可读）。
+**Type 选 `Secret`**（不要选 `Config`）：这个值里含 `app_reader` 的密码，官方文档对 Secret 的说明就是
+「write-only after saving. **Use them for passwords, API keys, and tokens.**」，而 Config 是
+「for non-sensitive configuration」。因此**必须在保存前**在 Value 框里逐项核对（对话框本身是明文显示）。
+
+`Secret` 的三条后果（均已查证官方文档）：
+
+1. **保存后值不可读回**；「You cannot convert a saved Secret to Config in place」——若日后想改成可读，
+   必须**删除后重建**，不能原地转换。
+2. **值可以编辑（轮换），但键名不可编辑**：「You cannot edit the key of a Secret after it is saved.」
+3. **构建时仍然可用**：文档的「Build log redaction」一节写明「During builds, if a Secret environment
+   variable value is 32 characters or longer and appears in build logs, Vercel replaces the value with
+   `[REDACTED]`」——即 Secret 在构建阶段是存在的（否则无从脱敏）。**因此
+   「Production 构建成功即自证角色正确」这一判据成立**，构建时会真的执行
+   `readWebRuntimeDatabaseUrl()` 的角色校验。
+
+（另：若团队启用了可选的「Separate Production Secret Values」策略，同一个 Secret 键在 Production 与
+其他环境必须用不同值。本项目只在 Production 设该变量、Preview/Development 留空，**不冲突**。）
 
 **已核实的取值**（`docs/neon-permission-baseline-plan.md:90` 与 runbook §0.2/§2 记录，2026-09-22 只读核对
 **对着远端确认过**，非猜测）：
