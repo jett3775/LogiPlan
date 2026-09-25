@@ -2157,3 +2157,17 @@
   4. **本决策不解除任何其他前置条件**：写入模式仍需重新冻结并独立批准工具 SHA（见 `docs/neon-vercel-baseline-runbook.md` 第 2 节）；公开环境部署与数据激活仍各自需要显式授权。
 - 影响：`docs/development-roadmap.md` 第 0 节「不得记为稳定通过」的措辞按本决策改写为「代码侧验收全部通过 + CI 为稳定性权威证据 + 本地 Windows 为已记录的环境限制」；`docs/neon-vercel-baseline-runbook.md` 第 0.3 节与 `docs/neon-permission-baseline-plan.md` 遗留项 6 同步更新。
 - 未关闭：`3221226505` 的**根因仍未定位**。若后续需要消除，须另行批准采集崩溃转储（例如为 Playwright 的浏览器进程启用 `LocalDumps`）；该改动涉及启动或诊断配置，超出本决策范围。
+
+## D-189：受保护 Production 发布门改用 Vercel 原生 staged production
+
+- 状态：已确认
+- 日期：2026-09-25
+- 背景：`docs/development-roadmap.md` §1.1 冻结要求「合并 `main` **不**自动发布公开测试环境；受保护 Production 工作流必须由人工批准，并绑定已通过检查的具体提交 SHA、迁移清单和数据包校验和」。此前 `docs/neon-vercel-baseline-runbook.md` §10.5 的设计稿设想以自建 GitHub Actions 工作流配合 GitHub Environment required reviewers 实现该门。
+- 决策：**该冻结要求改用 Vercel 原生能力实现，不再自建 GitHub Actions 工作流。** 具体做法是在 Vercel 的 `Settings → Environments → Production → Branch Tracking` 关闭「Auto-assign Custom Production Domains」。
+- 机制：关闭后推送到生产分支只产生 `Staged` 状态的生产部署——**已按 production 环境变量构建，但不绑定域名、不对外服务**；必须**人工 Promote** 才变成 `Current`。**promote 不触发重建**，因此验证过的构建就是上线的构建。状态机为 `Staged` → `Promoted` → `Current`；**已 Promoted 过的部署不能再次 promote，只能 rollback**。
+- 与冻结要求的对应：合并 `main` 不自动发布 → `Staged` 部署不绑域名；必须人工批准 → `Promote` 是显式人工动作；绑定具体提交 SHA → Promote 针对一个具体部署（即一个具体 commit）；D-155 回切 → Instant Rollback 或 Promote 另一个 `Staged` 部署。
+- 取代原设计的理由：① 自建工作流需要把 Vercel token 放进 GitHub secrets，**新增一个凭据面**，与本项目「Vercel 不持有数据库管理凭据」的取向不一致；② **原设计有隐藏漏洞——GitHub Environment 的保护规则只约束 GitHub Actions job，管不到 Vercel 自己的 Git 集成部署**，即使配好 required reviewers，Vercel 仍会在推送 `main` 时自动发布；③ 可失效环节更少，不需要维护工作流，也不需要在 CI 里复算迁移清单与数据包校验和。
+- 附带效果：关闭 auto-assign 后**合并 `main` 变得安全**——它只产生不对外服务的 `Staged` 构建，此前「不敢合并 `main`」的僵局随之解开。
+- 保留约束：公开发布顺序（扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验）不变；「不让任何持有 Neon / Vercel / 发布凭据的工作流执行未经信任的外部代码」继续有效，且现在**结构上自动成立**（本仓库工作流的 `secrets.` 引用为 0 次）。
+- 实施状态：**待用户在 Vercel UI 执行**该开关的关闭。文档未记载该开关是否有 plan 限制，需在 UI 确认 Hobby 下可用；若不可用，退路是 `apps/web/vercel.json` 的 `github.autoAlias: false`（合并产生 Preview，之后 promote 会**重建**），代价是失去「promote 不重建」这一性质。
+- 影响：`docs/neon-vercel-baseline-runbook.md` §10.5 已按本决策改写；`docs/development-roadmap.md` §1.1 的对应句子已加注指向本决策。

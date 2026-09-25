@@ -628,19 +628,53 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 
 **结论**：当前唯一的 workflow **不持有任何凭据**，且无 `pull_request_target`/`workflow_run`，因此外部 Fork PR **不可能触及密钥**——「外部 Fork PR 只运行无密钥检查」这一要求在结构上已经满足，而不是靠条件判断兜住。
 
-### 10.5 受保护 Production 工作流（设计稿，**未实施**）
+### 10.5 受保护 Production 发布门 —— 采用 Vercel 原生 staged production（2026-09-25 决定，见 D-189）
 
-按 `docs/development-roadmap.md` §1.1 与 D-178 的要求，设计要点如下：
+**背景**：`docs/development-roadmap.md` §1.1 冻结要求「合并 `main` **不**自动发布公开测试环境；受保护
+Production 工作流必须由人工批准，并绑定已通过检查的具体提交 SHA、迁移清单和数据包校验和」。
 
-1. **触发**：仅 `workflow_dispatch` 手动触发；**不在 `main` 合并时自动发布**。
-2. **人工批准**：使用 GitHub **Environment**（如 `production`）配置 required reviewers，job 声明 `environment: production`，未批准不进入执行。
-3. **SHA 绑定**：输入参数 `approved_sha`，job 第一步断言 `github.sha == inputs.approved_sha`，不等即失败——**绑定已通过检查的具体提交**。
-4. **迁移清单与数据包校验和绑定**：输入 `migrations_digest` 与 `release_package_sha256`，job 内用 `sha256sum` 复算并与输入比对，不等即失败。
-5. **权限最小化**：`permissions: {contents: read}`；发布凭据（`PUBLISHER_DATABASE_URL`）只经 Environment secrets 注入，且**绝不进入任何由 PR 触发的 job**。
-6. **发布顺序**：扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验；任一阶段失败即停止。
-7. **禁止项**：不让任何持有 Neon / Vercel / 发布凭据的工作流执行未经信任的外部代码。
+**本节原设计（自建 GitHub Actions 受保护工作流）已被取代。** 查证 Vercel 官方文档后确认，该冻结要求可以
+**完全由 Vercel 原生功能满足**，无需自建工作流。
 
-**未实施原因**：需要 Vercel 与 Neon 凭据、Environment 配置以及受保护分支规则，**全部属外部设置操作**，需用户授权。
+**机制**：在 **Settings → Environments → Production → Branch Tracking** 关闭
+**「Auto-assign Custom Production Domains」**。关闭后：
+
+- 推送到生产分支**只产生 `Staged` 状态的生产部署**——它**已按 production 环境变量构建**，但**不绑定域名、
+  不对外服务**。
+- 必须**人工 Promote** 才变成 `Current`（对外服务）。
+- **promote 不触发重建** → **验证过的构建就是上线的构建**。这比 promote preview 更强：后者文档明说会
+  「complete rebuild with production environment variables」。
+- 部署状态机：`Staged`（已构建、未绑域名）→ `Promoted`（已人工提升）→ `Current`（对外服务）。
+  **已 Promoted 过的部署不能再次 promote，只能 rollback。**
+
+**与冻结要求的逐条对应**：
+
+| 冻结要求                         | Vercel 原生机制                                   |
+| -------------------------------- | ------------------------------------------------- |
+| 合并 `main` **不**自动发布       | `Staged` 部署不绑定域名、不对外服务               |
+| **必须由人工批准**               | `Promote` 是显式人工动作                          |
+| 绑定**已通过检查的具体提交 SHA** | Promote 针对一个具体部署，即一个具体 commit       |
+| D-155 回切                       | Instant Rollback，或 Promote 另一个 `Staged` 部署 |
+
+**为什么优于原设计（自建 GitHub Actions 工作流）**：
+
+1. **零新增凭据面**。自建方案要在 GitHub Actions 里跑发布，就必须把 Vercel token 放进 GitHub secrets；
+   而本项目一直坚持「Vercel 不持有数据库管理凭据」的谨慎风格。
+2. **原设计有隐藏漏洞**：**GitHub Environment 的保护规则只约束 GitHub Actions job，管不到 Vercel 自己的
+   Git 集成部署**。即使配好 Environment required reviewers，Vercel 仍会在推送 `main` 时自动发布。
+3. **可失效环节更少**：不需要维护工作流，也不需要在 CI 里复算迁移清单与数据包校验和。
+
+**附带效果（重要）**：一旦关闭 auto-assign，**合并 `main` 就变得安全**——它只产生不对外服务的 `Staged`
+构建。「不敢合并 `main`」这个僵局随之解开。
+
+**实施状态**：**待用户在 Vercel UI 执行**（`Settings → Environments → Production → Branch Tracking`）。
+属外部设置操作，本仓库不持有 Vercel 凭据。**文档未记载该开关是否有 plan 限制，需在 UI 确认 Hobby 下可用**；
+若不可用，退路是 `apps/web/vercel.json` 的 `github.autoAlias: false`（会让合并产生 Preview，之后 promote
+会**重建**），代价是失去「promote 不重建」这一性质。
+
+**仍然适用的约束**：发布顺序（扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验）
+继续有效；「不让任何持有 Neon / Vercel / 发布凭据的工作流执行未经信任的外部代码」现在**结构上自动成立**
+——本仓库工作流的 `secrets.` 引用为 **0 次**（见第 10.4 节）。
 
 ### 10.6 本轮发现的一处小缺口（P2，未修复）
 
