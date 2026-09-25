@@ -62,7 +62,7 @@
 
 修复提交为 `4ff4fb0`（`fix(gate1)`，2 文件 +67/−9）：POSIX 分支改用 `process.kill(-child.pid, signal)`（全部调用点均以 `detached: process.platform !== "win32"` 启动，故 POSIX 下 `child.pid` 即 PGID；Windows 的 `taskkill /PID /T /F` 分支逐字节未改动）；判定改为显式声明表 `platformGatedSkipsByFile` + 精确比较 `counts.skipped !== leg.expectedPlatformSkips`（未登记的新测试文件直接抛错，声明值与实际不符同样判失败，防止声明过期后继续放行）。**未改动任何既有断言、超时值或用例选择。**
 
-**CI 已转绿**：修复推送后 `ubuntu-latest` 上连续四次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`（最新一次 `headSha` = `27f9c8b`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这同时是上述根因 2 唯一的独立证明**：POSIX 进程组终止路径在 Windows 上无法验证，只能由 CI 证明。
+**CI 已转绿**：修复推送后 `ubuntu-latest` 上连续五次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`、`35987670886`（最新一次 `headSha` = `f9c4bfd`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这同时是上述根因 2 唯一的独立证明**：POSIX 进程组终止路径在 Windows 上无法验证，只能由 CI 证明。
 
 **稳定性权威证据的定位**：Gate 1 稳定性的权威证据来源为 **CI `ubuntu-latest`**（Linux 无 `3221226505` 原生崩溃）；本地 Windows 执行记录为已记录的环境限制，附重试政策（失败保留现场、原样重跑、不掩盖、不重算）。该定位尚待按本节遗留项 6 的后续任务正式落为 `docs/decisions.md` 决策。
 
@@ -77,10 +77,18 @@
 5. （P2，既有，非本轮引入）`pg` 弃用警告「Calling client.query() when the client is already executing a query」在 CLI、Web 服务端与测试中普遍出现。候选来源为 `packages/db/src/query-service.ts` 的三处并发 `pool.query()`（`:257` 2 条、`:1111` 6 条、`:1251` 3 条），配合 `packages/db/src/index.ts:4` 的池上限 `max: 2`；`pg` 内部的确切触发条件未在本轮确认。已核实本轮重构的 `transaction-outcome.ts`、`activate-and-materialize.ts` 内所有 `client.query()` 均为顺序 `await`，**未引入新的并发**。该警告是 `pg@9` 升级的阻塞项，属 D-183 兼容性闸门范围，本轮不修。
 6. （既有环境不稳定，未定位根因）Gate 1 浏览器阶段偶发 Windows 原生崩溃 `3221226505`（`0xC0000005`）。2026-09-21、2026-09-22、2026-09-24 三轮均有记录，累计样本中崩溃率约 20%（2026-09-24 两批次 10 次执行中 2 次）。特征：发生在浏览器阶段启动边界、无用例输出或 0ms 即失败、零断言失败、同一批用例在其余执行中通过。已排除用户浏览器负载与磁盘空间；**未定位根因**（未做 WER/崩溃转储级排查）。影响：无法取得「连续 5/5」，Gate 1 不能记为稳定通过。后续任务：如需消除，应采集 Windows 事件日志/WER 崩溃转储确认崩溃进程（Playwright worker 与浏览器进程需区分），再评估浏览器启动参数类缓解措施——**该类改动超出本轮允许范围，须先取得用户批准**。
 
-7. （P2，覆盖缺口，**本轮新增**）`package.json` 第 19 行的 `pnpm lint` 清单缺少两条路径：`scripts/wait-for-server.mjs`（本轮修复的文件）与 `scripts/verify-gate1-isolated.test.mjs`（该修复的回归测试）。即被改动或新增的脚本可能不被 lint 覆盖。`package.json` 属既有计划的排除项，改动需用户批准（第一窗口计划 T3）。
-8. （**写入模式硬前置**，本轮核实）`docs/neon-vercel-baseline-runbook.md:131` 冻结的候选提交 `0229755a097dff94c8de67954b36ab4f9412c0f5` 已落后 18 个提交（实测 `git rev-list --count 0229755a…..HEAD` = 18），而该 runbook 规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA。因此进入 `--write` 前必须重新冻结并独立批准新的工具 SHA（第一窗口计划 P1）。
+7. （P2，覆盖缺口，**本轮新增**）`package.json` 第 19 行的 `pnpm lint` 清单缺少两条路径：`scripts/wait-for-server.mjs`（本轮修复的文件）与 `scripts/verify-gate1-isolated.test.mjs`（该修复的回归测试）。即被改动或新增的脚本可能不被 lint 覆盖。`package.json` 属既有计划的排除项，改动需用户批准（第一窗口计划 T3）。**已于 2026-09-25 关闭**：提交 `77b6797` 把这两条路径补入 `lint` 清单（1 行改动），`eslint` 全清单退出码 0，CI 的 Lint 步骤仍为 success。
+8. （**写入模式硬前置**，本轮核实）`docs/neon-vercel-baseline-runbook.md:131` 冻结的候选提交 `0229755a097dff94c8de67954b36ab4f9412c0f5` 已落后 22 个提交（2026-09-25 实测 `git rev-list --count 0229755a…..HEAD` = 22；该值随分支推进单调增加，进入写入模式前须以当时实测为准），而该 runbook 规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA。因此进入 `--write` 前必须重新冻结并独立批准新的工具 SHA（第一窗口计划 P1）。
 
 **未关闭事项**：① 已在本轮定位并修复（见上），2026-09-23 段落中该项不再有效；② 2026-09-23 记录的「`packages/db/src/activate-and-materialize.ts:59-63` 仍吞 advisory unlock」**已由本轮重构关闭**——`withInitializationCoordinationLock`（`:29-39`）现经 `runWithConnectionCleanup(client, advisoryUnlock, activationScope, operation, false)` 释放锁，解锁失败以 `SubsequentFailure` 上报并归入 `writeCommittedObservationFailed`（见 `transaction-outcome.ts:226-241`）。因此「advisory unlock 不再被静默吞掉」现对**迁移、发布、激活三个入口同时成立**，2026-09-23 段落中该限定不再需要。
+
+**2026-09-25 续：lint 覆盖收口、工作区清理与独立审查（T3 / T8 / T5）**
+
+- **T3（提交 `77b6797`）**：把 `scripts/wait-for-server.mjs` 与 `scripts/verify-gate1-isolated.test.mjs` 补入 `package.json` 的 `lint` 清单（1 行改动），关闭上述遗留项 7 的覆盖缺口。`eslint` 全清单（含两条新路径）退出码 0，`package.json` 通过 prettier。
+- **T8（提交 `6c3afb6`）**：删除工作区两处错误重定向产物。已跟踪的 `"itory multi-agent workflow•"` 内容经取证确认为 **`less` 分页器的帮助屏**（`less` 的保存功能误写入），它是在 `a63a43c`（同时存在于 `origin/main`）中加入的；未跟踪的 `e HEAD`（33359 字节）是 `git diff` 输出碎片，已移至 `%TEMP%` 备份而非直接销毁。工作区由 13 项约定资产降至 **11 项**（`AGENTS.md` + 10 份 `neon-baseline-report-*.json`）。
+- **T5 独立审查（固定点 `6c3afb6`）**：全新上下文的只读子代理判定 **PASS、无 P0/P1、6 项 P2**。已确认：`process.kill(-child.pid, signal)` 正确；**全部 `terminateProcessTree` 调用点的子进程都以 `detached: process.platform !== "win32"` 启动**（`run-db-integration-tests.mjs:90`、`neon-baseline.mjs:534`、`verify-gate1-isolated.mjs:391/514`、`verify-gate1-isolated.test.mjs:189`）；Windows `taskkill` 分支逐字节未变；`platformGatedSkipsByFile` 的四类场景（未登记文件抛错、声明 1 实得 0、声明 0 实得 1、无法解析计数）**全部 fail closed**；未改动任何断言、超时值或用例选择；`6c3afb6` 仅删除一个已跟踪文件、未触及源码。**6 项 P2 全部为文档精度问题**，已在本轮一并修正（见下）。
+- **本轮 P2 处置**：① 遗留项 7 标注关闭、遗留项 8 的计数由 18 更正为 22；② 本文件与 `docs/neon-vercel-baseline-runbook.md`、`docs/neon-permission-baseline-plan.md` 中「CI 连续四次成功」更正为五次（新增 `35987670886`，`headSha` = `f9c4bfd`）；③ `docs/handoff-2026-09-25.md` 的「领先 18 个提交」更正为 26；④ `docs/handoff-2026-10-01.md` 的「落后 18 个提交」更正为 22；⑤ 审查者指出 `executionClosurePaths`（26 条）与 `pnpm lint` 清单**并非同一集合**——`scripts/verify-gate1-isolated.test.mjs` 已纳入 lint 但不在闭包内，`scripts/neon-baseline.ps1` 在闭包内但不可 lint，其余差异属目录级或配置文件级。两者职责不同（前者是工具 SHA 保护范围，后者是静态检查范围），**不要求相等**，此处仅作记录；⑥ `6c3afb6` 的提交标题原写「two files」，但 git 记录中只有一个已跟踪文件的删除（`e HEAD` 从未被跟踪、不产生 git 记录），标题已在推送前修正并补充说明。
+- **仍未执行**：T6（`3221226505` 的只读 WER / 事件日志取证）本轮**未获授权**，故 G2 仍开放；T1（本地正式复验）需用户在终端执行，本会话 `spawnSync` 仍恒返回 `EBUSY`（实测 `git` / `node` / `pnpm` 三者皆然）。
 
 ## 0.1 2026-09-23 轮次（历史证据）
 

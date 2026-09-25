@@ -131,11 +131,18 @@ Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 
 修复提交 `4ff4fb0`（`fix(gate1)`，2 文件 +67/−9）：POSIX 分支改用 `process.kill(-child.pid, signal)`（全部调用点均以 `detached: process.platform !== "win32"` 启动，故 POSIX 下 `child.pid` 即 PGID；Windows 的 `taskkill /PID /T /F` 分支逐字节未改动）；判定改为 `platformGatedSkipsByFile` 显式声明 + 精确比较。**未改动任何既有断言、超时值或用例选择。**
 
-**CI 已转绿**：`ubuntu-latest` 上连续四次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`（最新一次 `headSha` = `27f9c8b`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这是根因 2 唯一的独立证明**（POSIX 路径在 Windows 上无法验证）。
+**CI 已转绿**：`ubuntu-latest` 上连续五次成功——`35984529953`、`35984592984`、`35985477229`、`35986663729`、`35987670886`（最新一次 `headSha` = `f9c4bfd`），三个 job（Gate 1 deterministic validation、Pull request dependency review、CodeQL JavaScript and TypeScript）全部 success。**这是根因 2 唯一的独立证明**（POSIX 路径在 Windows 上无法验证）。
 
-**对后续写入模式的影响（硬前置）**：第 1 节冻结的候选 `0229755a097dff94c8de67954b36ab4f9412c0f5` 现已落后 18 个提交（实测 `git rev-list --count 0229755a…..HEAD` = 18），而第 2 节规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA，故**进入 `--write` 前必须重新冻结并独立批准新的工具 SHA**。
+**对后续写入模式的影响（硬前置）**：第 1 节冻结的候选 `0229755a097dff94c8de67954b36ab4f9412c0f5` 现已落后 22 个提交（2026-09-25 实测 `git rev-list --count 0229755a…..HEAD` = 22；该值随分支推进单调增加，进入写入模式前须以当时实测为准），而第 2 节规定写入模式要求当前 HEAD 精确等于已批准的工具 SHA，故**进入 `--write` 前必须重新冻结并独立批准新的工具 SHA**。
 
 **交接文档**：`docs/handoff-2026-09-25.md`（窗口 2026-09-25 → 2026-10-01，任务 T1—T8）与 `docs/handoff-2026-10-01.md`（窗口 2026-10-01 → 2026-10-05，任务 P1—P6 / E1—E5 / S1—S2）。第二窗口第一段 P1—P6 为只读准备（含上述工具 SHA 重新冻结），第二段 E1—E5 为远程写，未获授权前不执行。
+
+**2026-09-25 续：lint 覆盖收口、工作区清理与独立审查（T3 / T8 / T5）**
+
+- **T3（提交 `77b6797`）**：把 `scripts/wait-for-server.mjs` 与 `scripts/verify-gate1-isolated.test.mjs` 补入 `package.json` 的 `lint` 清单（1 行改动）。`eslint` 全清单退出码 0。
+- **T8（提交 `6c3afb6`）**：删除工作区两处错误重定向产物。已跟踪的 `"itory multi-agent workflow•"` 内容经取证确认为 **`less` 分页器的帮助屏**，于 `a63a43c`（同时存在于 `origin/main`）加入；未跟踪的 `e HEAD`（33359 字节的 `git diff` 碎片）已移至 `%TEMP%` 备份而非直接销毁。工作区由 13 项约定资产降至 **11 项**（`AGENTS.md` + 10 份 `neon-baseline-report-*.json`）。**注意**：本节与第 0.2 节的历史记录把「工作区仅剩 11 项约定排除资产」列为写模式前置检查项——该数字现在仍是 11，但**组成已不同**（历史记录为 `AGENTS.md` + 异常 tracked 文件删除 + `e HEAD` + 8 份报告 + `.workbuddy/`；现为 `AGENTS.md` + 10 份报告）。比对时须按组成而非仅按数量。
+- **T5 独立审查（固定点 `6c3afb6`）**：全新上下文的只读子代理判定 **PASS、无 P0/P1、6 项 P2**。已确认 `process.kill(-child.pid, signal)` 正确、全部 `terminateProcessTree` 调用点的子进程均以 `detached: process.platform !== "win32"` 启动、Windows `taskkill` 分支逐字节未变、`platformGatedSkipsByFile` 四类场景（未登记抛错 / 声明 1 实得 0 / 声明 0 实得 1 / 无法解析计数）全部 fail closed、未改动任何断言、超时值或用例选择。**6 项 P2 全部为文档精度问题**，已一并修正：本节的「连续四次」更正为五次、「落后 18 个提交」更正为 22，`docs/development-roadmap.md` §0 遗留项 7 标注关闭、遗留项 8 更正为 22，`docs/handoff-2026-09-25.md` 的「领先 18 个提交」更正为 26，`docs/handoff-2026-10-01.md` 的「落后 18 个提交」更正为 22，`6c3afb6` 的提交标题由「two files」修正为单数。
+- **仍未执行**：T6（`3221226505` 的只读 WER / 事件日志取证）**未获授权**，故 G2 仍开放；T1（本地正式复验）需用户在终端执行，本会话 `spawnSync` 仍恒返回 `EBUSY`。
 
 ## 1. 固定目标与边界
 
@@ -345,3 +352,27 @@ pnpm neon:baseline -- \
 - 连接或命令提交结果不明确：报告只能记录“结果未知”，不得宣称回滚；通过只读状态查询确认后再决定重试。
 
 本地 `pnpm verify:gate1:isolated` 仍是必需的隔离验收。公开 Neon 不是隔离测试环境，Neon PostgreSQL 18.6 的结果也不能替代本地 PostgreSQL 18.4 的回归；两者同属 PostgreSQL 18，但必须共同验证 `btree_gist` 可用、无 Neon 专有 API/扩展依赖以及迁移、发布、权限、查询和性能一致性。
+
+## 7. 闸门一部署前检查清单（T7 盘点，2026-09-25）
+
+本清单只做盘点，**未执行任何远程写、未创建任何云资源**。每项可直接转为后续任务。
+「依据」列给出该约束的权威位置。
+
+| #   | 检查项                         | 当前状态                        | 需用户授权        | 前置条件                                                                    | 验收标准                                                                                                                                                                            | 依据                                                                   |
+| --- | ------------------------------ | ------------------------------- | ----------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1   | **重新冻结并独立批准工具 SHA** | **未开始（硬前置）**            | 是                | HEAD 确定；执行闭包 26 条路径无未提交改动；迁移与数据包校验和与冻结资产一致 | `docs/decisions.md` 记录新的工具 SHA 并标注「已批准」                                                                                                                               | 第 2 节；`docs/development-roadmap.md` §0 遗留项 8                     |
+| 2   | Vercel 项目创建与六项人工核对  | 未开始                          | 是                | Team `logi-plan`、Project `logi-plan-web` 已存在                            | Team、Project、Root Directory `apps/web`、Framework Next.js、Node.js 24.x、Function Region `sin1` 六项逐项核对通过                                                                  | 第 1 节；D-147                                                         |
+| 3   | Neon 区域、分支与端点核对      | 部分（2026-09-22 已做只读核对） | 只读可先做        | Neon 管理 API 只读凭据                                                      | 区域 `aws-ap-southeast-1`、分支 `main` / `br-patient-smoke-b3f5jtui`、endpoint `ep-empty-shape-b35qu1jv`、PostgreSQL 18.6 与冻结值一致                                              | 第 1 节、第 2 节；D-147                                                |
+| 4   | 环境变量分层                   | 未开始                          | 是                | —                                                                           | Production **仅**含池化 `DATABASE_URL`（`app_reader`）；无 admin / migrator / publisher / Neon 管理凭据；Preview **不含** Production 的 `DATABASE_URL`                              | 第 1 节、第 5 节；`docs/development-roadmap.md` §1.1                   |
+| 5   | `app_reader` 为唯一运行时角色  | 已具备本地机制证据              | 否                | —                                                                           | 公开运行环境只持有 `app_reader`                                                                                                                                                     | `docs/development-roadmap.md` §1.1                                     |
+| 6   | Neon 池化只读连接              | 未开始                          | 是                | #2 完成                                                                     | Vercel 运行时使用池化只读连接；迁移与发布使用隔离管理直连，管理凭据不进入 Web 应用环境                                                                                              | `docs/development-roadmap.md` §1.1                                     |
+| 7   | GitHub 秘密扫描启用与验证      | **未完成（既有缺口）**          | 是（仓库设置）    | GitHub 仓库管理权限                                                         | 秘密扫描已启用，且**有生效证据**（非仅配置）                                                                                                                                        | `docs/development-roadmap.md`（「仓库秘密扫描仍待启用并验证」）；D-178 |
+| 8   | Dependabot 状态                | 未核实                          | 否（只读）        | —                                                                           | 状态明确（启用 / 未启用 / 不适用）并记录                                                                                                                                            | D-178                                                                  |
+| 9   | 受保护 Production 工作流       | 未开始                          | 是                | —                                                                           | **人工批准**；绑定已通过检查的具体提交 SHA、迁移清单与数据包校验和；合并 `main` **不**自动发布公开测试环境                                                                          | D-178；`docs/development-roadmap.md` §1.1                              |
+| 10  | Preview 隔离与 PR 分支配额     | 未开始                          | 是                | —                                                                           | Preview 只连隔离临时 Neon 分支；每 PR 最多 1 个 `preview-pr-<编号>`，并行上限 5；PR 合并/关闭后撤销连接并在 24 小时内删除；超额时保留 CI 但不创建预览数据库                         | `docs/development-roadmap.md` §1.1                                     |
+| 11  | 外部 Fork PR 无密钥检查        | 未核实                          | 否（只读）        | —                                                                           | 持有 Neon / Vercel / 发布凭据的工作流**不**执行未受信任的外部代码                                                                                                                   | `docs/development-roadmap.md` §1.1                                     |
+| 12  | 平台配额与降级行为             | 未核实                          | 否（只读）        | —                                                                           | Vercel Hobby 与 Neon Free 的免费额度、**冷启动**、**日志保留**、**告警缺口**逐项核实并记录；**不得宣称生产 SLA**                                                                    | `docs/development-roadmap.md` §1.1                                     |
+| 13  | 跨环境一致性清单               | 未开始                          | 否（只读 + 本地） | —                                                                           | 共同验证 `btree_gist` 可用、无 Neon 专有 API/扩展依赖，以及迁移 / 发布 / 权限 / 查询 / 性能一致                                                                                     | 第 6 节末段                                                            |
+| 14  | 公开发布顺序与回切路径         | 未开始                          | 是                | #1、#2                                                                      | 严格按「扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验」执行；D-155 回切路径已确认（首次无旧发布时复验失败必须停止公开流量并修复，**不得伪造可回切版本**） | 第 5 节；D-154、D-155                                                  |
+
+**盘点结论**：14 项中 **1 项已具备本地机制证据**（#5）、**1 项部分完成**（#3）、**1 项为硬前置且未开始**（#1）、**2 项为既有缺口**（#7 秘密扫描、#8 未核实）、**其余 9 项未开始**。清单中**没有任何一项**可以在不取得用户授权的前提下推进到执行阶段；#3、#8、#11、#12 为只读，可先行。
