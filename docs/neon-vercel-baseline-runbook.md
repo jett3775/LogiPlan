@@ -417,7 +417,15 @@ pnpm neon:baseline -- \
 
 `packages/db` 侧的 `requiredEnvironment()`（`migrate.ts:25`）也只做缺失检查，不校验格式。
 
-**处置建议（未实施，需用户决定）**：把 D-177 的 Zod 校验落到 `apps/web` 的启动路径，至少校验 `DATABASE_URL` 的存在性、协议与角色名；或把 D-177 该条明确窄化为「仅对 CLI 入口生效」。**本轮只记录，不改代码。**
+**处置（2026-09-25 已实施）**：Zod 校验已落到运行时读路径，实现放在 `packages/db/src/runtime-env.ts` 并导出 `readWebRuntimeDatabaseUrl(environment = process.env)`。选择放在 `packages/db` 而非 `apps/web`，是因为该包**已依赖 zod 4.4.3**，因此**无需新增依赖、无需改动 `pnpm-lock.yaml`**。
+
+- 校验协议必须是 `postgresql://` 或 `postgres://`，且**用户名必须是 `app_reader`**。
+- 未配置或为空串时返回 `null`，保持「未配置即不健康」的既有行为（生产构建与 `/api/health/ready` 依赖该行为）。
+- 校验失败时抛错，**错误信息不回显连接串内容**。
+- 三个调用点已改为使用该函数：`app/api/health/ready/route.ts`、`app/api/v1/query/route.ts`、`app/lib/query-server.ts`。
+- 回归测试 9 项（`packages/db/src/runtime-env.test.ts`），并已加入 `vitest.config.ts` 的 `coverage.include`；实测 **100% stmts / branch / funcs / lines**，覆盖率阈值退出码 0。
+
+**仍未覆盖的边界**：该函数只校验角色与协议，**不校验是否使用池化端点**——因为本地开发与 CI 的 `DATABASE_URL` 指向非池化的本地 PostgreSQL，强制要求池化会破坏这两条路径。生产环境必须使用池化端点这一要求仍由第 5.1.3 节的部署核对负责。
 
 #### 5.1.5 禁止项复核
 
@@ -587,7 +595,20 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 - `secret_scanning_non_provider_patterns`（非供应商模式）
 - `secret_scanning_validity_checks`（有效性校验）
 
-仓库为 **public**（`fork: false`，默认分支 `main`）。**启用这四项属外部仓库设置操作，需用户单独授权**，本节未执行。这与 `docs/development-roadmap.md` 中「仓库秘密扫描仍待在外部 GitHub 仓库设置中启用并验证」的记录一致。
+仓库为 **public**（`fork: false`，默认分支 `main`）。**启用这四项属外部仓库设置操作**。这与 `docs/development-roadmap.md` 中「仓库秘密扫描仍待在外部 GitHub 仓库设置中启用并验证」的记录一致。
+
+**启用结果（2026-09-25，经用户单独授权，通过 `PATCH /repos/jett3775/LogiPlan` 的 `security_and_analysis` 字段）**：
+
+| 项                                      | 结果                                                         |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `secret_scanning`                       | **enabled**                                                  |
+| `secret_scanning_push_protection`       | **enabled**                                                  |
+| `secret_scanning_non_provider_patterns` | **仍为 disabled**（PATCH 返回 200 但值未改变，重复尝试亦同） |
+| `secret_scanning_validity_checks`       | **仍为 disabled**（同上）                                    |
+
+**生效证据**：`GET /repos/jett3775/LogiPlan/secret-scanning/alerts` 返回 **0 条**——即扫描已实际运行且仓库历史中未发现泄露的凭据（`.env` 从未被提交，与此一致）。
+
+**未启用两项的说明**：这两项对 API 请求返回成功但不改变状态，**很可能是当前账户/仓库类型的可用性限制**，而非配置错误。它们**不影响核心能力**（秘密扫描与推送保护均已开启）；如需确认，可在仓库 Settings 的安全页面上查看是否存在对应的可开启开关。本节的结论是：**roadmap 中「秘密扫描待启用并验证」这一缺口已关闭**。
 
 ### 10.3 代码扫描（澄清，非缺口）
 
@@ -625,4 +646,4 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 
 `gate1.yml:88` 的 Playwright 产物凭据扫描列出了 `POSTGRES_SUPERUSER_PASSWORD`、`LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`LOGIPLAN_APP_READER_PASSWORD`，但**未包含对应的三个 `NEON_*_PASSWORD` 名字**。
 
-由于同一行的 `postgresql://` 模式仍能捕获实际的连接串，风险较低；但若产物中出现裸的 `NEON_APP_READER_PASSWORD=<值>` 行，该扫描**不会捕获**。建议下一轮把 `NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD` 加入该列表——**属代码改动，需单独批准**。本节只记录，未修改。
+由于同一行的 `postgresql://` 模式仍能捕获实际的连接串，风险较低；但若产物中出现裸的 `NEON_APP_READER_PASSWORD=<值>` 行，该扫描**不会捕获**。**修复（2026-09-25 已实施，经用户单独授权）**：三个 `NEON_*_PASSWORD` 名字已加入 `gate1.yml:88` 的扫描列表，并按角色成组排列——`POSTGRES_SUPERUSER_PASSWORD`、`NEON_SCHEMA_MIGRATOR_PASSWORD` 与 `LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD` 与 `LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD` 与 `LOGIPLAN_APP_READER_PASSWORD`。本地已验证 YAML 可解析且三个 job 完整。
