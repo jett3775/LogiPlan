@@ -647,3 +647,39 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 `gate1.yml:88` 的 Playwright 产物凭据扫描列出了 `POSTGRES_SUPERUSER_PASSWORD`、`LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`LOGIPLAN_APP_READER_PASSWORD`，但**未包含对应的三个 `NEON_*_PASSWORD` 名字**。
 
 由于同一行的 `postgresql://` 模式仍能捕获实际的连接串，风险较低；但若产物中出现裸的 `NEON_APP_READER_PASSWORD=<值>` 行，该扫描**不会捕获**。**修复（2026-09-25 已实施，经用户单独授权）**：三个 `NEON_*_PASSWORD` 名字已加入 `gate1.yml:88` 的扫描列表，并按角色成组排列——`POSTGRES_SUPERUSER_PASSWORD`、`NEON_SCHEMA_MIGRATOR_PASSWORD` 与 `LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD` 与 `LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD` 与 `LOGIPLAN_APP_READER_PASSWORD`。本地已验证 YAML 可解析且三个 job 完整。
+
+## 11. 现有远程部署状态与 E 段前置（2026-09-25 只读核查）
+
+**核查方法**：`gh api` 的 `deployments`、`deployments/{id}/statuses`、`environments` 端点；本地 `.env` 只读取**键名**。**未执行任何远程写。**
+
+### 11.1 现有部署状态（已核实）
+
+| 项                          | 实测值                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| GitHub 记录的部署总数       | **15**（Preview 14 + Production 1）                                                     |
+| **Production 部署**         | **仅 1 次**，2026-09-10，`ref` = `a63a43c`（= `origin/main` 当前 tip），state = success |
+| Preview 部署                | 每次推送自动生成；最新一次对应 `c27d5fe`（本分支 HEAD），state = success                |
+| `main` 是否包含本分支工作   | **否**——本分支领先 `origin/main` **34 个提交**                                          |
+| Vercel Environments         | `Preview` 与 `Production` 均存在                                                        |
+| **`Production` 的保护规则** | **0 条**                                                                                |
+| 仓库 `homepage`             | `https://logi-plan-web.vercel.app`                                                      |
+
+**结论**：Vercel 项目**已存在且与仓库 Git 集成连通**（每次推送自动生成 Preview），因此第 10.5 节中「项目创建」这一项**实际已完成**。但**公开测试环境（Production）仍停留在 2026-09-10 的 `a63a43c`**，落后本分支 34 个提交——第一闸门的全部实现目前**只以 Preview 形式存在**。
+
+### 11.2 三项 E 段阻塞（按优先级）
+
+1. **无远程凭据**：本地 `.env` **只含本地 Compose 凭据**（`POSTGRES_SUPERUSER_PASSWORD`、`LOGIPLAN_*_PASSWORD`，以及指向 localhost 的 `DATABASE_URL` / `MIGRATION_DATABASE_URL` / `PUBLISHER_DATABASE_URL`）。**磁盘上不存在任何 `NEON_*` 或 Vercel 凭据**。因此 `neon-baseline --write`、`db:activate-release` 与 Vercel 配置**都必须由用户在终端或 Vercel UI 执行**。
+2. **Production 缺少人工批准门**：`Production` 的 `protection_rules` 为 **0**，且当前行为是「推送 `main` → 自动部署」。这与冻结要求「合并 `main` **不**自动发布公开测试环境」以及「受保护 Production 工作流必须由人工批准，并绑定已通过检查的具体提交 SHA、迁移清单和数据包校验和」**直接冲突**。第 10.5 节的设计稿尚未实施。**在解决这一冲突之前，不应通过合并 `main` 触发 Production 部署。**
+3. **锚点与 `--write` 的关系被高估**：`db:activate-release` 只要求 `PUBLISHER_DATABASE_URL`（`packages/db/src/activate-release.ts:26`），**不检查工具 SHA**；工具 SHA 只由 `scripts/neon-baseline.mjs` 的写入模式校验。而 2026-09-22 的 prepare 已完成（`status = prepared`、`latest_migration = 0010`、`release_status = VALIDATED`、`active_release = null`），且候选资产自 `0229755` 以来逐字节未变、四项校验和一致。**因此除非要重新执行 prepare，否则不需要重新锚定工具 SHA。**
+
+### 11.3 建议的 E 段顺序（修正原编号）
+
+原 E1—E5 的编号与依赖顺序不一致：`E1`（激活）的前置写的是「E 段前的部署已取得部署标识」，即**部署必须先于激活**。按 D-154 的公开发布顺序修正为：
+
+1. **E2a** Vercel 六项人工核对（Team / Project / Root Directory `apps/web` / Framework Next.js / Node.js 24.x / Function Region `sin1`）——在 Vercel UI 完成，只读。
+2. **E2b** 环境变量分层核对：Production **只**配池化 `DATABASE_URL`，且角色必须是 `app_reader`（**本轮新增的启动校验会在此处生效：角色不对会直接导致构建失败**）；Preview **不得**配置 Production 的 `DATABASE_URL`。见第 5.1 节。
+3. **E2c** 为 Production 配置人工批准门（Environment protection rules + 发布工作流），关闭「推送 `main` 自动发布」。见第 10.5 节。
+4. **E3** 部署：`扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查`。迁移与候选校验已于 2026-09-22 完成且资产未变，本次预计**只需部署应用**。
+5. **E1** 原子激活：`pnpm db:activate-release -- LOGIPLAN_2026_DEMO_V2`（需 `PUBLISHER_DATABASE_URL`，在受控终端执行）。**注意这是数据库写入，不能作为准备入口的隐式后续动作。**
+6. **E4** 激活后复验：`pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟、性能（P95 ≤ 1 s）。
+7. **E5** 回切路径确认（D-155）。
