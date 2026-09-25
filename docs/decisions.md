@@ -2137,3 +2137,23 @@
 - 信任假设：app_reader 凭据仅供受信任查询服务使用；函数验证结构与发布绑定，不在 PostgreSQL 重算应用提交的 Decimal 结果。每次成功查询生成独立快照，容量治理及保留期尚未纳入本切片。
 - 实时与发布保存：普通 V1.1 查询及未绑定快照的 EVIDENCE_LOOKUP 均重新执行确定性查询，经 `persist_query_evidence_snapshot` 每次追加独立快照，不以预生成命中为前提；发布端 `persist_evidence_snapshot` 继续按发布与结果 ID 幂等物化。历史 lookup 只读原快照，不新增快照。
 - 提交边界：活动发布确认、业务事实读取、完整结果校验和实时保存必须使用同一个 client、同一个非 READ ONLY 的 REPEATABLE READ 事务；函数按同一事务视图核对服务传入的发布绑定。保存返回值校验及 COMMIT 成功后才返回成功响应；提交前失败回滚并释放连接，不返回无快照的降级成功。COMMIT 确认丢失时结果未知，不能声称已回滚。运行角色只有专用安全定义函数 EXECUTE 权限，无业务表或快照表直接 DML 权限，PUBLIC 无函数执行权。
+
+## D-188：Gate 1 稳定性的权威证据来源与本地 Windows 环境限制
+
+- 状态：已确认
+- 日期：2026-09-25
+- 背景：Gate 1 在本地 Windows 上长期存在偶发原生崩溃 `3221226505`（`0xC0000005` = `STATUS_ACCESS_VIOLATION`）。2026-09-21、2026-09-22、2026-09-24 三轮均有记录，累计样本崩溃率约 20%（2026-09-24 两批次 10 次执行中 2 次）。崩溃特征：发生在浏览器阶段的启动边界、无用例输出或 0 ms 即失败、`signal = null`、**零断言失败**，且同一批用例在其余执行中全部通过。此前规则为「在消除该不稳定前 Gate 1 不得记为稳定通过」，导致该闸门长期处于「既不能通过、又无决策」的悬置状态。
+- 只读取证结论（2026-09-25，经用户单独授权；仅读取 Windows 事件日志与 WER 报告，**未做任何启动参数或代码改动**）：
+  - Application 日志 Id = 1000 / 1001 共 400 条，覆盖 2026-09-18 → 2026-09-25；其中匹配 `c0000005` 的为 **0 条**。Id = 1000 仅 42 条，故障应用均为与本项目无关的系统或驱动组件（例如 `ipf_helper.exe` 配 `0xc0000409`）。
+  - `C:\ProgramData\Microsoft\Windows\WER\ReportArchive` 中**没有** node.exe、chrome.exe、firefox.exe 或 playwright 的任何报告。
+  - Playwright 的 Chromium profile 目录下**没有** Crashpad 报告。
+  - 2026-09-21 → 09-25 窗口内唯一提到本项目相关进程的 Application 事件是 2026-09-22 10:06:55 的 `RADAR_PRE_LEAK_64`（`node.exe` 24.15.0.0）——这是 Windows 的**资源泄漏预警启发式，不是崩溃**。
+  - WER 未被禁用（`Disabled` 与 `LoggingDisabled` 均未设置），`LocalDumps` 仅对 `WeaselServer.exe` 配置。即 WER 工作正常，但**没有记录到该崩溃**。
+  - 该机器上确有一份浏览器崩溃转储（2026-09-21，`EXCEPTION_ACCESS_VIOLATION_READ`、`crash_address 0x0`、`firefox.exe`），但其 `ProfileDirectory` 为 `eqnm8cyw.default-release`、`URL` 为 `chat.deepseek.com`、模块含用户输入法 `weasel.dll`、会话已运行 9886 s——**判定为用户自己的 Firefox，与 Playwright 捆绑构建（`firefox-1538`）无关**，不得计入本项目证据。
+- 决策：
+  1. **Gate 1 稳定性的权威证据来源为 CI `ubuntu-latest`**，判据为连续 N 次（N ≥ 3）Gate 1 job 全绿；当前已取得连续 6 次（`35984529953`、`35984592984`、`35985477229`、`35986663729`、`35987670886`、`36089908576`）。Linux 上不存在该 Windows 原生崩溃。
+  2. **本地 Windows 执行记录为已记录、已接受的环境限制**，不再作为闸门通过的阻塞条件。理由：崩溃零断言失败、跨三个轮次稳定复现于浏览器阶段启动边界、且 Windows 层面**无任何可归因记录**（无 WER 报告、无 Application Error、无 Crashpad 报告），在批准的只读范围内**无法定位根因**；同时该机器存在与本项目无关的浏览器访问违例崩溃先例。
+  3. **本地重试政策**：本地 Gate 1 命中 `3221226505` 时，必须**保留现场并如实记录**（阶段、错误码、是否有用例输出、耗时、残留检查），随后**原样重跑**；不得掩盖、不得重新计数、不得以「重跑通过」覆盖失败记录。本地结果与 CI 结果必须分别记录，不得合并为单一的「Gate 1 通过」结论。
+  4. **本决策不解除任何其他前置条件**：写入模式仍需重新冻结并独立批准工具 SHA（见 `docs/neon-vercel-baseline-runbook.md` 第 2 节）；公开环境部署与数据激活仍各自需要显式授权。
+- 影响：`docs/development-roadmap.md` 第 0 节「不得记为稳定通过」的措辞按本决策改写为「代码侧验收全部通过 + CI 为稳定性权威证据 + 本地 Windows 为已记录的环境限制」；`docs/neon-vercel-baseline-runbook.md` 第 0.3 节与 `docs/neon-permission-baseline-plan.md` 遗留项 6 同步更新。
+- 未关闭：`3221226505` 的**根因仍未定位**。若后续需要消除，须另行批准采集崩溃转储（例如为 Playwright 的浏览器进程启用 `LocalDumps`）；该改动涉及启动或诊断配置，超出本决策范围。
