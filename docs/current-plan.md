@@ -32,7 +32,7 @@
 | 步      | 内容                                                                                                                                                | 谁做                                    | 验收标准                                                                                                                                                           | 难度 | 思考强度 |
 | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | -------- |
 | **E2a** | Vercel 六项核对：Team `logi-plan` / Project `logi-plan-web` / Root Directory `apps/web` / Framework Next.js / Node.js 24.x / Function Region `sin1` | 你（Vercel UI）                         | 六项逐项确认；**区域必须看部署摘要或 `x-vercel-id`，不能只看设置页**（`vercel.json` 已写 `regions: ["sin1"]`，设置页显示的是项目默认值；若显示 `iad1` 说明未生效） | 低   | `medium` |
-| **E2b** | 环境变量分层核对：Production **只**配池化 `DATABASE_URL`，角色必须 `app_reader`；Preview **不得**配置 Production 的 `DATABASE_URL`                  | 你（Vercel UI）                         | Production 下只有一个数据库变量；**构建成功即自证角色正确**（角色不对会直接构建失败）；池化端点需人工看值                                                          | 中   | `medium` |
+| **E2b** | 环境变量**配置**（**实测当前为空，需从零创建**）：Production **只**加池化 `DATABASE_URL`，角色必须 `app_reader`；Preview / Development **不**加     | 你（Vercel UI）                         | Production 下只有一个数据库变量；**构建成功即自证角色正确**（角色不对会直接构建失败）；池化端点需人工看值                                                          | 中   | `medium` |
 | **E2c** | 关闭 **Settings → Environments → Production → Branch Tracking → 「Auto-assign Custom Production Domains」**                                         | 你（Vercel UI）                         | 开关已关闭；此后推送 `main` 只产生 `Staged` 部署、不对外服务（见 D-189）                                                                                           | 低   | `medium` |
 | **E3**  | 部署：合并 PR（或推送 `main`）→ 产生 **`Staged`** 生产部署                                                                                          | 你 / 我                                 | 出现 `Staged` 状态的生产部署，`ref` = 已通过检查的提交 SHA                                                                                                         | 中   | `medium` |
 | **E3b** | **人工 Promote** 该 `Staged` 部署 → `Current`                                                                                                       | 你（Vercel UI）                         | 部署变为 `Current` 并服务生产域名；**promote 不重建**，验证过的构建即上线构建                                                                                      | 低   | `medium` |
@@ -80,22 +80,43 @@
 - **判据**：显示 `sin1` ✓；显示 `iad1` 说明 `vercel.json` 未生效，需排查。
 - Hobby 计划只允许**单一**区域，所以 `sin1` 这一个值本来就合规。
 
-#### E2b 环境变量核对
+#### E2b 环境变量**配置**（不是核对——实测当前为空）
 
-**页面**：Settings → **Environment Variables**
+**页面**：Settings → **Environment Variables**。**2026-09-25 实测该页为「No Environment Variables Added」**，
+即这些变量**从未被创建过**，因此本步是**从零创建**，不是核对既有配置。
 
-1. **Production** 下与数据库相关的变量**只有一个**：`DATABASE_URL`（勾选 Production）。
-2. **不应存在**（任何环境下）：`MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL`、
-   `NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD`、
-   `LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、
-   `LOGIPLAN_APP_READER_PASSWORD`、`POSTGRES_SUPERUSER_PASSWORD`。
-3. `DATABASE_URL` 的**用户名必须是 `app_reader`**，主机名应含 **`-pooler`**（Neon 池化端点）。
-   - **角色是自证的**：角色不对时 `readWebRuntimeDatabaseUrl()` 会让 **Production 构建直接失败**，
-     错误信息含「用户名必须是 app_reader」。**构建成功 ⇒ 角色正确**，不必抠掩码值。
-   - **池化无法自证**（未做该校验，因为本地与 CI 用非池化的本地 PostgreSQL）。Vercel 敏感变量会掩码；
-     若读不到，去 **Neon 控制台**看该分支的 connection string 更直接。
-4. **Preview** 不应出现 Production 的 `DATABASE_URL`。按冻结要求，Preview 只能连隔离的临时 Neon 分支；
-   隔离环境缺失时应**关闭预览数据访问**，**不得回退**到公开测试库。
+> 先确认 **「Shared」标签页**也是空的——团队级共享变量不会显示在默认的「Project」标签下。
+
+**要做的**：只加**一个**变量。
+
+| 变量名         | 环境                  | 值                                     |
+| -------------- | --------------------- | -------------------------------------- |
+| `DATABASE_URL` | **仅勾选 Production** | Neon **池化**连接串，角色 `app_reader` |
+
+值的形态：`postgresql://app_reader:<密码>@<endpoint-id>-pooler.<region>.aws.neon.tech/<库名>?sslmode=require`
+—— 在 **Neon 控制台**该分支的 Connection Details 里，打开 **Pooled connection** 开关、角色选 `app_reader` 后复制。
+密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
+
+**不要添加**（任何环境下）：`MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL`、
+`NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD`、
+`LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、
+`LOGIPLAN_APP_READER_PASSWORD`、`POSTGRES_SUPERUSER_PASSWORD`。
+
+**Preview / Development 保持不勾选**——这正好满足冻结要求里「隔离环境缺失时关闭预览数据访问、不得回退到
+公开测试库」的 fail-closed 行为。
+
+**自证与不自证**：
+
+- **角色是自证的**：角色不对时 `readWebRuntimeDatabaseUrl()` 会让 **Production 构建直接失败**，
+  错误信息含「用户名必须是 app_reader」。**构建成功 ⇒ 角色正确**，不必抠掩码值。
+- **池化不自证**（未做该校验，因为本地与 CI 用非池化的本地 PostgreSQL），需人工看值或去 Neon 控制台确认。
+
+**期望管理（重要）**：**只加 `DATABASE_URL` 不会让应用显示出数据。** 当前活动发布仍为 `null`
+（V2 只到 `VALIDATED`），在 **E1 激活**之前，`/api/health/ready` 会返回 503「数据库或活动正式版本不可用」。
+这是**预期且正确**的，不是故障。
+
+**页底部**：「Enable access to System Environment Variables」**无需为我们的代码开启**——`apps/web` 的
+`app/` 与 `next.config.ts` 都不引用任何 `VERCEL_*` 变量。
 
 #### E2c 关闭自动发布
 

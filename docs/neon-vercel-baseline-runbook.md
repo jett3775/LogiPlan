@@ -398,7 +398,9 @@ pnpm neon:baseline -- \
 
 #### 5.1.2 结构性结论（比表格更重要）
 
-**Web 应用只读一个数据库变量。** 全仓检索确认，`apps/web` 中引用 `process.env` 的位置**只有三处，且全部是 `DATABASE_URL`**：`app/api/health/ready/route.ts:6`、`app/api/v1/query/route.ts:9`、`app/lib/query-server.ts:28`。因此「管理凭据不得进入 Web 应用环境」不只是约定，而是**代码结构上成立**——Web 侧不存在任何读取 `MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL` 或 `NEON_*_PASSWORD` 的路径。
+**Web 应用只读一个数据库变量，且已不再直接引用 `process.env`。** 自提交 `b1e26c1` 起，`apps/web` 的**全部**环境访问都经由 `readWebRuntimeDatabaseUrl()`（定义在 `packages/db/src/runtime-env.ts`）：三个调用点 `app/api/health/ready/route.ts`、`app/api/v1/query/route.ts`、`app/lib/query-server.ts` 都已改为调用该函数，**`apps/web/app` 下不再出现任何 `process.env` 引用**（全仓检索为空）。因此「管理凭据不得进入 Web 应用环境」不只是约定，而是**代码结构上成立**——Web 侧不存在任何读取 `MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL` 或 `NEON_*_PASSWORD` 的路径。
+
+**`apps/web` 不依赖任何 Vercel 系统环境变量**：`app/` 与 `next.config.ts` 均无 `VERCEL_*` 引用。因此 Environment Variables 页底部的「Enable access to System Environment Variables」**无需为我们的代码开启**。
 
 **两套密码命名空间不可混用**：`LOGIPLAN_*_PASSWORD` 是**本地 Compose 容器内部**的角色初始化密码（`compose.yaml:10-12` 把它们作为 `environment` 传给 Postgres 容器）；`NEON_*_PASSWORD` 是**主机侧工具**用于构造远程连接串的密码（`roleConnections` 的 `passwordEnv`）。名字相近但作用域完全不同。
 
