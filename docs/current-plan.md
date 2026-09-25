@@ -103,19 +103,35 @@
 **已核实的取值**（`docs/neon-permission-baseline-plan.md:90` 与 runbook §0.2/§2 记录，2026-09-22 只读核对
 **对着远端确认过**，非猜测）：
 
-| 片段           | 值                                                                   |
-| -------------- | -------------------------------------------------------------------- |
-| 角色（用户名） | `app_reader`                                                         |
-| 库名           | **`neondb`**                                                         |
-| endpoint ID    | `ep-empty-shape-b35qu1jv`                                            |
-| 区域           | `aws-ap-southeast-1`                                                 |
-| 主机名         | 应为 `<endpoint-id>-pooler.<区域>.aws.neon.tech` —— **含 `-pooler`** |
-| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                        |
-| 查询串         | `?sslmode=require`                                                   |
+| 片段           | 值                                                                 |
+| -------------- | ------------------------------------------------------------------ |
+| 角色（用户名） | `app_reader`                                                       |
+| 库名           | **`neondb`**                                                       |
+| endpoint ID    | `ep-empty-shape-b35qu1jv`                                          |
+| 区域           | `aws-ap-southeast-1`                                               |
+| 主机名         | 应为 `ep-empty-shape-b35qu1jv-pooler.ap-southeast-1.aws.neon.tech` |
+| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                      |
+| 查询串         | `?sslmode=require`                                                 |
 
-> **不要手打主机名**——从 Neon 控制台复制，再逐项核对上表。Neon 的主机名格式可能含额外的计算段
-> （形如 `ep-…-pooler.c-2.<区域>.aws.neon.tech`），**以控制台实际输出为准**。
-> 核对要点：用户名是 `app_reader`、主机含 `-pooler`、库名是 `neondb`、endpoint ID 是 `ep-empty-shape-b35qu1jv`。
+**主机名的推导（三步，均有仓库证据）**：
+
+1. endpoint ID = `ep-empty-shape-b35qu1jv`（runbook §2、`docs/neon-permission-baseline-plan.md:90`）。
+2. **主机名里的区域标签是 `ap-southeast-1`，不是 Neon 的区域标识符 `aws-ap-southeast-1`** ——
+   `scripts/neon-permission-audit.test.mjs:45` 的夹具直接用了我们这台的 endpoint ID：
+   `…@ep-empty-shape-b35qu1jv.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`。
+3. 池化主机 = `<endpoint-id>-pooler.<区域后缀>` —— `scripts/neon-baseline.mjs` 的 `roleHostFromAdmin`
+   正是这样构造的，`scripts/neon-baseline.test.mjs:763` 的夹具印证
+   （`ep-baseline-pooler.ap-southeast-1.aws.neon.tech`）。
+
+**完整值**（唯一需要你填的是密码；仓库与磁盘上**都没有**这个值，且**不应**写进任何文档或聊天）：
+
+```
+postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1jv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+```
+
+> **保存前在 Value 框里核对四点**：用户名 `app_reader`、主机含 `-pooler`、库名 `neondb`、
+> 区域后缀 `ap-southeast-1.aws.neon.tech`。**若 Neon 控制台给出的字符串与上式任何一处不同，以控制台为准**
+> —— 控制台是权威来源，上式是从仓库证据推导的。
 >
 > **保存后若发现填错**：`Secret` 不能读回，但可以**覆盖**该变量的值重新保存。
 > 密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
