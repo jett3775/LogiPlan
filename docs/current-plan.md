@@ -95,7 +95,30 @@
 
 值的形态：`postgresql://app_reader:<密码>@<endpoint-id>-pooler.<region>.aws.neon.tech/<库名>?sslmode=require`
 —— 在 **Neon 控制台**该分支的 Connection Details 里，打开 **Pooled connection** 开关、角色选 `app_reader` 后复制。
-密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
+
+**Type 选 `Secret`**（不要选 `Config`）：这个值里含 `app_reader` 的密码，属于 UI 说明的
+「passwords, API keys, and tokens」。代价是保存后**无法再读回**，因此**必须在保存前**在 Value 框里逐项核对
+（对话框本身是明文显示，保存后才不可读）。
+
+**已核实的取值**（`docs/neon-permission-baseline-plan.md:90` 与 runbook §0.2/§2 记录，2026-09-22 只读核对
+**对着远端确认过**，非猜测）：
+
+| 片段           | 值                                                                   |
+| -------------- | -------------------------------------------------------------------- |
+| 角色（用户名） | `app_reader`                                                         |
+| 库名           | **`neondb`**                                                         |
+| endpoint ID    | `ep-empty-shape-b35qu1jv`                                            |
+| 区域           | `aws-ap-southeast-1`                                                 |
+| 主机名         | 应为 `<endpoint-id>-pooler.<区域>.aws.neon.tech` —— **含 `-pooler`** |
+| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                        |
+| 查询串         | `?sslmode=require`                                                   |
+
+> **不要手打主机名**——从 Neon 控制台复制，再逐项核对上表。Neon 的主机名格式可能含额外的计算段
+> （形如 `ep-…-pooler.c-2.<区域>.aws.neon.tech`），**以控制台实际输出为准**。
+> 核对要点：用户名是 `app_reader`、主机含 `-pooler`、库名是 `neondb`、endpoint ID 是 `ep-empty-shape-b35qu1jv`。
+>
+> **保存后若发现填错**：`Secret` 不能读回，但可以**覆盖**该变量的值重新保存。
+> 密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
 
 **不要添加**（任何环境下）：`MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL`、
 `NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD`、
