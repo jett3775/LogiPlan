@@ -1328,7 +1328,9 @@ body.guide-step-1 [data-guide-target="annual"],
 body.guide-step-2 [data-guide-target="anomaly"],
 body.guide-step-3 [data-guide-target="attribution"],
 body.guide-step-4 [data-guide-target="ai"] {
-  box-shadow: 0 0 0 3px rgba(40, 108, 174, 0.34), var(--shadow);
+  box-shadow:
+    0 0 0 3px rgba(40, 108, 174, 0.34),
+    var(--shadow);
 }
 
 @media (prefers-reduced-motion: reduce) {

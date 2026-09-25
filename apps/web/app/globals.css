@@ -1,5 +1,21 @@
 :root {
   color-scheme: light;
+  --color-bg: #eef2f6;
+  --color-surface: #ffffff;
+  --color-rail: #10263e;
+  --color-text: #162638;
+  --color-muted: #5e6d7d;
+  --color-border: #d7dee7;
+  --color-accent: #1769aa;
+  --color-adverse: #c5522d;
+  --color-adverse-text: #a43c1d;
+  --color-favorable: #19734a;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --radius: 9px;
+  --shadow-xs: 0 1px 2px rgb(20 40 60 / 5%);
+  --desktop-min: 1280px;
   font-family:
     Inter,
     ui-sans-serif,
@@ -8,24 +24,37 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background: #f4f7fb;
-  color: #142033;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  background: var(--color-bg);
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 64px 32px;
-}
-
+button,
 a {
-  color: #0b5cad;
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #ffbf47;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #c7e2fb;
 }

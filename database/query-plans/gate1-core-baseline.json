@@ -1,8 +1,8 @@
 {
-  "baseline_id": "LOGIPLAN_GATE1_CORE_PLANS_PG18_4_V1",
-  "captured_on": "2026-08-20",
+  "baseline_id": "LOGIPLAN_GATE1_CORE_PLANS_PG18_4_V2",
+  "captured_on": "2026-08-25",
   "database": "PostgreSQL 18.4",
-  "source": "fresh isolated release LOGIPLAN_2026_DEMO_V1",
+  "source": "local isolated active release LOGIPLAN_2026_DEMO_V1",
   "acceptance": {
     "single_execution_max_ms": 1000,
     "temp_written_blocks": 0
@@ -17,8 +17,8 @@
         "fulfillment_scenario_fact",
         "scenario_cost_component_fact"
       ],
-      "observed_planning_ms": 0.479,
-      "observed_execution_ms": 1.164,
+      "observed_planning_ms": 0.622,
+      "observed_execution_ms": 1.383,
       "observed_temp_written_blocks": 0
     },
     {
@@ -30,8 +30,46 @@
         "fulfillment_route",
         "variance_attribution_fact"
       ],
-      "observed_planning_ms": 0.442,
-      "observed_execution_ms": 0.716,
+      "observed_planning_ms": 0.72,
+      "observed_execution_ms": 0.924,
+      "observed_temp_written_blocks": 0
+    },
+    {
+      "name": "monthly-cost-trend",
+      "top_node": "Sort",
+      "actual_rows": 24,
+      "required_relations": [
+        "active_data_release",
+        "fixed_cost_scenario_fact",
+        "fulfillment_scenario_fact",
+        "scenario_cost_component_fact",
+        "scenario_version"
+      ],
+      "observed_planning_ms": 1.029,
+      "observed_execution_ms": 2.122,
+      "observed_temp_written_blocks": 0
+    },
+    {
+      "name": "top-adverse-anomalies",
+      "top_node": "Aggregate",
+      "actual_rows": 72,
+      "required_relations": [
+        "active_data_release",
+        "fulfillment_route",
+        "fulfillment_scenario_fact",
+        "scenario_cost_component_fact"
+      ],
+      "observed_planning_ms": 0.693,
+      "observed_execution_ms": 2.104,
+      "observed_temp_written_blocks": 0
+    },
+    {
+      "name": "fixed-cost-breakdown",
+      "top_node": "Aggregate",
+      "actual_rows": 168,
+      "required_relations": ["active_data_release", "fixed_cost_scenario_fact", "scenario_version"],
+      "observed_planning_ms": 0.212,
+      "observed_execution_ms": 0.343,
       "observed_temp_written_blocks": 0
     }
   ]

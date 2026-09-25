@@ -28,3 +28,4 @@ export function getRuntimePoolDefaults(): Readonly<typeof runtimePoolDefaults> {
 
 export { checkReadiness, runDeterministicQuery } from "./query-service";
 export type { DeterministicResult, QueryServiceError } from "./query-service";
+export { readWebRuntimeDatabaseUrl } from "./runtime-env";

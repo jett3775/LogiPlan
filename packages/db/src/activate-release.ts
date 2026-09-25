@@ -1,6 +1,13 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { Client } from "pg";
 
-import { activateRelease, assertActiveRelease } from "./release-store";
+import {
+  activateAndMaterialize,
+  withInitializationCoordinationLock,
+} from "./activate-and-materialize";
+import { exitCodeForTransactionFailure, transactionFailureLogPrefix } from "./transaction-outcome";
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
@@ -21,29 +28,38 @@ async function run(): Promise<void> {
   });
   await client.connect();
   try {
-    const result = await client.query<{ status: string; validation_status: string | null }>(
-      `SELECT status, validation_summary ->> 'status' AS validation_status
-       FROM logiplan.data_release
-       WHERE data_release_id = $1`,
-      [releaseId],
-    );
-    const row = result.rows[0];
-    if (row === undefined) {
-      throw new Error(`发布不存在：${releaseId}`);
-    }
-    if (row.validation_status !== "PASS") {
-      throw new Error(`发布没有通过完整校验：${releaseId}`);
-    }
-    await activateRelease(client, releaseId);
-    await assertActiveRelease(client, releaseId);
-    process.stdout.write(`活动发布已切换为 ${releaseId}\n`);
+    await withInitializationCoordinationLock(client, async () => {
+      const result = await client.query<{ status: string; validation_status: string | null }>(
+        `SELECT status, validation_summary ->> 'status' AS validation_status
+         FROM logiplan.data_release
+         WHERE data_release_id = $1`,
+        [releaseId],
+      );
+      const row = result.rows[0];
+      if (row === undefined) {
+        throw new Error(`发布不存在：${releaseId}`);
+      }
+      if (row.validation_status !== "PASS") {
+        throw new Error(`发布没有通过完整校验：${releaseId}`);
+      }
+      await activateAndMaterialize(client, releaseId);
+      process.stdout.write(`活动发布已原子切换为 ${releaseId}，固定证据已物化\n`);
+    });
   } finally {
     await client.end();
   }
 }
 
-await run().catch((error: unknown) => {
+// 与 publish-release CLI 共用同一套失败归类：写入结果未知必须以 75 结束并带机器可识别前缀，
+// 好让调用方先只读核对再决定是否重试；可确认回滚的失败仍以 1 结束且不带前缀。
+export function reportActivationFailure(error: unknown): void {
   const message = error instanceof Error ? error.message : "未知发布切换错误";
-  process.stderr.write(`发布切换失败：${message}\n`);
-  process.exitCode = 1;
-});
+  process.stderr.write(`${transactionFailureLogPrefix(error)}发布切换失败：${message}\n`);
+  process.exitCode = exitCodeForTransactionFailure(error);
+}
+
+const isMain =
+  process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
+if (isMain) {
+  await run().catch(reportActivationFailure);
+}

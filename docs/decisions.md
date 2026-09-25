@@ -1858,6 +1858,17 @@
 - 计算边界：比例尺、坐标、柱宽、连接线、标签避让和点击区域由无 DOM 依赖的纯函数计算，渲染组件只消费经过验证的图表视图模型；几何函数使用边界、零值、负值、极值和四舍五入样本进行单元测试。
 - 数值权威：SVG 只呈现查询服务返回的确定性金额和标签，不在组件中重新聚合、归因或改变精度；图表、表格、证据对象和 AI 示例继续复用同一结果 ID 与范围。
 - 交互要求：可点击数据标记使用明确的按钮语义或等价键盘操作，具备可见焦点和中文可访问名称；点击、Enter 与 Space 产生相同导航或因素选择结果。
+
+## D-186：以 V1.1 扩展证据精确查询并保持 V1.0 兼容
+
+- 状态：已确认
+- 日期：2026-09-01
+- 版本策略：统一查询端点保持 `POST /api/v1/query`；未携带版本字段的严格请求继续按 V1.0 已冻结语义执行，V1.1 请求必须显式携带 `contract_version = "V1.1"`，成功响应回显实际执行版本。
+- 兼容边界：V1.0 的 `question_type`、`scope`、`metrics`、`group_by`、`top_n`、locale 和上下文来源语义不变，未知字段继续失败；V1.1 是字段级兼容扩展，不新增 `operation` 或改名现有 `question_type`。
+- 证据输入：V1.1 在 `QueryIntent` 顶层增加可选 `evidence_id`；当且仅当 `question_type = "EVIDENCE_LOOKUP"` 时必须提供非空精确 ID，其他查询携带该字段必须失败。
+- 禁止复用：`evidence_id` 不得写入 `metrics`、`scope` 或自由文本后由服务猜测；已知 ID 返回同一范围的不可变证据对象，未知 ID 返回 `EVIDENCE_NOT_FOUND`，不得近似或模糊匹配。
+- 数值口径：证据查询继续引用来源确定性结果的高精度文本、报告值、范围、版本、方法、结果 ID、时间戳和数据源，不从界面显示值反算业务金额。
+- 验证要求：公共严格 schema、查询分派、已知/未知 ID、运行时响应校验、分享链接恢复和证据焦点行为必须有自动化测试；V1.1 未通过这些检查前不得替代 V1.0 作为外部稳定基线。
 - 可访问替代：每张图提供完整的中文标题、范围、口径、单位和摘要，并由页面上的语义表格或可读取明细提供相同核心数值；颜色不得作为区分 Actual、Forecast、Budget 或有利、不利的唯一方式。
 - 视觉验收：继续按方案 B 的尺寸、标签、图例、顺序和交互区域在 1440px 与 1280px 宽度验收，不增加会改变业务理解的动画、三维效果或自动重排。
 - 重评条件：只有后续图表类型、交互复杂度或无障碍维护成本形成可量化瓶颈时，才评估图表库，并单独验证包体、服务端渲染、视觉一致性和许可证影响。
@@ -2103,3 +2114,60 @@
 - 精确解析：`@typescript/typescript6` 包本身精确锁定 6.0.2，其内部 `@typescript/old` 解析由唯一锁文件固定；该兼容 API 的任何变化与 TypeScript 7 升级都必须重新执行 D-183，不使用宽范围重新解析替代锁文件。
 - 验证结果：Node.js 24.15.0 与 pnpm 10.34.5 下，严格冻结安装无 peer 冲突，ESLint 零警告通过，4 个 workspace 的 TypeScript 7 独立检查通过，Vitest 3 个文件共 4 项测试通过，Next.js 生产构建通过且 `/`、`/attribution` 均为动态服务端路由。
 - 失败组合：TypeScript 7.0.2 直接作为 typescript-eslint API、以及 ESLint 10.8.1 配合当前 Next.js 传递插件的组合均已验证失败并禁止冻结；未来只有上游明确支持且重新通过 D-183 后才能移除兼容层或升级 ESLint 主版本。
+
+## D-185：冻结第一闸门覆盖率边界与验证责任
+
+- 状态：已确认
+- 日期：2026-08-27
+- Vitest 边界：Vitest coverage 只把当前 Node/Vitest/Rolldown 工具链可直接解析并执行的正式 `packages/*/src/**/*.ts` 纳入分母；保留 D-178 已确认的 contracts、domain、db 包级阈值，并将可由 Vitest seam 完整执行的 `packages/db/src/diagnostic-metrics.ts` 单独设为行、语句、函数和分支 100%。不通过降低阈值、ignore 注释或空测试制造通过。
+- Web 边界：Next.js App Router 页面入口和 Route Handler 不强行纳入 Node 环境 Vitest 的源码分母。页面语义、键盘、axe、真实 HTTP 查询和生产构建结果由已锁定的 Playwright Gate 1 验收；这不是降低 D-178 Web 行/语句 85%、分支 80% 要求，而是将不适用的执行工具边界显式记录并由浏览器验收负责。
+- 核心查询：`packages/db/src/diagnostic-metrics.ts` 通过窄接口承载诊断 SQL、Decimal 计算、payload、证据和告警，并执行行、语句、函数和分支 100% 的严格门槛；`packages/db/src/query-service.ts` 保留统一校验、分派和错误包装，由 D-178 db 包级门槛及分派/校验测试约束，不再额外施加整文件 100% 门槛。测试必须断言查询 payload、错误契约、版本/事实缺失、范围勾稽和证据绑定等行为，不使用 coverage ignore 或静态占位响应。
+- 数据库责任：迁移、发布装载、发布激活、只读权限、核心 9 题和查询计划不以 Vitest mock 覆盖替代真实验证；统一由从零 PostgreSQL 迁移、正式发布、角色权限、核心查询和 `EXPLAIN`/计划脚本集成验收覆盖。发布脚本的纯辅助映射可以使用行为单测补充，但不能将单测结果表述为数据库发布通过。
+- 追溯要求：CI 与本地回报必须区分 Vitest coverage、真实 PostgreSQL 集成、生产构建和 Playwright 结果；任一边界未执行或受环境阻塞时明确标记未执行，不得合并为一个“覆盖率通过”结论。
+
+## D-187：V1.1 持久化查询证据与历史恢复边界
+
+- 状态：按本切片请求实施；完整浏览器验收及独立审查待完成
+- 日期：2026-09-02
+- 决策：成功的 V1.1 确定性查询在数据库持久化结果快照，证据携带 `evidence_snapshot_id` 和实际 `data_release_id`。只有 EVIDENCE_LOOKUP 允许顶层快照 ID，与既有精确 evidence_id 配合使用；V1.0 输入与输出结构不变。
+- 不可变性：事实读取与保存使用同一 REPEATABLE READ 事务。受控安全定义函数自行生成快照 ID、读取发布，只执行快照 INSERT；运行角色只读快照且不能直接写入业务表。表触发器拒绝更新、删除及清空。参数化历史查询只读 JSON，不重算金额，不随活动发布切换漂移。
+- 错误边界：未知快照或不存在的证据 ID 为 EVIDENCE_NOT_FOUND；存在证据但完整范围不同为 INVALID_FILTER。旧式仅 evidence_id 查询继续解析当前发布，首次成功后取得快照 ID；历史保证从绑定快照开始。
+- 恢复边界：URL 保存两种 ID、完整证据范围及既有页面范围。刷新和分享进入独立历史证据视图，不要求活动发布整页查询成功；不承诺恢复整页历史报表。前进后退重新读取持久快照，不依赖内存缓存或 sessionStorage。
+- 覆盖边界：仅对确定性查询结果快照覆盖 D-042、D-181 中仅保存于会话的限制，并允许 D-186 的 V1.1 可选字段扩展；既有历史决策保留。AI 回答、情景、账户同步、匿名限流与费用控制继续遵循原决策，不在本切片新增。
+- 信任假设：app_reader 凭据仅供受信任查询服务使用；函数验证结构与发布绑定，不在 PostgreSQL 重算应用提交的 Decimal 结果。每次成功查询生成独立快照，容量治理及保留期尚未纳入本切片。
+- 实时与发布保存：普通 V1.1 查询及未绑定快照的 EVIDENCE_LOOKUP 均重新执行确定性查询，经 `persist_query_evidence_snapshot` 每次追加独立快照，不以预生成命中为前提；发布端 `persist_evidence_snapshot` 继续按发布与结果 ID 幂等物化。历史 lookup 只读原快照，不新增快照。
+- 提交边界：活动发布确认、业务事实读取、完整结果校验和实时保存必须使用同一个 client、同一个非 READ ONLY 的 REPEATABLE READ 事务；函数按同一事务视图核对服务传入的发布绑定。保存返回值校验及 COMMIT 成功后才返回成功响应；提交前失败回滚并释放连接，不返回无快照的降级成功。COMMIT 确认丢失时结果未知，不能声称已回滚。运行角色只有专用安全定义函数 EXECUTE 权限，无业务表或快照表直接 DML 权限，PUBLIC 无函数执行权。
+
+## D-188：Gate 1 稳定性的权威证据来源与本地 Windows 环境限制
+
+- 状态：已确认
+- 日期：2026-09-25
+- 背景：Gate 1 在本地 Windows 上长期存在偶发原生崩溃 `3221226505`（`0xC0000005` = `STATUS_ACCESS_VIOLATION`）。2026-09-21、2026-09-22、2026-09-24 三轮均有记录，累计样本崩溃率约 20%（2026-09-24 两批次 10 次执行中 2 次）。崩溃特征：发生在浏览器阶段的启动边界、无用例输出或 0 ms 即失败、`signal = null`、**零断言失败**，且同一批用例在其余执行中全部通过。此前规则为「在消除该不稳定前 Gate 1 不得记为稳定通过」，导致该闸门长期处于「既不能通过、又无决策」的悬置状态。
+- 只读取证结论（2026-09-25，经用户单独授权；仅读取 Windows 事件日志与 WER 报告，**未做任何启动参数或代码改动**）：
+  - Application 日志 Id = 1000 / 1001 共 400 条，覆盖 2026-09-18 → 2026-09-25；其中匹配 `c0000005` 的为 **0 条**。Id = 1000 仅 42 条，故障应用均为与本项目无关的系统或驱动组件（例如 `ipf_helper.exe` 配 `0xc0000409`）。
+  - `C:\ProgramData\Microsoft\Windows\WER\ReportArchive` 中**没有** node.exe、chrome.exe、firefox.exe 或 playwright 的任何报告。
+  - Playwright 的 Chromium profile 目录下**没有** Crashpad 报告。
+  - 2026-09-21 → 09-25 窗口内唯一提到本项目相关进程的 Application 事件是 2026-09-22 10:06:55 的 `RADAR_PRE_LEAK_64`（`node.exe` 24.15.0.0）——这是 Windows 的**资源泄漏预警启发式，不是崩溃**。
+  - WER 未被禁用（`Disabled` 与 `LoggingDisabled` 均未设置），`LocalDumps` 仅对 `WeaselServer.exe` 配置。即 WER 工作正常，但**没有记录到该崩溃**。
+  - 该机器上确有一份浏览器崩溃转储（2026-09-21，`EXCEPTION_ACCESS_VIOLATION_READ`、`crash_address 0x0`、`firefox.exe`），但其 `ProfileDirectory` 为 `eqnm8cyw.default-release`、`URL` 为 `chat.deepseek.com`、模块含用户输入法 `weasel.dll`、会话已运行 9886 s——**判定为用户自己的 Firefox，与 Playwright 捆绑构建（`firefox-1538`）无关**，不得计入本项目证据。
+- 决策：
+  1. **Gate 1 稳定性的权威证据来源为 CI `ubuntu-latest`**，判据为连续 N 次（N ≥ 3）Gate 1 job 全绿；当前已取得连续 6 次（`35984529953`、`35984592984`、`35985477229`、`35986663729`、`35987670886`、`36089908576`）。Linux 上不存在该 Windows 原生崩溃。
+  2. **本地 Windows 执行记录为已记录、已接受的环境限制**，不再作为闸门通过的阻塞条件。理由：崩溃零断言失败、跨三个轮次稳定复现于浏览器阶段启动边界、且 Windows 层面**无任何可归因记录**（无 WER 报告、无 Application Error、无 Crashpad 报告），在批准的只读范围内**无法定位根因**；同时该机器存在与本项目无关的浏览器访问违例崩溃先例。
+  3. **本地重试政策**：本地 Gate 1 命中 `3221226505` 时，必须**保留现场并如实记录**（阶段、错误码、是否有用例输出、耗时、残留检查），随后**原样重跑**；不得掩盖、不得重新计数、不得以「重跑通过」覆盖失败记录。本地结果与 CI 结果必须分别记录，不得合并为单一的「Gate 1 通过」结论。
+  4. **本决策不解除任何其他前置条件**：写入模式仍需重新冻结并独立批准工具 SHA（见 `docs/neon-vercel-baseline-runbook.md` 第 2 节）；公开环境部署与数据激活仍各自需要显式授权。
+- 影响：`docs/development-roadmap.md` 第 0 节「不得记为稳定通过」的措辞按本决策改写为「代码侧验收全部通过 + CI 为稳定性权威证据 + 本地 Windows 为已记录的环境限制」；`docs/neon-vercel-baseline-runbook.md` 第 0.3 节与 `docs/neon-permission-baseline-plan.md` 遗留项 6 同步更新。
+- 未关闭：`3221226505` 的**根因仍未定位**。若后续需要消除，须另行批准采集崩溃转储（例如为 Playwright 的浏览器进程启用 `LocalDumps`）；该改动涉及启动或诊断配置，超出本决策范围。
+
+## D-189：受保护 Production 发布门改用 Vercel 原生 staged production
+
+- 状态：已确认
+- 日期：2026-09-25
+- 背景：`docs/development-roadmap.md` §1.1 冻结要求「合并 `main` **不**自动发布公开测试环境；受保护 Production 工作流必须由人工批准，并绑定已通过检查的具体提交 SHA、迁移清单和数据包校验和」。此前 `docs/neon-vercel-baseline-runbook.md` §10.5 的设计稿设想以自建 GitHub Actions 工作流配合 GitHub Environment required reviewers 实现该门。
+- 决策：**该冻结要求改用 Vercel 原生能力实现，不再自建 GitHub Actions 工作流。** 具体做法是在 Vercel 的 `Settings → Environments → Production → Branch Tracking` 关闭「Auto-assign Custom Production Domains」。
+- 机制：关闭后推送到生产分支只产生 `Staged` 状态的生产部署——**已按 production 环境变量构建，但不绑定域名、不对外服务**；必须**人工 Promote** 才变成 `Current`。**promote 不触发重建**，因此验证过的构建就是上线的构建。状态机为 `Staged` → `Promoted` → `Current`；**已 Promoted 过的部署不能再次 promote，只能 rollback**。
+- 与冻结要求的对应：合并 `main` 不自动发布 → `Staged` 部署不绑域名；必须人工批准 → `Promote` 是显式人工动作；绑定具体提交 SHA → Promote 针对一个具体部署（即一个具体 commit）；D-155 回切 → Instant Rollback 或 Promote 另一个 `Staged` 部署。
+- 取代原设计的理由：① 自建工作流需要把 Vercel token 放进 GitHub secrets，**新增一个凭据面**，与本项目「Vercel 不持有数据库管理凭据」的取向不一致；② **原设计有隐藏漏洞——GitHub Environment 的保护规则只约束 GitHub Actions job，管不到 Vercel 自己的 Git 集成部署**，即使配好 required reviewers，Vercel 仍会在推送 `main` 时自动发布；③ 可失效环节更少，不需要维护工作流，也不需要在 CI 里复算迁移清单与数据包校验和。
+- 附带效果：关闭 auto-assign 后**合并 `main` 变得安全**——它只产生不对外服务的 `Staged` 构建，此前「不敢合并 `main`」的僵局随之解开。
+- 保留约束：公开发布顺序（扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验）不变；「不让任何持有 Neon / Vercel / 发布凭据的工作流执行未经信任的外部代码」继续有效，且现在**结构上自动成立**（本仓库工作流的 `secrets.` 引用为 0 次）。
+- 实施状态：**待用户在 Vercel UI 执行**该开关的关闭。文档未记载该开关是否有 plan 限制，需在 UI 确认 Hobby 下可用；若不可用，退路是 `apps/web/vercel.json` 的 `github.autoAlias: false`（合并产生 Preview，之后 promote 会**重建**），代价是失去「promote 不重建」这一性质。
+- 影响：`docs/neon-vercel-baseline-runbook.md` §10.5 已按本决策改写；`docs/development-roadmap.md` §1.1 的对应句子已加注指向本决策。

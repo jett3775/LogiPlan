@@ -7,6 +7,7 @@ import {
   type DriverFact,
   type LoadedReleaseBundle,
   type PackageValidationSummary,
+  deriveCountryOrderFacts,
   isGate1Comparison,
   isGate1ScenarioType,
 } from "./release-package";
@@ -163,7 +164,13 @@ export async function assertDatabaseSchemaVersion(
   const result = await client.query<{ version: string }>(
     "SELECT logiplan.current_schema_version() AS version",
   );
-  assert(result.rows[0]?.version === expectedVersion, `数据库结构版本不是 ${expectedVersion}`);
+  const actualVersion = result.rows[0]?.version;
+  const backwardCompatible =
+    expectedVersion === "0004" && (actualVersion === "0009" || actualVersion === "0010");
+  assert(
+    actualVersion === expectedVersion || backwardCompatible,
+    `数据库结构版本不是 ${expectedVersion}（当前为 ${actualVersion ?? "UNKNOWN"}）`,
+  );
 }
 
 export async function getReleaseStatus(
@@ -190,6 +197,7 @@ export async function insertReleaseData(
   );
   const supportedVersions = data.versions.filter((row) => isGate1ScenarioType(row.type));
   const versionById = new Map(supportedVersions.map((row) => [row.version_id, row]));
+  const countryOrderFacts = deriveCountryOrderFacts(data);
 
   await bulkInsert(
     client,
@@ -536,6 +544,71 @@ export async function insertReleaseData(
       "source_note",
     ],
     [...fxRows.values()],
+  );
+  const gmvByKey = new Map(
+    data.gmv_facts
+      .filter((row) => isGate1ScenarioType(row.data_type))
+      .map((row) => [`${row.version_id}|${row.month_id}|${row.destination_country_id}`, row]),
+  );
+  await bulkInsert(
+    client,
+    "budget_country_month",
+    [
+      "data_release_id",
+      "scenario_version_id",
+      "month_id",
+      "destination_country_id",
+      "order_qty",
+      "gmv_original_amount",
+      "gmv_currency_code",
+      "gmv_fx_rate_id",
+      "assumption_note",
+      "source_type",
+    ],
+    countryOrderFacts.budget.map((row) => {
+      const key = `${row.scenario_version_id}|${row.month_id}|${row.destination_country_id}`;
+      const gmv = gmvByKey.get(key);
+      assert(gmv !== undefined, `Budget 目的国订单缺少 GMV：${key}`);
+      return [
+        releaseId,
+        row.scenario_version_id,
+        monthDate(row.month_id),
+        row.destination_country_id,
+        row.order_qty,
+        gmv.original_amount,
+        gmv.currency,
+        fxRateId(row.scenario_version_id, row.month_id, gmv.currency),
+        "发布包 country_summary.orders；已与公司订单、目的国占比和线路分摊勾稽",
+        "DEMO_PLANNING_ASSUMPTION",
+      ];
+    }),
+  );
+  await bulkInsert(
+    client,
+    "actual_country_warehouse_fulfillment",
+    [
+      "data_release_id",
+      "scenario_version_id",
+      "month_id",
+      "destination_country_id",
+      "fulfillment_center_id",
+      "order_qty",
+      "carrier_received_month",
+      "source_record_id",
+    ],
+    countryOrderFacts.actual.map((row) => {
+      const key = `${row.scenario_version_id}|${row.month_id}|${row.destination_country_id}|${row.fulfillment_center_id}`;
+      return [
+        releaseId,
+        row.scenario_version_id,
+        monthDate(row.month_id),
+        row.destination_country_id,
+        row.fulfillment_center_id,
+        row.order_qty,
+        monthDate(row.month_id),
+        stableShortId("ORDER", key),
+      ];
+    }),
   );
   await bulkInsert(
     client,
@@ -989,6 +1062,8 @@ export async function validateCandidateInDatabase(
   const releaseId = bundle.manifest.release_version;
   const expectedCounts = packageSummary.gate1_rows;
   const countTables = {
+    budget_country_month: expectedCounts.budget_country_order_facts ?? 0,
+    actual_country_warehouse_fulfillment: expectedCounts.actual_country_warehouse_order_facts ?? 0,
     fulfillment_scenario_fact: expectedCounts.fulfillment_facts ?? 0,
     scenario_cost_component_fact: expectedCounts.cost_component_facts ?? 0,
     fixed_cost_scenario_fact: expectedCounts.fixed_cost_facts ?? 0,
@@ -1126,6 +1201,34 @@ export async function validateCandidateInDatabase(
   assertValue(actualShares.on_time_rate, "0.9616", "E10 准时履约率");
   assertValue(actualShares.maturity_rate, "0.9200", "E10 服务成熟度");
 
+  const orderResult = await client.query<{
+    scenario_type: string;
+    order_qty: string;
+  }>(
+    `SELECT 'BUDGET'::text AS scenario_type, order_qty::text
+     FROM logiplan.budget_country_month
+     WHERE data_release_id = $1
+       AND scenario_version_id = $2
+       AND month_id = DATE '2026-08-01'
+       AND destination_country_id = 'GB'
+     UNION ALL
+     SELECT 'ACTUAL'::text AS scenario_type, sum(order_qty)::text
+     FROM logiplan.actual_country_warehouse_fulfillment
+     WHERE data_release_id = $1
+       AND scenario_version_id = $3
+       AND month_id = DATE '2026-08-01'
+       AND destination_country_id = 'GB'
+     GROUP BY scenario_version_id, month_id, destination_country_id`,
+    [
+      releaseId,
+      bundle.package.metadata.budget_version_id,
+      bundle.package.metadata.actual_version_id,
+    ],
+  );
+  const orders = new Map(orderResult.rows.map((row) => [row.scenario_type, row.order_qty]));
+  assertValue(orders.get("BUDGET"), "4800.0000", "D-102 Budget 目的国真实订单量");
+  assertValue(orders.get("ACTUAL"), "8932.0000", "D-102 Actual 目的国真实订单量");
+
   const warehouseResult = await client.query<{ center: string; variance: string }>(
     `SELECT r.fulfillment_center_id AS center,
        round(
@@ -1184,6 +1287,8 @@ export async function validateCandidateInDatabase(
       E05: expectedFactors,
       E06: { largest_factor: "MIX", amount: factors.MIX ?? "" },
       E07: {
+        budget_order_qty: orders.get("BUDGET") ?? "",
+        actual_order_qty: orders.get("ACTUAL") ?? "",
         budget_air_share: budgetShares.air_share,
         actual_air_share: actualShares.air_share,
         budget_carrier_c_share: budgetShares.carrier_c_share,

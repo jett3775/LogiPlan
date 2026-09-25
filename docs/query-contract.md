@@ -1,8 +1,8 @@
 # LogiPlan AI 确定性查询与证据契约
 
-版本：V1.0
-日期：2026-08-18
-状态：已冻结；正式实现基线
+版本：V1.1
+日期：2026-09-02
+状态：已冻结；V1.0 兼容扩展
 依据：D-037—D-042、D-093—D-125
 
 ## 1. 目标与范围
@@ -22,7 +22,8 @@
 
 ### 1.1 正式 API 传输
 
-- 浏览器触发的查询统一使用 `POST /api/v1/query`，JSON 请求体承载本契约的 `QuestionType + AnalysisScope`。
+- 浏览器触发的查询统一使用 `POST /api/v1/query`。V1.1 JSON 请求体必须包含 `contract_version: "V1.1"`，响应回显实际执行的 `contract_version`。
+- 未携带版本字段的严格 V1.0 请求继续按原有 `QuestionType + AnalysisScope` 语义执行；V1.0 不支持按 `evidence_id` 查询。
 - Next.js 服务端渲染直接调用同一查询服务函数，不通过内部 HTTP 请求自身端点。
 - Route Handler 只处理传输解析与 JSON 序列化；输入校验、查询、精度、错误和证据逻辑均由共享查询服务执行。
 - 第一闸门不创建驾驶舱、归因或证据侧栏专用业务查询端点。
@@ -105,38 +106,62 @@ type QuestionType =
 
 interface QueryIntent {
   question_type: QuestionType;
+  contract_version?: "V1.1";
   scope: AnalysisScope;
   metrics: string[];
   group_by: Dimension[];
   top_n?: number;
   output_locale: "zh-CN";
   context_sources: Array<"USER" | "PAGE_VISIBLE_STATE" | "FIXED_TEMPLATE">;
+  evidence_id?: string;
+  evidence_snapshot_id?: string;
 }
 ```
 
 原型不执行自然语言解析，直接使用经过校验的固定 `QueryIntent`。正式应用中模型只生成候选意图，必须通过枚举、范围、版本、维度和 `top_n` 校验后才能执行。
 
+### 4.1 V1.0/V1.1 兼容边界
+
+- 未版本化请求只允许 V1.0 已冻结字段，未知字段仍由严格 schema 拒绝，既有查询语义不变。
+- V1.1 请求必须显式携带 `contract_version = "V1.1"`，不得以 HTTP 路径隐式推断请求版本。
+- `question_type = "EVIDENCE_LOOKUP"` 时 `evidence_id` 必填且必须为非空精确 ID；不存在时返回 `EVIDENCE_NOT_FOUND`，不得模糊匹配。
+- 其他 `question_type` 出现 `evidence_id` 必须校验失败；不得把证据 ID 塞入 `metrics` 或 `scope`。
+- 成功响应回显实际执行的 `contract_version`；V1.0 响应为 `"V1.0"`，V1.1 响应为 `"V1.1"`。
+
+### 4.2 持久化历史查询证据（D-187）
+
+V1.1 的 `EVIDENCE_LOOKUP` 可额外提供顶层 `evidence_snapshot_id`，与必填的 `evidence_id` 配合使用。快照 ID 为 1—240 字符、无首尾空格的非空文本；其他查询不得携带。两种 ID 均不得借用 `metrics` 或 `scope`。V1.0 请求及其证据输出保持原结构。
+
+V1.1 成功查询的每个证据对象增加 `evidence_snapshot_id` 和 `data_release_id`。查询服务在同一个 REPEATABLE READ 事务内读取活动发布、执行查询并调用受控数据库函数保存完整确定性结果；提交后才返回快照标识。函数自行读取发布并生成 ID，只向快照表插入，不授予 `app_reader` 基础业务表或快照表的写权限。快照表禁止 UPDATE、DELETE、TRUNCATE。
+
+普通 V1.1 及未绑定快照的 EVIDENCE_LOOKUP 使用同一个数据库连接完成上述非 READ ONLY 事务，调用专用 `persist_query_evidence_snapshot`。每次成功实时查询追加独立快照，即使查询意图与 `result_id` 相同，快照 ID 仍不同；预生成物化命中不能绕过查询和保存。发布端保留独立幂等物化函数，历史 lookup 不新增快照。完整结果及保存返回值校验、COMMIT 成功后才返回 200；失败按既有错误契约处理，不降级为缺少快照的 V1.1 成功。提交确认丢失不得表述为已回滚。此保存路径仅适用于 V1.1，V1.0 不写实时快照。
+
+指定快照的 lookup 只读取持久化 JSON，保留证据值、来源结果、生成时间、原始范围和实际数据发布，不重新查询业务事实。未知快照或快照中不存在的精确证据 ID 返回 `EVIDENCE_NOT_FOUND`；找到证据后，完整请求范围与保存范围不同返回 `INVALID_FILTER`。活动发布不同或缺失时增加 `HISTORICAL_VERSION` 提示。仅带旧式 `evidence_id` 的请求仍按现有映射首次查询当前发布，并返回新快照；此类未绑定快照的旧链接不承诺历史复现。
+
+证据打开后 URL 保存 `evidence_id`、`evidence_snapshot_id`、`evidence_scope`（完整 AnalysisScope 的 JSON），同时保留现有页面范围与路径参数。证据范围可以独立于页面随后选择的因素；服务端严格校验的是 `evidence_scope`。刷新或分享带快照链接直接进入历史数字证据视图，不依赖当前驾驶舱或归因查询成功，不恢复整页历史报表，也不在 Web 重算金额。关闭清除三个证据参数；前进后退按地址重新读取持久快照。
+
 ## 5. 首批查询操作
 
-| 操作 | 主要输入 | 主要输出 | 原型 |
-|---|---|---|---|
-| `DASHBOARD_OVERVIEW` | 全年公司范围 | 6 个 KPI、Budget、Latest Outlook、差异 | 必做 |
-| `MONTHLY_COST_TREND` | 全年月度范围 | 12 月 Budget、Actual/Forecast、结账分界 | 必做 |
-| `TOP_ADVERSE_ANOMALIES` | 月份 × 目的国 | Top 5、当前/基准、差异率、不利贡献占比 | 必做 |
-| `FIXED_COST_BREAKDOWN` | 全年公司范围 | 类别 → 发货仓/共享层 | 必做 |
-| `WAREHOUSE_VARIANCE_CONTEXT` | 2026-08、公司范围 | 发货仓当前值、基准值、差异及公司总计 | 必做 |
-| `COUNTRY_VARIANCE_SUMMARY` | 2026-08、GB | 成本摘要与诊断指标 | 必做 |
-| `ATTRIBUTION_BRIDGE` | 2026-08、GB、CHAIN | Budget 起点、五因素、Actual 终点 | 必做 |
-| `ATTRIBUTION_DRILLDOWN` | 固定路径和可选因素 | 父子行、原始成本、差异、贡献、证据 | 必做 |
-| `DIAGNOSTIC_METRICS` | 2026-08、GB | 订单、结构、服务和成熟度比较 | 必做 |
-| `EVIDENCE_LOOKUP` | `evidence_id` | 不可变证据对象 | 必做 |
-| `MANAGEMENT_ANALYSIS` | 确定性结果集合 | 五段结构化回答 | 固定示例 |
+| 操作                         | 主要输入           | 主要输出                                | 原型     |
+| ---------------------------- | ------------------ | --------------------------------------- | -------- |
+| `DASHBOARD_OVERVIEW`         | 全年公司范围       | 6 个 KPI、Budget、Latest Outlook、差异  | 必做     |
+| `MONTHLY_COST_TREND`         | 全年月度范围       | 12 月 Budget、Actual/Forecast、结账分界 | 必做     |
+| `TOP_ADVERSE_ANOMALIES`      | 月份 × 目的国      | Top 5、当前/基准、差异率、不利贡献占比  | 必做     |
+| `FIXED_COST_BREAKDOWN`       | 全年公司范围       | 类别 → 发货仓/共享层                    | 必做     |
+| `WAREHOUSE_VARIANCE_CONTEXT` | 2026-08、公司范围  | 发货仓当前值、基准值、差异及公司总计    | 必做     |
+| `COUNTRY_VARIANCE_SUMMARY`   | 2026-08、GB        | 成本摘要与诊断指标                      | 必做     |
+| `ATTRIBUTION_BRIDGE`         | 2026-08、GB、CHAIN | Budget 起点、五因素、Actual 终点        | 必做     |
+| `ATTRIBUTION_DRILLDOWN`      | 固定路径和可选因素 | 父子行、原始成本、差异、贡献、证据      | 必做     |
+| `DIAGNOSTIC_METRICS`         | 2026-08、GB        | 订单、结构、服务和成熟度比较            | 必做     |
+| `EVIDENCE_LOOKUP`            | `evidence_id`      | 不可变证据对象                          | 必做     |
+| `MANAGEMENT_ANALYSIS`        | 确定性结果集合     | 五段结构化回答                          | 固定示例 |
 
 ## 6. 通用确定性结果
 
 ```ts
 interface DeterministicResult<T> {
   result_id: string;
+  contract_version: "V1.0" | "V1.1";
   query_intent: QueryIntent;
   scope_label: string;
   data_as_of: string;
@@ -219,6 +244,8 @@ interface DecimalValue {
 ```ts
 interface EvidenceObject {
   evidence_id: string;
+  evidence_snapshot_id?: string; // V1.1 成功持久化后提供
+  data_release_id?: string; // 该证据实际读取的发布
   metric: string;
   value: string;
   unit: string;
@@ -288,6 +315,8 @@ interface RichSection {
   &method=CHAIN
   &factor=MIX              # 可选
   &evidence_id=...         # 可选
+  &evidence_snapshot_id=... # 打开持久证据后保存
+  &evidence_scope=...      # URL 编码后的完整证据查询范围
 ```
 
 原型使用 `view=dashboard|attribution` 模拟页面导航，固定采用方案 B“分析工作台侧轨”；业务范围保持固定。
@@ -360,19 +389,19 @@ interface InfrastructureError {
 
 ## 13. 核心固定结果
 
-| 结果 | 4 位报告值 |
-|---|---:|
+| 结果                           |          4 位报告值 |
+| ------------------------------ | ------------------: |
 | 全年 Latest Outlook 物流总成本 | 18,327,462.9382 CNY |
-| 年度 Budget 物流总成本 | 16,197,761.9712 CNY |
-| 全年不利差异 | 2,129,700.9671 CNY |
-| 8 月英国 Actual 履约变动成本 | 891,643.2815 CNY |
-| 8 月英国 Budget 履约变动成本 | 317,169.0583 CNY |
-| 8 月英国不利差异 | 574,474.2232 CNY |
-| 结构因素 | 324,207.8221 CNY |
-| 量因素 | 85,239.1844 CNY |
-| 效率因素 | 64,558.2789 CNY |
-| 价因素 | 79,960.1574 CNY |
-| 汇率因素 | 20,508.7803 CNY |
+| 年度 Budget 物流总成本         | 16,197,761.9712 CNY |
+| 全年不利差异                   |  2,129,700.9671 CNY |
+| 8 月英国 Actual 履约变动成本   |    891,643.2815 CNY |
+| 8 月英国 Budget 履约变动成本   |    317,169.0583 CNY |
+| 8 月英国不利差异               |    574,474.2232 CNY |
+| 结构因素                       |    324,207.8221 CNY |
+| 量因素                         |     85,239.1844 CNY |
+| 效率因素                       |     64,558.2789 CNY |
+| 价因素                         |     79,960.1574 CNY |
+| 汇率因素                       |     20,508.7803 CNY |
 
 五个已显示到 4 位小数的因素直接相加存在 0.0001 CNY 报告尾差；高精度合计与 574,474.2232 CNY 严格勾稽。
 
@@ -380,15 +409,15 @@ interface InfrastructureError {
 
 ## 14. 原型验收映射
 
-| 评估题 | 查询操作 | 页面位置 |
-|---|---|---|
-| E01 | `COUNTRY_VARIANCE_SUMMARY` | 归因页三张成本摘要卡 |
-| E04 | `DASHBOARD_OVERVIEW` | 驾驶舱 KPI |
-| E05、E06 | `ATTRIBUTION_BRIDGE` | 瀑布图与 AI |
-| E07 | `DIAGNOSTIC_METRICS` | 诊断指标带 |
-| E08 | `WAREHOUSE_VARIANCE_CONTEXT` | 驾驶舱“8 月公司发货仓差异” |
-| E09 | `ATTRIBUTION_DRILLDOWN` | 英国归因页成本类别下钻 |
-| E10 | `DIAGNOSTIC_METRICS` | 服务成熟度与 AI 限制 |
-| E20 | 错误契约 | AI 限制和数据粒度说明 |
+| 评估题   | 查询操作                     | 页面位置                   |
+| -------- | ---------------------------- | -------------------------- |
+| E01      | `COUNTRY_VARIANCE_SUMMARY`   | 归因页三张成本摘要卡       |
+| E04      | `DASHBOARD_OVERVIEW`         | 驾驶舱 KPI                 |
+| E05、E06 | `ATTRIBUTION_BRIDGE`         | 瀑布图与 AI                |
+| E07      | `DIAGNOSTIC_METRICS`         | 诊断指标带                 |
+| E08      | `WAREHOUSE_VARIANCE_CONTEXT` | 驾驶舱“8 月公司发货仓差异” |
+| E09      | `ATTRIBUTION_DRILLDOWN`      | 英国归因页成本类别下钻     |
+| E10      | `DIAGNOSTIC_METRICS`         | 服务成熟度与 AI 限制       |
+| E20      | 错误契约                     | AI 限制和数据粒度说明      |
 
-数字、勾稽、页面状态、证据侧栏和核心 9 题已经通过 D-124 验收，本契约于 2026-08-18 冻结为 V1.0。后续任何字段、语义、结果结构、错误代码或证据规则变更必须创建新契约版本并执行兼容性评估与回归测试，不得静默覆盖 V1.0。
+数字、勾稽、页面状态、证据侧栏和核心 9 题已经通过 D-124 验收；本文件在 2026-09-01 以 D-186 扩展为 V1.1，2026-09-02 以 D-187 明确允许在 V1.1 增加可选快照输入和证据发布元数据。此例外仅适用于本次持久化查询证据切片，仍需兼容回归；V1.0 继续作为未版本化请求的兼容基线。其他字段或语义变更仍须版本决策，不得静默覆盖 V1.0。
