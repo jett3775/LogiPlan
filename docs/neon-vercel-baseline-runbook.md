@@ -563,3 +563,66 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 **本项目的设计已经把风险隔离**：advisory 锁只由**迁移、发布、激活**三个入口使用，而这三个入口按 `docs/neon-vercel-baseline-runbook.md` 第 1 节走**管理直连**；`app_reader` 的池化连接只做只读查询与 REPEATABLE READ 事务（事务模式下事务期间连接被固定，因此 REPEATABLE READ 成立）。仓库已有测试断言「管理和发布必须直连，运行角色必须池化」。
 
 **因此部署时必须确认**：三个写入入口实际使用的连接串是**直连**而非池化。若误用池化端点，advisory 锁会**静默失效**——这是把「本地通过」误当成「Neon 通过」最可能的路径，且失效时不会报错。
+
+## 10. GitHub 侧安全与发布治理（P5，2026-09-25）
+
+本节只含**只读核查**与**设计稿**。任何仓库设置改动（启用秘密扫描等）属外部操作，需用户单独授权，本节**未执行**。
+
+### 10.1 Dependabot 状态（已核实）
+
+| 项                                                  | 状态             | 依据                                                                                                                                              |
+| --------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/dependabot.yml` 配置文件                   | **存在且已配置** | npm 与 github-actions 两个生态，每周一，`open-pull-requests-limit: 5`                                                                             |
+| Dependabot **告警**（vulnerability alerts）         | **已禁用**       | `GET /repos/jett3775/LogiPlan/vulnerability-alerts` → **404**                                                                                     |
+| Dependabot **安全更新**（automated security fixes） | **已禁用**       | `GET .../automated-security-fixes` → `{"enabled": false, "paused": false}`；`security_and_analysis.dependabot_security_updates.status = disabled` |
+
+**必须区分两件事**：`dependabot.yml` 只控制**版本更新**（按计划开 PR）；**告警**与**安全更新**是**仓库级设置**，与配置文件无关，当前**均为关闭**。因此现状是「会定期开版本升级 PR，但不会因已知漏洞告警或自动修复」。
+
+### 10.2 秘密扫描状态（已核实，启用需授权）
+
+`GET /repos/jett3775/LogiPlan` 的 `security_and_analysis` 四项**全部为 `disabled`**：
+
+- `secret_scanning`（秘密扫描）
+- `secret_scanning_push_protection`（推送保护）
+- `secret_scanning_non_provider_patterns`（非供应商模式）
+- `secret_scanning_validity_checks`（有效性校验）
+
+仓库为 **public**（`fork: false`，默认分支 `main`）。**启用这四项属外部仓库设置操作，需用户单独授权**，本节未执行。这与 `docs/development-roadmap.md` 中「仓库秘密扫描仍待在外部 GitHub 仓库设置中启用并验证」的记录一致。
+
+### 10.3 代码扫描（澄清，非缺口）
+
+`GET .../code-scanning/default-setup` 返回 `{"state": "not-configured"}`，但这**不是缺口**：CodeQL 已在 `gate1.yml` 的 `codeql` job 中以 **advanced setup** 运行（`github/codeql-action/init` + `analyze`，`languages: javascript-typescript`），CI 中可见「CodeQL JavaScript and TypeScript」job 通过。默认设置未配置只是因为采用了工作流方式。
+
+### 10.4 外部 Fork PR 安全性（已核实，结论：结构上安全）
+
+| 检查                                                              | 结果                                                                                                            |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 是否使用 `pull_request_target` 或 `workflow_run`（fork 提权风险） | **无**                                                                                                          |
+| 工作流中 `secrets.` 引用次数                                      | **0 次**——即**没有任何工作流持有凭据**                                                                          |
+| checkout 是否禁用凭据持久化                                       | 三处全部 `persist-credentials: false`                                                                           |
+| 工作流级权限                                                      | `permissions: {contents: read}`（最小）                                                                         |
+| job 级权限                                                        | `dependency-review`：`contents: read`；`codeql`：`contents: read` + `packages: read` + `security-events: write` |
+| 第三方 action 是否固定 SHA                                        | **全部固定为 commit SHA**（非 tag）                                                                             |
+| 触发条件                                                          | `pull_request`（全部）+ `push` 仅 `main`                                                                        |
+
+**结论**：当前唯一的 workflow **不持有任何凭据**，且无 `pull_request_target`/`workflow_run`，因此外部 Fork PR **不可能触及密钥**——「外部 Fork PR 只运行无密钥检查」这一要求在结构上已经满足，而不是靠条件判断兜住。
+
+### 10.5 受保护 Production 工作流（设计稿，**未实施**）
+
+按 `docs/development-roadmap.md` §1.1 与 D-178 的要求，设计要点如下：
+
+1. **触发**：仅 `workflow_dispatch` 手动触发；**不在 `main` 合并时自动发布**。
+2. **人工批准**：使用 GitHub **Environment**（如 `production`）配置 required reviewers，job 声明 `environment: production`，未批准不进入执行。
+3. **SHA 绑定**：输入参数 `approved_sha`，job 第一步断言 `github.sha == inputs.approved_sha`，不等即失败——**绑定已通过检查的具体提交**。
+4. **迁移清单与数据包校验和绑定**：输入 `migrations_digest` 与 `release_package_sha256`，job 内用 `sha256sum` 复算并与输入比对，不等即失败。
+5. **权限最小化**：`permissions: {contents: read}`；发布凭据（`PUBLISHER_DATABASE_URL`）只经 Environment secrets 注入，且**绝不进入任何由 PR 触发的 job**。
+6. **发布顺序**：扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查 → 原子激活 → 核心复验；任一阶段失败即停止。
+7. **禁止项**：不让任何持有 Neon / Vercel / 发布凭据的工作流执行未经信任的外部代码。
+
+**未实施原因**：需要 Vercel 与 Neon 凭据、Environment 配置以及受保护分支规则，**全部属外部设置操作**，需用户授权。
+
+### 10.6 本轮发现的一处小缺口（P2，未修复）
+
+`gate1.yml:88` 的 Playwright 产物凭据扫描列出了 `POSTGRES_SUPERUSER_PASSWORD`、`LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`LOGIPLAN_APP_READER_PASSWORD`，但**未包含对应的三个 `NEON_*_PASSWORD` 名字**。
+
+由于同一行的 `postgresql://` 模式仍能捕获实际的连接串，风险较低；但若产物中出现裸的 `NEON_APP_READER_PASSWORD=<值>` 行，该扫描**不会捕获**。建议下一轮把 `NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD` 加入该列表——**属代码改动，需单独批准**。本节只记录，未修改。
