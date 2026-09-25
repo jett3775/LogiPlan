@@ -373,6 +373,56 @@ pnpm neon:baseline -- \
 
 `pnpm db:verify-release` 验证仓库固定的 V1→V2 升级与事务回切，要求数据库中同时存在 V1 和 V2。它由本地隔离 Gate 1 流程覆盖，不适用于只装载 V2 的首次远程基线。
 
+### 5.1 环境变量分层表（P4，2026-09-25）
+
+**核实方法**：全仓检索 `process.env.*` 与 `process.env[name]`，并读 `scripts/neon-baseline.mjs:32-51` 的 `roleConnections`。**本节不含任何凭据值。**
+
+#### 5.1.1 分层表
+
+| 变量名                                                                                                                                       | 作用域                                                                                       | 允许值来源                                     | 禁止项                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                                                                                               | **Vercel Production 运行时**（亦为本地开发与 CI 的读路径）                                   | Neon **池化**端点；角色**必须**是 `app_reader` | 不得使用直连端点；不得使用 `schema_migrator` / `data_publisher` / `neondb_owner` 等管理角色 |
+| `MIGRATION_DATABASE_URL`                                                                                                                     | 迁移入口（`packages/db` 的 migrate CLI，在**受控主机**上运行）                               | Neon **直连**端点；角色 `schema_migrator`      | **不得**配置到 Vercel 的任何环境                                                            |
+| `PUBLISHER_DATABASE_URL`                                                                                                                     | 发布与激活入口（publish-release / activate-release CLI，在**受控主机**上运行）               | Neon **直连**端点；角色 `data_publisher`       | **不得**配置到 Vercel 的任何环境                                                            |
+| `NEON_SCHEMA_MIGRATOR_PASSWORD`                                                                                                              | Neon 基线工具，仅用于构造 `MIGRATION_DATABASE_URL`                                           | Neon 管理直连的主机与隐藏密码                  | **不得**配置到 Vercel；不得写入仓库                                                         |
+| `NEON_DATA_PUBLISHER_PASSWORD`                                                                                                               | 同上，构造 `PUBLISHER_DATABASE_URL`                                                          | 同上                                           | 同上                                                                                        |
+| `NEON_APP_READER_PASSWORD`                                                                                                                   | 同上，构造 `DATABASE_URL`                                                                    | 同上                                           | 同上                                                                                        |
+| `LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、`LOGIPLAN_APP_READER_PASSWORD`                                      | **本地 Docker Compose 的 PostgreSQL 容器内部**（`compose.yaml:10-12`），由容器用于初始化角色 | 本地开发占位值（见 `.env.example`）            | **不是**远程凭据；**不得**与上面的 `NEON_*` 混用                                            |
+| `POSTGRES_SUPERUSER_PASSWORD`                                                                                                                | 本地 Compose 的超级用户（仅本地）                                                            | 本地开发占位值                                 | 不得用于远程                                                                                |
+| `LOGIPLAN_NEON_PROJECT_NAME`、`_PROJECT_ID`、`_REGION`、`_BRANCH_NAME`、`_BRANCH_ID`、`_POSTGRES_VERSION`                                    | Neon 基线工具的**非秘密**目标元数据                                                          | 仓库冻结值（第 1 节）                          | 非秘密，但同样不得配置到 Vercel                                                             |
+| `LOGIPLAN_APPROVED_TOOLING_SHA`                                                                                                              | `--write` 的独立批准（`validateToolingApproval`）                                            | 用户按值给出                                   | 不得配置到 Vercel                                                                           |
+| `LOGIPLAN_PUBLISH_MODE`                                                                                                                      | 发布入口（`publish-release.ts:32`）                                                          | `activate`（默认）或 `validate-only`           | 不得配置到 Vercel；**不要在普通终端遗留该变量**                                             |
+| `MIGRATION_DIRECTORY`、`RELEASE_MANIFEST`                                                                                                    | 迁移与发布入口的可选覆盖路径                                                                 | 仓库内路径                                     | 不得配置到 Vercel                                                                           |
+| `LOGIPLAN_GATE1_TARGET`、`_REPEAT`、`_ITERATION`、`_TIMELINE_FILE`                                                                           | 仅 Gate 1 编排脚本（定向重复与时间线埋点）                                                   | 测试用途                                       | 不得配置到 Vercel                                                                           |
+| `NEON_BASELINE_TEST_DOCKER`、`NEON_BASELINE_TEST_POSTGRES_IMAGE`、`SNAPSHOT_TEST_*`、`ISSUE6_TEST_BASE_URL`、`LOGIPLAN_PERF_*`、`DOCKER_CLI` | 仅测试与性能脚本                                                                             | 测试用途                                       | 不得配置到 Vercel                                                                           |
+
+#### 5.1.2 结构性结论（比表格更重要）
+
+**Web 应用只读一个数据库变量。** 全仓检索确认，`apps/web` 中引用 `process.env` 的位置**只有三处，且全部是 `DATABASE_URL`**：`app/api/health/ready/route.ts:6`、`app/api/v1/query/route.ts:9`、`app/lib/query-server.ts:28`。因此「管理凭据不得进入 Web 应用环境」不只是约定，而是**代码结构上成立**——Web 侧不存在任何读取 `MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL` 或 `NEON_*_PASSWORD` 的路径。
+
+**两套密码命名空间不可混用**：`LOGIPLAN_*_PASSWORD` 是**本地 Compose 容器内部**的角色初始化密码（`compose.yaml:10-12` 把它们作为 `environment` 传给 Postgres 容器）；`NEON_*_PASSWORD` 是**主机侧工具**用于构造远程连接串的密码（`roleConnections` 的 `passwordEnv`）。名字相近但作用域完全不同。
+
+#### 5.1.3 Preview 与 PR 分支规则
+
+- Preview **不配置** Production 的 `DATABASE_URL`。
+- Preview 只能连接**隔离的临时 Neon 分支**；隔离环境缺失或失败时**关闭预览数据访问**，**禁止回退**到公开测试数据库。
+- 每个开放 PR 最多一个 `preview-pr-<编号>` 分支，并行上限 5；PR 合并或关闭后撤销连接并在 24 小时内删除；超额时保留 CI 但**不创建**预览数据库。
+- 与 Neon Free 配额的相容性：每项目 10 个分支，5 并行 + `main` = 6，**余量足够**（见第 8.2 节）。
+
+#### 5.1.4 本轮发现的一处缺口（未修复，需单独决定）
+
+`docs/decisions.md` D-177 要求「服务器端使用 Zod 在启动或首次使用前集中校验」。实际核查：**`apps/web` 全目录没有任何 zod 引用（0 个文件）**，`DATABASE_URL` 只做真值判断（`process.env.DATABASE_URL ? createReadOnlyPool(...) : null`）。
+
+**后果**：格式错误、或指向**错误角色**的 `DATABASE_URL` **不会在启动时被拒绝**，而是推迟到首次查询才失败；若它指向了直连端点，也不会有任何告警——这与第 9.3 节的 advisory 锁风险**同源**，都属于「配置错了不会响」这一类。
+
+`packages/db` 侧的 `requiredEnvironment()`（`migrate.ts:25`）也只做缺失检查，不校验格式。
+
+**处置建议（未实施，需用户决定）**：把 D-177 的 Zod 校验落到 `apps/web` 的启动路径，至少校验 `DATABASE_URL` 的存在性、协议与角色名；或把 D-177 该条明确窄化为「仅对 CLI 入口生效」。**本轮只记录，不改代码。**
+
+#### 5.1.5 禁止项复核
+
+`.env` 已被 `.gitignore:6` 忽略（`.gitignore:9` 以 `!.env.example` 保留示例），`git ls-files` 只跟踪 `.env.example`——**仓库内无凭据泄露**。`.env.example` 只含本地占位值，并已注明「不用于公开部署」。
+
 ## 6. 重复执行与恢复
 
 - 角色、迁移和已校验候选均支持重复入口检查；已执行迁移必须保持原校验和。
