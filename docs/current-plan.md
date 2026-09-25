@@ -48,6 +48,71 @@
 
 ---
 
+### 2.1 E2 操作指引（Vercel UI，逐项）
+
+**入口**：`https://vercel.com/logi-plan/logi-plan-web/settings`
+
+先用左侧边栏顶部的 **scope 切换器**确认当前 scope 是 **`logi-plan`**；页面包屑应显示 `logi-plan / logi-plan-web`。
+三处设置都在同一个 Settings 里，**一次进去可全部过掉**。
+
+#### E2a 六项核对
+
+| #   | 项               | 页面                                            | 期望值                         |
+| --- | ---------------- | ----------------------------------------------- | ------------------------------ |
+| 1   | Team             | 侧栏 scope 切换器 / 页面包屑                    | `logi-plan`                    |
+| 2   | Project          | 页面包屑第二段                                  | `logi-plan-web`                |
+| 3   | Root Directory   | Settings → **General**                          | `apps/web`（不是空、不是 `/`） |
+| 4   | Framework Preset | Settings → **General**                          | `Next.js`                      |
+| 5   | Node.js Version  | Settings → **General**                          | **`24.x`**                     |
+| 6   | Function Region  | Settings → **Functions** → **Function Regions** | `sin1`                         |
+
+> 部分 UI 版本把第 3—5 项放在独立的 **Build and Deployment** 页；若 General 里找不到，去那里看。
+
+**Node.js Version 是自校验的**：根 `package.json` 冻结 `engines.node = ">=24.15.0 <25"`，且 `.npmrc` 有
+**`engine-strict=true`**。若生效版本低于 24.15.0，**`pnpm install` 会直接失败**——所以**构建成功即证明版本合格**，
+不需要额外比对。
+
+**Function Region 不要只看设置页（重要）**：`apps/web/vercel.json` 已写 `regions: ["sin1"]`，因此设置页显示的是
+**项目默认值**，未必是实际生效值（Vercel 新项目默认 `iad1` 华盛顿）。
+
+- **权威核对方式**：Deployments → 点开任意部署 → **Resources / Deployment Summary**，看实际 default region；
+  或 `curl -I https://<部署地址>/api/health/live` 读响应头 **`x-vercel-id`**（首段即区域代码，形如 `sin1::…`）。
+- **判据**：显示 `sin1` ✓；显示 `iad1` 说明 `vercel.json` 未生效，需排查。
+- Hobby 计划只允许**单一**区域，所以 `sin1` 这一个值本来就合规。
+
+#### E2b 环境变量核对
+
+**页面**：Settings → **Environment Variables**
+
+1. **Production** 下与数据库相关的变量**只有一个**：`DATABASE_URL`（勾选 Production）。
+2. **不应存在**（任何环境下）：`MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL`、
+   `NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD`、
+   `LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、
+   `LOGIPLAN_APP_READER_PASSWORD`、`POSTGRES_SUPERUSER_PASSWORD`。
+3. `DATABASE_URL` 的**用户名必须是 `app_reader`**，主机名应含 **`-pooler`**（Neon 池化端点）。
+   - **角色是自证的**：角色不对时 `readWebRuntimeDatabaseUrl()` 会让 **Production 构建直接失败**，
+     错误信息含「用户名必须是 app_reader」。**构建成功 ⇒ 角色正确**，不必抠掩码值。
+   - **池化无法自证**（未做该校验，因为本地与 CI 用非池化的本地 PostgreSQL）。Vercel 敏感变量会掩码；
+     若读不到，去 **Neon 控制台**看该分支的 connection string 更直接。
+4. **Preview** 不应出现 Production 的 `DATABASE_URL`。按冻结要求，Preview 只能连隔离的临时 Neon 分支；
+   隔离环境缺失时应**关闭预览数据访问**，**不得回退**到公开测试库。
+
+#### E2c 关闭自动发布
+
+**页面**：Settings → **Environments** → 选中 **Production** → **Branch Tracking** →
+关闭 **「Auto-assign Custom Production Domains」**
+
+**期望结果**：此后推送到 `main` 只产生 **`Staged`** 状态的 Production 部署——**不绑定域名、不对外服务**，
+须**人工 Promote** 才变 `Current`（见 D-189）。
+
+**判据（下次合并后验证）**：Deployments 里出现一条 `Production` / `Staged` 记录，且生产域名
+`logi-plan-web.vercel.app` **仍在服务旧版本**。若它直接变成 `Current`，说明开关没生效。
+
+**注意**：官方文档未记载该开关是否有 plan 限制，请在 UI 确认 Hobby 下可用。若找不到该开关，退路是给
+`apps/web/vercel.json` 加 `github.autoAlias: false`（需单独批准代码改动），代价是 promote 时**会重建**。
+
+---
+
 ## 3. 暂缓项（用户 2026-09-25 指示「先不推进」）
 
 | 项                       | 说明                                                                                                                                                                                                                                                |
