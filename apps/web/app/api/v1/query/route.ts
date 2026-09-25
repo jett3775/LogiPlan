@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { createReadOnlyPool, runDeterministicQuery } from "@logiplan/db";
+import { createReadOnlyPool, readWebRuntimeDatabaseUrl, runDeterministicQuery } from "@logiplan/db";
 import { deterministicResultSchema } from "@logiplan/contracts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const pool = process.env.DATABASE_URL ? createReadOnlyPool(process.env.DATABASE_URL) : null;
+const poolConnectionString = readWebRuntimeDatabaseUrl();
+const pool = poolConnectionString === null ? null : createReadOnlyPool(poolConnectionString);
 const MAX_BODY_BYTES = 16 * 1024;
 const QUERY_TIMEOUT_MS = 10_000;
 

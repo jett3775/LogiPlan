@@ -16,6 +16,7 @@ export default defineConfig({
         "packages/contracts/src/index.ts",
         "packages/domain/src/index.ts",
         "packages/db/src/index.ts",
+        "packages/db/src/runtime-env.ts",
         "packages/db/src/migration-files.ts",
         "packages/db/src/release-package.ts",
         "packages/db/src/query-result.ts",

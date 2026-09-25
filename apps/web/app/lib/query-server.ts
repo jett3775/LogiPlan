@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { createReadOnlyPool, runDeterministicQuery } from "@logiplan/db";
+import { createReadOnlyPool, readWebRuntimeDatabaseUrl, runDeterministicQuery } from "@logiplan/db";
 import { deterministicResultSchema } from "@logiplan/contracts";
 import type { AttributionFactor, QueryIntent } from "@logiplan/contracts";
 
@@ -25,8 +25,8 @@ import {
 let pool: ReturnType<typeof createReadOnlyPool> | null = null;
 
 function runtimePool() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
+  const connectionString = readWebRuntimeDatabaseUrl();
+  if (connectionString === null) {
     throw new Error("服务端未配置 DATABASE_URL，无法读取正式演示数据。");
   }
   pool ??= createReadOnlyPool(connectionString);

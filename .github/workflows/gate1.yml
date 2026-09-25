@@ -85,7 +85,7 @@ jobs:
 
           scan_paths=("${artifact_paths[@]}" "$scan_directory")
           prohibited_status=0
-          grep -RalsE -- 'postgres(ql)?://|MIGRATION_DATABASE_URL|PUBLISHER_DATABASE_URL|POSTGRES_SUPERUSER_PASSWORD|LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD|LOGIPLAN_DATA_PUBLISHER_PASSWORD|LOGIPLAN_APP_READER_PASSWORD|RELEASE_MANIFEST|MIGRATION_DIRECTORY' "${scan_paths[@]}" > /dev/null || prohibited_status=$?
+          grep -RalsE -- 'postgres(ql)?://|MIGRATION_DATABASE_URL|PUBLISHER_DATABASE_URL|POSTGRES_SUPERUSER_PASSWORD|NEON_SCHEMA_MIGRATOR_PASSWORD|LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD|NEON_DATA_PUBLISHER_PASSWORD|LOGIPLAN_DATA_PUBLISHER_PASSWORD|NEON_APP_READER_PASSWORD|LOGIPLAN_APP_READER_PASSWORD|RELEASE_MANIFEST|MIGRATION_DIRECTORY' "${scan_paths[@]}" > /dev/null || prohibited_status=$?
           if (( prohibited_status == 0 )); then
             echo '::error::Playwright failure artifacts contain prohibited database credential markers.'
             exit 1

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { checkReadiness, createReadOnlyPool } from "@logiplan/db";
+import { checkReadiness, createReadOnlyPool, readWebRuntimeDatabaseUrl } from "@logiplan/db";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-const pool = process.env.DATABASE_URL ? createReadOnlyPool(process.env.DATABASE_URL) : null;
+const poolConnectionString = readWebRuntimeDatabaseUrl();
+const pool = poolConnectionString === null ? null : createReadOnlyPool(poolConnectionString);
 export async function GET() {
   const request_id = randomUUID();
   const headers = { "X-Request-Id": request_id, "Cache-Control": "no-store" };
