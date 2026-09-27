@@ -117,35 +117,40 @@
 **已核实的取值**（`docs/neon-permission-baseline-plan.md:90` 与 runbook §0.2/§2 记录，2026-09-22 只读核对
 **对着远端确认过**，非猜测）：
 
-| 片段           | 值                                                                 |
-| -------------- | ------------------------------------------------------------------ |
-| 角色（用户名） | `app_reader`                                                       |
-| 库名           | **`neondb`**                                                       |
-| endpoint ID    | `ep-empty-shape-b35qu1jv`                                          |
-| 区域           | `aws-ap-southeast-1`                                               |
-| 主机名         | 应为 `ep-empty-shape-b35qu1jv-pooler.ap-southeast-1.aws.neon.tech` |
-| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                      |
-| 查询串         | `?sslmode=require`                                                 |
+| 片段           | 值                                                                |
+| -------------- | ----------------------------------------------------------------- |
+| 角色（用户名） | `app_reader`                                                      |
+| 库名           | **`neondb`**                                                      |
+| endpoint ID    | `ep-empty-shape-b35qu1jv`                                         |
+| 计算段         | `c-4`（**2026-09-27 实测补充**；缺它会认证失败）                  |
+| 区域           | `aws-ap-southeast-1`                                              |
+| 主机名         | `ep-empty-shape-b35qu1jv-pooler.c-4.ap-southeast-1.aws.neon.tech` |
+| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                     |
+| 查询串         | `?sslmode=require`                                                |
 
-**主机名的推导（三步，均有仓库证据）**：
+**主机名的推导（四步；前三步有仓库证据，第四步为 2026-09-27 只读实测）**：
 
 1. endpoint ID = `ep-empty-shape-b35qu1jv`（runbook §2、`docs/neon-permission-baseline-plan.md:90`）。
 2. **主机名里的区域标签是 `ap-southeast-1`，不是 Neon 的区域标识符 `aws-ap-southeast-1`** ——
-   `scripts/neon-permission-audit.test.mjs:45` 的夹具直接用了我们这台的 endpoint ID：
-   `…@ep-empty-shape-b35qu1jv.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`。
-3. 池化主机 = `<endpoint-id>-pooler.<区域后缀>` —— `scripts/neon-baseline.mjs` 的 `roleHostFromAdmin`
-   正是这样构造的，`scripts/neon-baseline.test.mjs:763` 的夹具印证
-   （`ep-baseline-pooler.ap-southeast-1.aws.neon.tech`）。
+   `scripts/neon-permission-audit.test.mjs:45` 的夹具直接用了我们这台的 endpoint ID。
+3. 池化主机 = `<endpoint-id>-pooler.<后缀>` —— `scripts/neon-baseline.mjs` 的 `roleHostFromAdmin`
+   取 endpoint ID **之后的整段后缀**，因此**只要管理连接串正确，它会自动导出正确的池化主机**；
+   `scripts/neon-baseline.test.mjs:763` 的夹具印证。
+4. **endpoint ID 与区域段之间还有一段计算标识，本机为 `c-4`。** 2026-09-27 实测：管理连接串的主机是
+   `ep-empty-shape-b35qu1jv.c-4.ap-southeast-1.aws.neon.tech`，其 TLS 证书 altname 为
+   `*.c-4.ap-southeast-1.aws.neon.tech`；**漏掉 `c-4` 的两个主机（直连与池化）均以 `28P01`
+   认证失败**，说明它们不是同一计算实例。故早期文档中不带 `c-4` 的写法是错的。
+   证据见 `docs/neon-vercel-baseline-runbook.md` 第 1.2 节。
 
 **完整值**（唯一需要你填的是密码；仓库与磁盘上**都没有**这个值，且**不应**写进任何文档或聊天）：
 
 ```
-postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1jv-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1jv-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
 ```
 
-> **保存前在 Value 框里核对四点**：用户名 `app_reader`、主机含 `-pooler`、库名 `neondb`、
-> 区域后缀 `ap-southeast-1.aws.neon.tech`。**若 Neon 控制台给出的字符串与上式任何一处不同，以控制台为准**
-> —— 控制台是权威来源，上式是从仓库证据推导的。
+> **保存前在 Value 框里核对五点**：用户名 `app_reader`、主机含 `-pooler`、主机含计算段 `c-4`、
+> 库名 `neondb`、后缀 `c-4.ap-southeast-1.aws.neon.tech`。**若 Neon 控制台给出的字符串与上式
+> 任何一处不同，以控制台为准**——控制台是权威来源，上式已由 2026-09-27 只读实测确认可连通。
 >
 > **保存后若发现填错**：`Secret` 不能读回，但可以**覆盖**该变量的值重新保存。
 > 密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
