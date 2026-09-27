@@ -8,43 +8,65 @@
 > `%TEMP%` 的周计划与日计划。**`%TEMP%` 中的周计划与日计划自本文件起不再单独维护。**
 > 如需恢复原约定，删除本文件即可。
 
-最后更新：2026-09-25（面向 09-26 起的窗口）
+最后更新：2026-09-27（面向 09-27 之后的窗口）
 
 ---
 
 ## 1. 当前状态（已核实）
 
-- **阶段**：第三阶段「第一闸门」。**代码侧验收全部通过**；稳定性权威证据为 CI（**连续 14 次全绿**，见 D-188）。
-- **分支**：`codex/gate1-delivery-baseline`，HEAD 与 `origin` 完全同步；工作区恰 **11 项用户资产**。
-- **PR**：`jett3775/LogiPlan#1`，base `main`，OPEN；本分支领先 `origin/main` **34 个提交**。
-- **已完成**：第一窗口 **T1—T8** 全部有结论；第二窗口第一段（只读准备）**P1—P6 全部完成**。
-- **远端部署**：Production **仅 1 次**，停留在 2026-09-10 的 `a63a43c`（= `origin/main` tip）；
-  Vercel 项目已存在且 Git 集成连通，每次推送自动生成 Preview。
+- **阶段**：第三阶段「第一闸门」。**代码侧验收全部通过**；稳定性权威证据为 CI（见 D-188）。
+- **main**：已由 `a63a43c` 快进到 **`16b1df8`**（2026-09-27）；PR `jett3775/LogiPlan#1` 已被 GitHub 自动标记 **MERGED**
+  （该 SHA 上 5 项检查全绿）。工作分支 `codex/gate1-delivery-baseline` 的 tip 与 main 一致。
+- **已完成**：第一窗口 **T1—T8** 全部有结论；第二窗口第一段（只读准备）**P1—P6 全部完成**；
+  **E2a / E2b / E2c、E3、E1 已完成**（详见 runbook §11.4）。
+- **远端部署**：Vercel 已为 `16b1df8` 生成 **Production 部署且处于 `Staged`**（E2c 已生效，未绑域名）。
+  生产域名 `logi-plan-web.vercel.app` **仍服务旧构建 `a63a43c`**，须人工 Promote（E3b）后才切换。
+- **数据侧**：`LOGIPLAN_2026_DEMO_V2` 已激活（`status = ACTIVE`，`activated_at = 2026-09-27T15:57:08Z`），
+  固定证据 9 条已物化；`db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）。
+- **剩余**：**E3b**（你 Promote）、**E4** 站点四项复验、**E5** 已完成（runbook §12）。
 
 ---
 
 ## 2. 当前计划：E 段（公开测试环境发布）
 
-> **状态：已就绪，待启动。** 用户于 2026-09-25 指示「其余都先不推进」，故本段暂停。
-> 下表是启动时的执行顺序（已修正原 E1—E5 的编号与依赖错位——激活的前置是「部署已取得部署标识」，
+> **状态：进行中。** E2a / E2b / E2c、E3、E1 已完成；**当前唯一卡点是 E3b（你 Promote）**，
+> 随后做 E4 的站点四项复验。执行实录见 `docs/neon-vercel-baseline-runbook.md` §11.4，回切路径见同文件 §12。
+> 下表是执行顺序（已修正原 E1—E5 的编号与依赖错位——激活的前置是「部署已取得部署标识」，
 > 因此**部署必须先于激活**）。
 
-| 步      | 内容                                                                                                                                                | 谁做                                    | 验收标准                                                                                                                                                           | 难度 | 思考强度 |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | -------- |
-| **E2a** | Vercel 六项核对：Team `logi-plan` / Project `logi-plan-web` / Root Directory `apps/web` / Framework Next.js / Node.js 24.x / Function Region `sin1` | 你（Vercel UI）                         | 六项逐项确认；**区域必须看部署摘要或 `x-vercel-id`，不能只看设置页**（`vercel.json` 已写 `regions: ["sin1"]`，设置页显示的是项目默认值；若显示 `iad1` 说明未生效） | 低   | `medium` |
-| **E2b** | 环境变量**配置**（**实测当前为空，需从零创建**）：Production **只**加池化 `DATABASE_URL`，角色必须 `app_reader`；Preview / Development **不**加     | 你（Vercel UI）                         | Production 下只有一个数据库变量；**构建成功即自证角色正确**（角色不对会直接构建失败）；池化端点需人工看值                                                          | 中   | `medium` |
-| **E2c** | 关闭 **Settings → Environments → Production → Branch Tracking → 「Auto-assign Custom Production Domains」**                                         | 你（Vercel UI）                         | 开关已关闭；此后推送 `main` 只产生 `Staged` 部署、不对外服务（见 D-189）                                                                                           | 低   | `medium` |
-| **E3**  | 部署：合并 PR（或推送 `main`）→ 产生 **`Staged`** 生产部署                                                                                          | 你 / 我                                 | 出现 `Staged` 状态的生产部署，`ref` = 已通过检查的提交 SHA                                                                                                         | 中   | `medium` |
-| **E3b** | **人工 Promote** 该 `Staged` 部署 → `Current`                                                                                                       | 你（Vercel UI）                         | 部署变为 `Current` 并服务生产域名；**promote 不重建**，验证过的构建即上线构建                                                                                      | 低   | `medium` |
-| **E1**  | 原子激活：`pnpm db:activate-release -- LOGIPLAN_2026_DEMO_V2`                                                                                       | 你（终端，需 `PUBLISHER_DATABASE_URL`） | 活动发布切换为 `LOGIPLAN_2026_DEMO_V2`；`db:verify-plans` 通过                                                                                                     | 高   | `high`   |
-| **E4**  | 激活后复验：`pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟、性能                                                                  | 你 / 我                                 | 核心 9 题通过；热请求 **P95 ≤ 1 s**；`temp_written_blocks` 全 0                                                                                                    | 中   | `high`   |
-| **E5**  | 回切路径确认（D-155）                                                                                                                               | 我                                      | 回切路径已确认并写入文档；首次无旧发布时复验失败必须停止公开流量并修复，**不得伪造可回切版本**                                                                     | 中   | `medium` |
+| 步      | 内容                                                                                                                                                | 谁做                                                  | 验收标准                                                                                                                                                           | 难度 | 思考强度 |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | -------- |
+| **E2a** | Vercel 六项核对：Team `logi-plan` / Project `logi-plan-web` / Root Directory `apps/web` / Framework Next.js / Node.js 24.x / Function Region `sin1` | 你（Vercel UI）                                       | 六项逐项确认；**区域必须看部署摘要或 `x-vercel-id`，不能只看设置页**（`vercel.json` 已写 `regions: ["sin1"]`，设置页显示的是项目默认值；若显示 `iad1` 说明未生效） | 低   | `medium` |
+| **E2b** | 环境变量**配置**（**实测当前为空，需从零创建**）：Production **只**加池化 `DATABASE_URL`，角色必须 `app_reader`；Preview / Development **不**加     | 你（Vercel UI）                                       | Production 下只有一个数据库变量；**构建成功即自证角色正确**（角色不对会直接构建失败）；池化端点需人工看值                                                          | 中   | `medium` |
+| **E2c** | 关闭 **Settings → Environments → Production → Branch Tracking → 「Auto-assign Custom Production Domains」**                                         | 你（Vercel UI）                                       | 开关已关闭；此后推送 `main` 只产生 `Staged` 部署、不对外服务（见 D-189）                                                                                           | 低   | `medium` |
+| **E3**  | 部署：合并 PR（或推送 `main`）→ 产生 **`Staged`** 生产部署                                                                                          | 你 / 我                                               | 出现 `Staged` 状态的生产部署，`ref` = 已通过检查的提交 SHA                                                                                                         | 中   | `medium` |
+| **E3b** | **人工 Promote** 该 `Staged` 部署 → `Current`                                                                                                       | 你（Vercel UI）                                       | 部署变为 `Current` 并服务生产域名；**promote 不重建**，验证过的构建即上线构建                                                                                      | 低   | `medium` |
+| **E1**  | 原子激活：`pnpm db:activate-release LOGIPLAN_2026_DEMO_V2`（**不带 `--`**，pnpm 10.x 会把它当参数传下去）                                           | 你（终端，需 `PUBLISHER_DATABASE_URL`，**直连**端点） | 活动发布切换为 `LOGIPLAN_2026_DEMO_V2`；`db:verify-plans` 通过                                                                                                     | 高   | `high`   |
+| **E4**  | 激活后复验：`pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟、性能                                                                  | 你 / 我                                               | 核心 9 题通过；热请求 **P95 ≤ 1 s**；`temp_written_blocks` 全 0                                                                                                    | 中   | `high`   |
+| **E5**  | 回切路径确认（D-155）                                                                                                                               | 我                                                    | 回切路径已确认并写入文档；首次无旧发布时复验失败必须停止公开流量并修复，**不得伪造可回切版本**                                                                     | 中   | `medium` |
 
 **前置已就绪**：迁移 `0001`—`0010` 与 V2 候选校验已于 2026-09-22 完成，且候选资产自 `0229755`
 以来逐字节未变、四项校验和一致（见 runbook §1.1）。**本次预计只需部署应用。**
 
 **关键提醒**：`readWebRuntimeDatabaseUrl()` 会校验 `DATABASE_URL` 的角色必须是 `app_reader`——
 **角色不对时 Production 构建会直接失败**（以前是静默通过）。反过来，**构建成功即证明角色正确**。
+
+**执行进度（2026-09-27）**
+
+| 步      | 状态            | 依据                                                                                                        |
+| ------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
+| **E2a** | ✅ 完成         | 用户在 Vercel UI 核对                                                                                       |
+| **E2b** | ✅ 完成         | 反证：新构建 `/api/health/ready` 返回「数据库或活动正式版本不可用」，走到该分支即证明变量存在且角色校验通过 |
+| **E2c** | ✅ 完成且已生效 | 生产域名仍服务旧构建 `a63a43c`，`16b1df8` 的生产部署停留在 `Staged`                                         |
+| **E3**  | ✅ 完成         | main 快进到 `16b1df8`，PR #1 自动 MERGED，5 项检查全绿                                                      |
+| **E3b** | ⏳ **待执行**   | 需你在 Vercel UI 对 `16b1df8` 的生产部署点 Promote                                                          |
+| **E1**  | ✅ 完成并核实   | 活动发布 = `LOGIPLAN_2026_DEMO_V2`（`status = ACTIVE`），9 条固定证据物化                                   |
+| **E4**  | 🔶 1/4          | `db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）；站点三项待 Promote 后验证                    |
+| **E5**  | ✅ 完成         | runbook §12                                                                                                 |
+
+**重要更正（2026-09-27）**：曾因把 **Staged 部署专属 URL** 上的内容当作生产域名内容，误判 E2c 失效。
+**唯一判据是生产域名本身服务的内容，或面板上的 `Staged` / `Current` 标签**——Staged 部署的详情页也会列出生产域名。
+详见 runbook §11.4 的陷阱 1。
 
 ---
 
@@ -182,10 +204,23 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 关闭 **「Auto-assign Custom Production Domains」**
 
 **期望结果**：此后推送到 `main` 只产生 **`Staged`** 状态的 Production 部署——**不绑定域名、不对外服务**，
-须**人工 Promote** 才变 `Current`（见 D-189）。
+须**人工 Promote** 才变 `Current`（见 D-189）。官方 staging 指南原文：
+「When you push to your production branch, Vercel creates a production deployment but does not assign it to your domains.」
 
-**判据（下次合并后验证）**：Deployments 里出现一条 `Production` / `Staged` 记录，且生产域名
-`logi-plan-web.vercel.app` **仍在服务旧版本**。若它直接变成 `Current`，说明开关没生效。
+**状态：已完成并已实测生效（2026-09-27）**——推送 main 后 `16b1df8` 的生产部署停在 `Staged`，
+生产域名仍服务旧构建 `a63a43c`。
+
+**判据（下次合并后验证，务必按此处判定）**：只有两条可靠判据——
+
+1. **生产域名本身服务的内容**：旧构建首页为「LogiPlan 正式工程 / 兼容性骨架状态：已就绪 / 0.1 + 0.2 = 0.3」；
+   新构建为仪表盘工作台。域名内容变了才是没生效。
+2. Vercel 面板上的 **`Staged`** / **`Current`** 标签。
+
+**⚠️ 两个伪判据（2026-09-27 曾因此误判，不要再犯）**：
+
+- **「详情页 Domains 里列了 `logi-plan-web.vercel.app`」不算已绑域名**——Staged 部署的详情页同样会列出生产域名。
+- **Staged 部署有自己的专属 URL**（形如 `https://logi-plan-<hash>-logi-plan.vercel.app`），在它上面看到的内容
+  **不是**生产域名的内容；把两者混同会得出相反结论。
 
 **注意**：官方文档未记载该开关是否有 plan 限制，请在 UI 确认 Hobby 下可用。若找不到该开关，退路是给
 `apps/web/vercel.json` 加 `github.autoAlias: false`（需单独批准代码改动），代价是 promote 时**会重建**。
@@ -211,10 +246,12 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 
 ## 5. 仍待你决策 / 待授权
 
-1. **在 Vercel UI 执行 E2a / E2b / E2c**（三处都在项目 Settings 里，一次进去可全部过掉）。
-2. **（可选）`3221226505` 根因消除**：需批准启用崩溃转储采集（例如为 Playwright 的浏览器进程配置
+1. **已完成**：E2a / E2b / E2c（2026-09-27）、E1 原子激活（已授权并执行）。
+2. **待你执行（非决策）**：**E3b — 在 Vercel UI 对 `16b1df8` 的生产部署点 Promote**，随后做 E4 的站点三项复验
+   （`/api/health/ready` 应返回 `ready`；首页应为仪表盘工作台；核心 9 题页面结果；热请求 P95 ≤ 1 s）。
+3. **（可选）`3221226505` 根因消除**：需批准启用崩溃转储采集（例如为 Playwright 的浏览器进程配置
    `LocalDumps`）。D-188 已明确其根因**未关闭**；不批准则维持「CI 为权威证据 + 本地环境限制」的现状。
-3. **（可选）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：
+4. **（可选）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：
    P1 核查发现它在 `pnpm lint` 清单内但**不在执行闭包内**（闭包 26 条）。两者职责不同、不要求相等，
    但若希望工具 SHA 保护覆盖该回归测试，需单独决定。
 
@@ -222,8 +259,9 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 
 ## 6. 明确不做（沿用既有授权边界）
 
-- Neon 远程写（**除 E1 的原子激活**）、Vercel 部署配置之外的其他远程写。
-- **在 E2c 完成之前合并 `main`**（那会触发未经人工批准的自动发布）。
+- Neon 远程写（**除已执行的 E1 原子激活**）、Vercel 部署配置之外的其他远程写。
+- **在未确认 `Staged` 标签之前合并 `main`**：E2c 已实测生效，推 main 只产生 Staged 部署；但仍须按
+  §2.1 E2c 的两条可靠判据逐次确认，不得凭域名列表或专属 URL 判定（见 runbook §11.4 陷阱 1）。
 - 强追本地「连续 5/5」（D-188 已把本地 Windows 记为已接受的环境限制）。
 - 任何浏览器启动参数类改动。
 - 放宽闸门一的任何数字、证据或页面验收标准。
@@ -232,8 +270,10 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 
 ## 7. 暂停条件（命中即停下提问，一次一个问题并给推荐答案）
 
-1. E3 产生的是 `Current` 而非 `Staged` 部署（说明 E2c 未生效，须先查开关）。
-2. E1 激活后复验失败，且回切路径无法确认。
+1. E3 产生的是 `Current` 而非 `Staged` 部署（说明 E2c 未生效，须先查开关）。**判定只能用两条可靠判据**：
+   生产域名本身服务的内容，或面板上的 `Staged` / `Current` 标签。**不得**用「详情页 Domains 列了生产域名」
+   或「专属 URL 上的内容」判定——2026-09-27 已因此误判一次。
+2. E1 激活后复验失败，且回切路径无法确认（回切路径见 runbook §12）。
 3. 发布过程中出现「提交结果未知」——按 runbook §6，**只能记录为结果未知，不得宣称回滚**，
    须先用只读状态查询确认。
 4. 需要放宽闸门一的任何数字、证据或页面验收标准。

@@ -405,7 +405,9 @@ pnpm neon:baseline -- \
 准备阶段不激活数据。完成真实部署并取得部署标识后，按照 D-154 对具体 SHA 单独批准，再由受控发布流程执行：
 
 1. 确认部署使用批准 SHA，且 `/api/health/live` 正常；已有旧活动发布时再确认 `/api/health/ready` 正常。
-2. 显式运行 `pnpm db:activate-release -- LOGIPLAN_2026_DEMO_V2`。该命令会切换活动发布，是数据库写入，不能作为本准备入口的隐式后续动作。
+2. 显式运行 `pnpm db:activate-release LOGIPLAN_2026_DEMO_V2`（**不要写 `--`**：pnpm 10.x 不会剥离该分隔符，
+   参数数会变成 4 个并触发用法校验；2026-09-27 实测见 §11.4）。该命令会切换活动发布，是数据库写入，
+   不能作为本准备入口的隐式后续动作。
 3. 激活后运行 `pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟与性能验收。
 4. 激活后复验失败时，按 D-155 回切到已验证旧发布和兼容的旧应用；首次无旧发布的初始化必须停止公开流量并修复，不能伪造可回切版本。
 
@@ -756,6 +758,69 @@ Production 工作流必须由人工批准，并绑定已通过检查的具体提
 2. **E2b** 环境变量分层核对：Production **只**配池化 `DATABASE_URL`，且角色必须是 `app_reader`（**本轮新增的启动校验会在此处生效：角色不对会直接导致构建失败**）；Preview **不得**配置 Production 的 `DATABASE_URL`。见第 5.1 节。
 3. **E2c** 为 Production 配置人工批准门（Environment protection rules + 发布工作流），关闭「推送 `main` 自动发布」。见第 10.5 节。
 4. **E3** 部署：`扩展迁移 → 候选数据校验 → 兼容应用部署 → 健康检查`。迁移与候选校验已于 2026-09-22 完成且资产未变，本次预计**只需部署应用**。
-5. **E1** 原子激活：`pnpm db:activate-release -- LOGIPLAN_2026_DEMO_V2`（需 `PUBLISHER_DATABASE_URL`，在受控终端执行）。**注意这是数据库写入，不能作为准备入口的隐式后续动作。**
+5. **E1** 原子激活：`pnpm db:activate-release LOGIPLAN_2026_DEMO_V2`（**不带 `--`**；需 `PUBLISHER_DATABASE_URL` 且必须是**直连**端点，在受控终端执行）。**注意这是数据库写入，不能作为准备入口的隐式后续动作。**
 6. **E4** 激活后复验：`pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟、性能（P95 ≤ 1 s）。
-7. **E5** 回切路径确认（D-155）。
+7. **E5** 回切路径确认（D-155，已写明于第 12 节）。
+
+### 11.4 2026-09-27 E 段执行实录
+
+**已执行**（全部为远程写，用户已授权）：
+
+1. **E2a / E2b / E2c：用户在 Vercel UI 完成**。E2b 的 `DATABASE_URL` 取池化 + `app_reader`；实测反证：新构建的
+   `/api/health/ready` 返回 `{"status":"not_ready","message_zh":"数据库或活动正式版本不可用"}`——走到该分支即证明
+   变量存在且通过了 `readWebRuntimeDatabaseUrl()` 的角色校验（角色不对会在模块加载时抛错，不会进这个 catch）。
+2. **E3：main 由 `a63a43c` 快进到 `16b1df8`**（`git push origin 16b1df8:refs/heads/main`）。用**快进而非 merge commit**，
+   使生产部署的 `ref` 恰为已通过全部检查的那个 SHA。PR `jett3775/LogiPlan#1` 由 GitHub 自动标记为 MERGED
+   （`mergedAt = 2026-09-27T15:36:22Z`）；该 SHA 上 5 项检查全绿：CodeQL、Gate 1 deterministic validation、
+   依赖审查、Vercel Preview。Vercel 于 `15:37:00Z` 生成 Production 部署（环境 `Production`，状态 `Ready`）。
+3. **E1：激活已执行并核实**（命令见第 5 节，不带 `--`）。结果：`logiplan.active_data_release` =
+   `LOGIPLAN_2026_DEMO_V2`（`activated_at = 2026-09-27T15:57:08Z`）；`data_release.status` 由 `VALIDATED` 变为
+   **`ACTIVE`**；`evidence_snapshot` 物化 **9 行**；`pnpm db:verify-plans` 通过，6 条查询计划 `temp_written_blocks` 全 0，
+   执行耗时 0.6–4.4 ms。
+4. **E3b：未执行**（待用户 Promote）。执行前生产域名仍服务旧构建 `a63a43c`。
+
+**本轮实测的两个陷阱（务必沿用）**：
+
+1. **Staged 生产部署的详情页也会列出生产域名**，且该部署另有自己的专属 URL（形如
+   `https://logi-plan-<hash>-logi-plan.vercel.app`）。因此**不能凭「域名已列 logi-plan-web.vercel.app」判定已绑域名**，
+   也不能把专属 URL 上看到的内容当作生产域名的内容——2026-09-27 曾由此误判 E2c 失效。**唯一判据**：
+   生产域名本身服务的内容（旧构建首页为「LogiPlan 正式工程 / 兼容性骨架状态：已就绪 / 0.1 + 0.2 = 0.3」，
+   新构建为仪表盘工作台），或 Vercel 面板上的 `Staged` / `Current` 标签。官方 staging 指南原文：
+   「When you push to your production branch, Vercel creates a production deployment but does not assign it to your domains.」
+2. **`pnpm` 不会剥离 `--`**：`pnpm db:activate-release -- <id>` 会让脚本收到 4 个参数并立即以用法错误退出
+   （在建立数据库连接之前，零写入）。正确写法是不带 `--`。
+
+**环境事实（本沙箱，供后续轮次复用）**：
+
+- 沙箱到 Neon 5432 **直连被阻断**，须经 HTTP 代理的 `CONNECT` 隧道；到 `vercel.app` 的 TLS 握手失败
+  （`curl` 在 `CONNECT` 后中断），**因此生产域名的页面验收只能在用户浏览器完成**。`api.github.com` 正常。
+- 沙箱初始 Node 为 `v24.1.0`（低于仓库 `engines.node >= 24.15.0`，被 `.npmrc` 的 `engine-strict=true` 拦截）
+  且无 `node_modules`。本轮装了 Node `v24.21.0` 并做 `pnpm install --frozen-lockfile`（467 包）；
+  为让**生产原样的连接串**可用（主机名保持 Neon 直连主机、TLS 校验不降级），在沙箱本地加了 `/etc/hosts`
+  映射与 `socat PROXY` 隧道。**未改动任何远程配置，未放宽任何校验。**
+- `--env-file` 不覆盖已显式设置的环境变量（实测），故 `PUBLISHER_DATABASE_URL` / `DATABASE_URL` 可安全注入。
+
+**一处顺序偏差（已评估，非事故）**：E1 激活发生在 E3b Promote 之前。按 D-155「兼容应用部署 → 健康检查 → 原子激活」，
+若 E3 已产出部署即视为满足前置，则顺序成立；若以「Promote 后才算对外部署」为准，则激活提前一步。
+实际影响为零：期间对外服务的旧构建是静态骨架页，不读业务数据，激活对其无任何可见影响。
+
+## 12. 激活后复验失败的回切路径（E5，D-155）
+
+**本次场景：首次初始化。** 激活前 `logiplan.active_data_release` 为空，即**不存在「已验证的旧发布」**。
+因此数据侧回切**没有合法目标**——把活动指针置空只会让运行环境回到「无活动正式版本」的 503 状态，
+不是可用版本，也**不得**记为一次回切。
+
+按 D-155 的关键约束，本场景的唯一合法处置是：**立即停止公开流量并修复，不得伪造可回切版本。**
+
+**应用侧的回切路径是存在的，且不依赖上面的数据侧结论：**
+
+| 时机                         | 处置                                                                                                                           | 依据                                                                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Promote 之前**发现复验失败 | **不执行 Promote** 即止血：生产域名继续服务旧应用 `a63a43c`                                                                    | D-189：Staged 部署不绑域名                                                                                                       |
+| **Promote 之后**发现复验失败 | 用 **Instant Rollback** 把域名退回 `a63a43c`（该部署曾服务生产流量，符合 Instant Rollback 的资格要求；只回退域名指派，不重建） | D-155「回滚到兼容旧结构的上一应用部署」；D-189                                                                                   |
+| 修复后重新上线               | 必须由**新提交**产生**新部署**再 Promote                                                                                       | D-189 状态机：**已 Promote 过的部署不能再 promote，只能 rollback**。因此 `16b1df8` 修复后若需再次上线，不能二次 promote 同一部署 |
+
+**明确不做**：不伪造 `VALIDATED`/`ACTIVE` 的假发布；不把「活动指针置空」表述为回切成功；不在
+`main` 上执行破坏性数据库降级（D-156）。
+
+**验收**：回切路径已按上表写明；首次初始化场景的处置已明确为「停止公开流量并修复」。
