@@ -185,6 +185,44 @@ Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 - 两条断言彼此独立：闭包比对（`git diff --quiet <toolingSha> -- <executionClosurePaths>`）只看闭包内文件是否变化；`HEAD === toolingSha` 看的是提交指针。**两条都必须满足**，只满足其一仍会被拒绝。
 - 工作区的 11 项用户资产（`AGENTS.md` + 10 份 `neon-baseline-report-*.json`）不在执行闭包内，不影响锚定。
 
+### 1.2 连接串与远端状态实测（2026-09-27，只读）
+
+**方法**：本轮从隔离沙箱对 Neon 执行**只读**查询（`SELECT`、读取 `pg_roles` / `pg_class` / ACL、`pg_try_advisory_lock` 探测）。沙箱直连 5432 被阻断，连接经 HTTP 代理的 `CONNECT` 隧道建立；TLS 正常校验（管理连接所呈现证书的 altname 为 `*.c-4.ap-southeast-1.aws.neon.tech`）。**未执行任何写入、未切换活动发布、未改动任何远程配置。**
+
+**A. 主机名必须带计算段 `c-4`**
+
+| 主机                                                                            | `app_reader` 连接结果 |
+| ------------------------------------------------------------------------------- | --------------------- |
+| `ep-empty-shape-b35qu1jv.c-4.ap-southeast-1.aws.neon.tech`（直连）              | **成功**              |
+| `ep-empty-shape-b35qu1jv-pooler.c-4.ap-southeast-1.aws.neon.tech`（池化）       | **成功**              |
+| `ep-empty-shape-b35qu1jv.ap-southeast-1.aws.neon.tech`（直连，缺 `c-4`）        | **失败 `28P01`**      |
+| `ep-empty-shape-b35qu1jv-pooler.ap-southeast-1.aws.neon.tech`（池化，缺 `c-4`） | **失败 `28P01`**      |
+
+四个主机名**都能解析 DNS**，因此「能解析」不等于「指向同一实例」：后两行主机指向的计算实例不接受本项目的角色密码。`roleHostFromAdmin` 的推导本身是对的——它取 endpoint ID **之后的整段后缀**，因此会保留 `c-4`；错的是此前手写文档中去掉 `c-4` 的写法。E2b 的取值以 `docs/current-plan.md` §2.1 为准。
+
+**B. 管理连接串不得携带 `sslmode` 以外的查询参数**
+
+`assertSafeConnectionQuery`（`scripts/neon-baseline.mjs:324-330`）要求连接串**只含 `sslmode` 一个查询参数**。Neon 控制台给出的连接串可能带 `channel_binding=require`；**直接使用会被该入口的预检拒绝**，须在调用前去掉这一参数。
+
+**C. 远端状态复核（E1 的前置成立）**
+
+- `server_version = 18.6`、库 `neondb`、`latest_migration = 0010`（`public._schema_migrations` 含 `0001`—`0010`）。
+- `logiplan.data_release` 只有一行：`LOGIPLAN_2026_DEMO_V2`，`status = VALIDATED`，`validation_summary->>'status' = PASS`。
+- **`logiplan.active_data_release` 为空**，即 `active_release = null`——与 2026-09-22 的 prepare 结论一致。
+- 角色：恰 4 个（`neondb_owner` + 三角色）；三角色均非超管、无 `bypassrls`；`neondb_owner` 是三者 member，`admin_option = true`、`inherit_option = false`、`set_option = false`，grantor 为 `cloud_admin`。
+- 权限面与设计一致：`app_reader` 对 17 个 `active_*` 视图与 `evidence_snapshot` 有 SELECT、对基表**无** SELECT（视图按 owner 权限读取，因此运行时读路径成立）；`data_publisher` 对 `data_release` 与 `active_data_release` **无直接 INSERT**，但对四个发布函数持有 EXECUTE——写入走 `SECURITY DEFINER`，激活路径成立；`schema_migrator` 在 `logiplan` 拥有 141 个对象。
+
+**D. 会话级 advisory 锁：池化端点的静默失效已由实测确认**
+
+以两个独立连接探测同一锁键（`pg_try_advisory_lock(918273514)`）：
+
+| 端点 | 持有者 | 竞争者                  | 观测到的 backend pid  |
+| ---- | ------ | ----------------------- | --------------------- |
+| 直连 | `true` | **`false`**（互斥成立） | 1068 / 1073（不同）   |
+| 池化 | `true` | **`true`（互斥失效）**  | **880 / 880（同一）** |
+
+第 9.3 节的风险由此从推理变为**实测**：池化端点下两个客户端被复用到同一后端会话，而同一会话可重入地获取同一锁键，于是**两方都拿到锁且不报任何错误**。结论不变且更强——迁移、发布、激活**必须**走直连端点。
+
 ## 2. 默认预检
 
 入口必须同时收到候选 SHA 和独立批准 SHA，不以当前 `HEAD` 代替批准。预检模式要求当前分支和 `HEAD` 精确等于冻结候选 commit；写入模式要求当前 `HEAD` 精确等于已批准的工具 SHA，并额外确认候选迁移、数据包和完整执行闭包未偏离各自批准 SHA。
@@ -573,6 +611,8 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 **本项目的设计已经把风险隔离**：advisory 锁只由**迁移、发布、激活**三个入口使用，而这三个入口按 `docs/neon-vercel-baseline-runbook.md` 第 1 节走**管理直连**；`app_reader` 的池化连接只做只读查询与 REPEATABLE READ 事务（事务模式下事务期间连接被固定，因此 REPEATABLE READ 成立）。仓库已有测试断言「管理和发布必须直连，运行角色必须池化」。
 
 **因此部署时必须确认**：三个写入入口实际使用的连接串是**直连**而非池化。若误用池化端点，advisory 锁会**静默失效**——这是把「本地通过」误当成「Neon 通过」最可能的路径，且失效时不会报错。
+
+**2026-09-27 补充：上述「静默失效」已由实测确认**（两个独立连接在同一锁键上同时成功、且复用同一 backend pid），见第 1.2 节 D。
 
 ## 10. GitHub 侧安全与发布治理（P5，2026-09-25）
 
