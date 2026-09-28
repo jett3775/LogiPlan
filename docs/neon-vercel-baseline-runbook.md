@@ -777,7 +777,10 @@ Production 工作流必须由人工批准，并绑定已通过检查的具体提
    `LOGIPLAN_2026_DEMO_V2`（`activated_at = 2026-09-27T15:57:08Z`）；`data_release.status` 由 `VALIDATED` 变为
    **`ACTIVE`**；`evidence_snapshot` 物化 **9 行**；`pnpm db:verify-plans` 通过，6 条查询计划 `temp_written_blocks` 全 0，
    执行耗时 0.6–4.4 ms。
-4. **E3b：未执行**（待用户 Promote）。执行前生产域名仍服务旧构建 `a63a43c`。
+4. **E3b：已 Promote `136a2d6`**（应用产物与 `16b1df8` 相同；纯文档差异不参与构建）。生产域名已切到新构建。
+5. **E4：已收口**。`db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）；`/api/health/ready`、
+   核心 9 题页面结果、页面冒烟与热请求 P95 四项**由用户在其本机浏览器/终端复验通过**（沙箱到 `vercel.app` 的
+   TLS 被阻断，无法代做；P95 的具体数值未记录）。
 
 **本轮实测的两个陷阱（务必沿用）**：
 
