@@ -260,15 +260,13 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `data_publisher`）全部轮换；原始值与首次重设值共 7 个凭据经只读探测全部报 `28P01`；最终值由 Neon Console
    的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
    `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
-3. **`3221226505` 根因消除**：取证步骤与 LocalDumps 配置已写入 `docs/windows-crash-evidence.md`
-   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需你在 Windows 本机执行**；
-   注册表改动属机器级配置，须你明确批准。D-188 的现状（CI 为权威证据 + 本地记录为已接受环境限制）
-   在未取得 Faulting module 结论前**维持不变**。注意该流程为 **Windows 专有**（WER / LocalDumps），
-   macOS 上不存在对应机制；2026-09-25 那轮只读取证已执行完毕（`c0000005` 匹配 0 条、WER 与 Crashpad 无记录），
-   **不要重复排查**。另标注了一处**十进制/十六进制精度问题**（`3221226505` 实为 `0xC0000409`，
-   `0xC0000005` 的十进制是 `3221225477`），该问题在 D-188 首行与 runbook §0.3 的「崩溃定性」行同样存在，
-   已在 `handoff-2026-09-25.md` §T6、runbook §0.3、`windows-crash-evidence.md` §1.1 三处就地更正，
-   **未改写 D-188 正文**（冻结决策的三条结论不受影响）。
+3. **（已挂起）`3221226505` 根因消除**：取证步骤与 LocalDumps 配置已写入 `docs/windows-crash-evidence.md`
+   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需在 Windows 本机执行**；
+   注册表改动属机器级配置，须明确批准。**2026-09-28 挂起**：用户开发机已切换为 macOS 且不再持有 Windows 机器，
+   该流程（WER / LocalDumps）无对应机制，故本轮不执行；**不新增决策、D-188 正文不改**，待重新拥有 Windows
+   机器时按原步骤恢复执行（届时把取证文档状态改回「待执行」）。D-188 的现状（CI 为权威证据 + 本地记录为
+   已接受环境限制）在未取得 Faulting module 结论前**维持不变**；注意其中「本地 Windows」指的是当时的环境，
+   现在已不存在，属历史记录而非当前事实。
 4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
    并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
    3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，
@@ -291,6 +289,12 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    又要重新锚定工具 SHA，故包装器只以 `node scripts/run-gate1.mjs` 调用。
    **验证状态**：本机（Linux）已验证 prettier / lint / typecheck / 单元测试与包装器行为；
    三个平台的机器验证以 CI 结果为准，**未通过前该项不算完成**。
+   **2026-09-28 补充**：矩阵首次运行即在 `windows-latest` 抓到真实缺陷——`actions/checkout` 继承
+   `core.autocrlf=true` 使工作区为 CRLF，`pnpm format:check` 对 123 个文件报错；已由 `.gitattributes`
+   的 `* text=auto eol=lf` 修复，随后四个 job 全绿（Windows 上 `scripts/` 测试 61 项 / 59 通过 / 0 失败）。
+   用户当前**仅有 macOS 机器**，Windows 侧兼容性自此**只由 CI 保证**（矩阵里已有该 runner），无需本机 Windows。
+   待办：在 macOS 上跑一次完整 Gate 1（`pnpm verify:gate1:isolated`）作为**本地环境基线**——macOS 不存在
+   那股 Windows 原生崩溃，D-188 的「本地环境」一栏可由「已接受的环境限制」改写为「本地基线通过」。
 
 ---
 
