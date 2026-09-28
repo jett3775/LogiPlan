@@ -265,8 +265,12 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 4. **（可选）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：
    P1 核查发现它在 `pnpm lint` 清单内但**不在执行闭包内**（闭包 26 条）。两者职责不同、不要求相等，
    但若希望工具 SHA 保护覆盖该回归测试，需单独决定。
-5. **（可选）排查 main 上失败的 Dependabot 运行**：`npm_and_yarn in /. - Update #1593405539`
-   （2026-09-27T15:36:30Z 触发，5m18s，failure）。与发布门无关（Dependabot 只开 PR → Preview）。
+5. **（已收口）Dependabot 失败运行排查**：`npm_and_yarn in /. - Update #1593405539`（2026-09-27T15:36:30Z，failure）
+   根因已定位——Dependabot 升级 `react-dom` 到 `19.3.0` 时，因 `.npmrc` 的 `strict-peer-dependencies=true`
+   报 `ERR_PNPM_PEER_DEP_ISSUES`（`react` 仍 19.2.8、`@types/react` 仍 19.2.18），属**预期摩擦而非故障**。
+   建议在 `dependabot.yml` 用 `groups` 把 react 家族编组；**不得**放宽 `strict-peer-dependencies`。
+   另附当前 10 个开放 Dependabot PR 的分类（4 个改工作流 action SHA、4 个触碰冻结依赖组合、1 个常规补丁），
+   结论是**一个都不应顺手合并**。详见 `docs/neon-vercel-baseline-runbook.md` §10.1.1—§10.1.2。
 
 ---
 

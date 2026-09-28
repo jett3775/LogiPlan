@@ -630,6 +630,53 @@ Neon 的**池化端点**是 PgBouncer 事务模式：**不支持会话级 adviso
 
 **必须区分两件事**：`dependabot.yml` 只控制**版本更新**（按计划开 PR）；**告警**与**安全更新**是**仓库级设置**，与配置文件无关，当前**均为关闭**。因此现状是「会定期开版本升级 PR，但不会因已知漏洞告警或自动修复」。
 
+#### 10.1.1 2026-09-27 那次 `npm_and_yarn` 运行失败：根因已定位
+
+**现象**：`npm_and_yarn in /. - Update #1593405539`（`dynamic`，2026-09-27T15:36:30Z 触发，5m18s，`failure`）。
+
+**根因**（来自该作业日志，`gh api repos/…/actions/jobs/108650494718/logs`）：
+
+Dependabot 尝试把 `react-dom` 升到 `19.3.0` 时执行 `pnpm install --lockfile-only`，因本仓库的
+`.npmrc` 设置了 `strict-peer-dependencies=true` 而失败：
+
+```text
+ERR_PNPM_PEER_DEP_ISSUES  Unmet peer dependencies
+apps/web
+├─┬ @types/react-dom 19.3.0
+│ └── ✕ unmet peer @types/react@^19.3.0: found 19.2.18
+└─┬ react-dom 19.3.0
+  └── ✕ unmet peer react@^19.3.0: found 19.2.8
+```
+
+Dependabot 记录 `dependency_file_not_resolvable {message: "Missing or invalid configuration while
+installing peer dependencies."}` 并把整个运行标记为 `failure`。**这不是仓库故障，而是刻意收紧的依赖策略与"只升成员之一"的自动升级相冲突**：
+`save-exact=true` + `strict-peer-dependencies=true` 是 D-183/D-175 口径下的有意设置。
+
+**处置建议**（本轮未实施，需单独授权）：
+
+1. **正解**：在 `.github/dependabot.yml` 用 `groups` 把 peer 耦合的成员编成一组
+   （`react`、`react-dom`、`@types/react`、`@types/react-dom`），使其在同一个 PR 内同时升级，
+   peer 校验即可通过。Dependabot 自身也已把 `react` 与 `@types/react` 合并为一个 PR（#9），
+   只是未覆盖 `react-dom` 这一侧。
+2. 备选：先合并 #9 再等下一轮（周一），但 #9 把 React 从 `19.2.8` 升到 `19.3.0`，
+   **触碰 D-175/D-184 冻结的依赖组合**，必须按 D-183 走完整验证后才能合并。
+3. **不建议**：放宽 `strict-peer-dependencies`。pnpm 的提示语正是建议这样做，但那会削弱依赖正确性防线，
+   与 D-183「依赖版本通过可执行兼容性闸门后才能冻结」相悖。
+
+**旁观证据**：同一次运行中 `pg 8.23.0` 检查结果为 `No update needed`（latest = `8.23.0`），
+与 S2 结论文档「npm 上不存在 `pg@9`」相互印证。
+
+#### 10.1.2 当前 10 个开放 Dependabot PR 的分类（2026-09-28 只读）
+
+| 类别                              | PR                                                                                                                                                                                                                          | 说明                                                                                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **改动工作流 action（SHA 固定）** | #2 `actions/upload-artifact` 4.6.2→**7.0.1**、#3 `actions/checkout` 6.1.0→**7.0.1**、#6 `actions/setup-node` 6.5.0→**7.0.0**、#5/#10 `github/codeql-action/*` 4.37.9→4.38.2                                                 | 工作流现以**提交 SHA** 固定（如 `actions/checkout@d23441a…`），符合 D-178；这四项会同时改写 SHA 与版本注释。**前三项是跨大版本升级**（upload-artifact 跨三个大版本），必须逐个评估 breaking changes，不得顺手合并 |
+| **触碰冻结依赖组合**              | #8 `@playwright/test` 1.62.1→1.63.0（D-171 精确锁定）、#11 `tsx` 4.23.12→4.23.15（D-175 精确锁定）、#7 `jsdom` 30.0.1→30.1.1（D-175 兼容性闸门组合）、#9 `react`+`@types/react`→19.3.0（D-175 锁定 `@types/react` 19.2.18） | 均须作为**独立变更**，按 **D-161 的升级治理**与 D-183 口径重跑格式、静态检查、类型检查、单元测试、PostgreSQL 集成、正式构建、核心 9 题与页面验收                                                                  |
+| **常规补丁**                      | #4 `@testing-library/react` 16.3.2→16.3.3                                                                                                                                                                                   | 未被 D-175 精确锁定，仍须通过同一套验证后合并                                                                                                                                                                     |
+
+**结论**：这 10 个 PR 一个都不应"顺手合并"；它们要么改冻结组合，要么改工作流 SHA。建议按上表分批处理，
+并优先落实 §10.1.1 的 `groups` 建议，从源头减少这类必须人工逐项裁决的自动 PR。
+
 ### 10.2 秘密扫描状态（已核实，启用需授权）
 
 `GET /repos/jett3775/LogiPlan` 的 `security_and_analysis` 四项**全部为 `disabled`**：
