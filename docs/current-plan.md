@@ -260,8 +260,11 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `data_publisher`）全部轮换；原始值与首次重设值共 7 个凭据经只读探测全部报 `28P01`；最终值由 Neon Console
    的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
    `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
-3. **（可选）`3221226505` 根因消除**：需批准启用崩溃转储采集（例如为 Playwright 的浏览器进程配置
-   `LocalDumps`）。D-188 已明确其根因**未关闭**；不批准则维持「CI 为权威证据 + 本地环境限制」的现状。
+3. **`3221226505` 根因消除**：取证步骤与 LocalDumps 配置已写入 `docs/windows-crash-evidence.md`
+   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需你在本机执行**；
+   注册表改动属机器级配置，须你明确批准。D-188 的现状（CI 为权威证据 + 本地记录为已接受环境限制）
+   在未取得 Faulting module 结论前**维持不变**。该文档同时标注了一处历史文档不一致：
+   `handoff-2026-09-25.md` §T6 写的是 `0xc0000005`，而本项目的退出码是 `3221226505` = `0xC0000409`。
 4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
    并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
    3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，
