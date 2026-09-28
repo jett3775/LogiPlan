@@ -1,2 +1,5 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# 自动识别文本文件：仓库内规范化为 LF，工作区也一律检出 LF。
+# 必须显式写 eol=lf——Windows 上 actions/checkout 继承 core.autocrlf=true，
+# 只写 text=auto 会让工作区变成 CRLF，使 prettier（endOfLine: "lf"）对全仓报错。
+# 仓库内没有 .bat/.cmd；唯一的 .ps1 支持 LF。
+* text=auto eol=lf
