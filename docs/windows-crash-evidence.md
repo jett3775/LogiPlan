@@ -13,7 +13,19 @@
 把 `3221226505`（十进制，= `0xC0000409`）从"未定位"推进到"已定性"，并回答 T6 的唯一关键问题：
 **崩溃进程是 Playwright worker、Chromium/Firefox 浏览器进程，还是 Node 宿主**——三者缓解路径完全不同。
 
-## 1. 先做只读取证（不改任何机器配置）
+## 1. 只读取证（**该轮已于 2026-09-25 执行完毕，不要重复**）
+
+**已完成的那一轮**（经用户授权，仅读事件日志与 WER 报告，无任何启动参数或代码改动）结论见 **D-188**：
+
+- Application 日志 Id=1000/1001 共 **400 条**（覆盖 2026-09-18 → 09-25），匹配 `c0000005` 的为 **0 条**；
+  Id=1000 仅 42 条，故障应用均为与本项目无关的系统或驱动组件。
+- `ReportArchive` 中**没有** node.exe / chrome.exe / firefox.exe / playwright 的任何报告；
+  Playwright 的 Chromium profile 下**没有** Crashpad 报告；WER 未被禁用。
+- 该机器确有一份浏览器转储（2026-09-21，`firefox.exe`），但其 profile、URL 与模块显示是**用户自己的 Firefox**，
+  与 Playwright 捆绑构建（`firefox-1538`）无关，D-188 已明确不得计入本项目证据。
+
+**因此本节剩下的唯一用途**：在**采集到新的崩溃之后**再查一次同源记录，确认这次是否终于留下现场。
+查询命令与字段提取方式如下（同时覆盖两个致命代码，见 §1.1 的精度说明）：
 
 ### 1.1 查询 Windows 事件日志
 
@@ -28,11 +40,15 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000,1001} -MaxEvents 
 ```
 
 **要提取的三个字段**：`Faulting application name`、`Faulting module name`、`Exception code`。
-`Exception code` 必须确认是 `0xc0000409`（对应十进制 `3221226505`）。
+`Exception code` **以实测值为准**（预期落在 `0xc0000409` 或 `0xc0000005` 之一）。
 
-> **⚠️ 文档不一致（需你注意）**：`handoff-2026-09-25.md` §T6 第 1 步写的是查 `0xc0000005`（访客违规），
-> 而本项目记录到的退出码是 `3221226505` = **`0xC0000409`**；两者是不同代码。
-> 上面的命令**同时覆盖两个代码**，命中哪个就以哪个为准，并把结论回写纠正文档。
+> **⚠️ 十进制/十六进制精度问题（D-188 与本文件此前均已受累）**：
+> `3221226505`（十进制）换算为 **`0xC0000409`**（`STATUS_STACK_BUFFER_OVERRUN`，通常由 fail-fast / `__fastfail`
+> 触发）；而 **`0xC0000005`** 是 `STATUS_ACCESS_VIOLATION`，其十进制是 `3221225477`。
+> D-188 第 1 行把 `3221226505` 与 `0xC0000005` 写作同一码，属**文档精度问题**，不改其三条决策结论。
+> 这对诊断有实际影响：**fail-fast 崩溃通常不以 Id=1000「应用程序错误」的形式留下 WER 记录**，
+> 这与 D-188「Windows 层面无任何可归因记录」的观察一致。因此本节命令**同时覆盖两个代码**，
+> 复现后**以实测到的 Exception code 为准**，并据此选择 §3 的后续路径。
 
 ### 1.2 检查 WER 报告目录（只读）
 
@@ -104,6 +120,13 @@ Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\Loca
 | 仍未定性                                                      | 维持 D-188 现状 | 不新增决策；本地 Windows 仍记为已接受的环境限制                                       |
 
 **结论落盘位置**：路线图 §0 遗留项 6（Faulting module 结论）与 `docs/decisions.md`（若需新增或修订决策）。
+
+**按 Exception code 分流**：
+
+- **`0xc0000409`（fail-fast）**：WER 通常**不会**为 fail-fast 生成 Id=1000「应用程序错误」事件，
+  因此必须走 §2 的 LocalDumps 路径才能取到现场；同时注意 fail-fast 可能由控制流保护/栈保护等
+  安全缓解触发，与"普通内存错误"的排查方向不同。
+- **`0xc0000005`（访问违例）**：优先从 §1.2 的 WER 报告里取 `Faulting module`，通常无需转储即可定性。
 
 ## 4. 边界（不得越线）
 
