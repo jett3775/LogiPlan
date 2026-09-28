@@ -132,11 +132,28 @@ node scripts/run-gate1.mjs --target firefox --repeat 20
 跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的测试）机器保证；
 **它不参与 Gate 1 稳定性判定**，稳定性权威证据仍是 ubuntu 上的 `gate1` job（D-188）。
 
-**本机基线与 CI 对齐（一条命令）**：
+**本机引导（一次性准备）**：
+
+| 步骤                             | Windows PowerShell                             | macOS / POSIX shell                                        |
+| -------------------------------- | ---------------------------------------------- | ---------------------------------------------------------- |
+| 切换 Node 到 `.nvmrc`（24.15.0） | `nvm use 24.15.0`（nvm-windows 不读 `.nvmrc`） | `nvm install && nvm use`（fnm / volta 读 `.node-version`） |
+| 启用仓库指定的 pnpm              | `corepack enable`                              | `corepack enable`                                          |
+| 安装冻结依赖                     | `pnpm install --frozen-lockfile`               | `pnpm install --frozen-lockfile`                           |
+
+§0.1 记录的本机环境事实（PATH 上的 Node 22、`pnpm exec` 在当前 shell 不可用、`.ps1` 无法被 prettier 解析）
+属**当时 Windows 机器**的结论，在 macOS / Linux 上不适用（`pnpm exec` 正常）。
+
+**本机基线与 CI 对齐（一条命令，五项检查）**：
 
 ```bash
 node scripts/verify-local-baseline.mjs
 ```
+
+于是在 macOS 上建立本机基线共 **4 行命令**（切 Node / `corepack enable` / 装依赖 / 跑基线），
+基线内部**依次执行 5 项检查**（prettier、eslint、typecheck、vitest、`node --test`），并打印**2 组计数**——
+不要把这三个数字混用。计数以本地实际输出为准，差别只来自 Docker 是否存在：
+Linux 为脚本测试 `61 / 58 / 0 / 3`、单元测试 `122 / 11 / 133`；
+CI 的 Windows runner 因自带 Docker 为脚本测试 `61 / 59 / 0 / 2`（多 1 通过、少 1 跳过）。
 
 依次执行 prettier / eslint / typecheck / vitest / `node --test scripts/*.test.mjs`，并在末尾打印可直接粘贴入档的汇总
 （平台、Node 与 pnpm 版本、各项通过与否与耗时、两套测试的计数）。跑之前会校验 Node 与 `.nvmrc` 是否一致：
