@@ -593,6 +593,7 @@ test("执行闭包覆盖实际加载的 Gate1 编排、查询和契约包源码"
   for (const path of [
     "tsconfig.base.json",
     "scripts/verify-gate1-isolated.mjs",
+    "scripts/verify-gate1-isolated.test.mjs",
     "packages/db/src",
     "packages/domain/package.json",
     "packages/domain/tsconfig.json",

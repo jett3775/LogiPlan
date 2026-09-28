@@ -262,9 +262,10 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
 3. **（可选）`3221226505` 根因消除**：需批准启用崩溃转储采集（例如为 Playwright 的浏览器进程配置
    `LocalDumps`）。D-188 已明确其根因**未关闭**；不批准则维持「CI 为权威证据 + 本地环境限制」的现状。
-4. **（可选）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：
-   P1 核查发现它在 `pnpm lint` 清单内但**不在执行闭包内**（闭包 26 条）。两者职责不同、不要求相等，
-   但若希望工具 SHA 保护覆盖该回归测试，需单独决定。
+4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
+   并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
+   3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，
+   下一次 `neon-baseline --write` 前须重新锚定并批准工具 SHA（runbook §11.2 第 3 点）。
 5. **（已收口）Dependabot 失败运行排查**：`npm_and_yarn in /. - Update #1593405539`（2026-09-27T15:36:30Z，failure）
    根因已定位——Dependabot 升级 `react-dom` 到 `19.3.0` 时，因 `.npmrc` 的 `strict-peer-dependencies=true`
    报 `ERR_PNPM_PEER_DEP_ISSUES`（`react` 仍 19.2.8、`@types/react` 仍 19.2.18），属**预期摩擦而非故障**。

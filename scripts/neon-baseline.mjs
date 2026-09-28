@@ -76,6 +76,7 @@ export const executionClosurePaths = Object.freeze([
   "scripts/neon-permission-audit.test.mjs",
   "scripts/run-db-integration-tests.mjs",
   "scripts/verify-gate1-isolated.mjs",
+  "scripts/verify-gate1-isolated.test.mjs",
   "scripts/wait-for-server.mjs",
   "packages/db/package.json",
   "packages/db/tsconfig.json",
