@@ -66,13 +66,22 @@ Get-ChildItem 'C:\ProgramData\Microsoft\Windows\WER\ReportArchive','C:\ProgramDa
 
 ### 2.1 只针对目标可执行文件，不要全系统采集
 
-LocalDumps 支持在 `LocalDumps\<image name>` 子键下按**单个映像名**配置。Playwright 的浏览器位于：
+LocalDumps 支持在 `LocalDumps\<image name>` 子键下按**单个映像名**配置。**先用仓库自带命令拿到本机实际路径与可执行文件名，不要凭记忆猜**：
 
-- Chromium：`%USERPROFILE%\AppData\Local\ms-playwright\chromium-<rev>\chrome-win\chrome.exe`
-- Firefox：`%USERPROFILE%\AppData\Local\ms-playwright\firefox-<rev>\firefox\firefox.exe`
+```powershell
+pnpm exec playwright install --dry-run
+```
 
-镜像名分别为 `chrome.exe` 与 `firefox.exe`。**建议先只对当前复跑使用的那个目标启用**，
-以免一次采集把磁盘写满（完整转储通常是数百 MB 级，且每次崩溃都会写一份）。
+输出会逐个列出各浏览器的安装位置（形如 `%USERPROFILE%\AppData\Local\ms-playwright\firefox-<rev>\firefox\firefox.exe`）。
+需要覆盖的映像名取决于你要复跑的模式：
+
+| 复跑模式                                                  | 参与的浏览器进程             | 建议配置的映像名                                                                            |
+| --------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `LOGIPLAN_GATE1_TARGET=firefox`（定向重复）               | 仅 Playwright 捆绑的 Firefox | `firefox.exe`                                                                               |
+| `LOGIPLAN_GATE1_TARGET=snapshot`                          | 不启动浏览器                 | 不需要转储                                                                                  |
+| full（不设 TARGET，含 Chromium 双视口冒烟与历史证据验收） | Firefox + Chromium           | `firefox.exe`，以及 Chromium 的 `chrome.exe`；**若为无头模式还需覆盖 `headless_shell.exe`** |
+
+**先只对你要复跑的那一个模式启用**，以免一次采集把磁盘写满（完整转储通常是数百 MB 级，每次崩溃写一份）。
 
 ```powershell
 # 以管理员执行；DumpType=2 为完整转储，DumpCount 限制份数
@@ -80,35 +89,45 @@ $root = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
 $dump = "$env:USERPROFILE\Desktop\logiplan-crashdumps"
 New-Item -Path $dump -ItemType Directory -Force | Out-Null
 
-New-Item -Path "$root\chrome.exe" -Force | Out-Null
-Set-ItemProperty -Path "$root\chrome.exe" -Name DumpFolder -Value $dump -Type ExpandString
-Set-ItemProperty -Path "$root\chrome.exe" -Name DumpType   -Value 2 -Type DWord
-Set-ItemProperty -Path "$root\chrome.exe" -Name DumpCount  -Value 3 -Type DWord
+foreach ($image in @('firefox.exe')) {   # full 模式再加上 'chrome.exe'、'headless_shell.exe'
+  New-Item -Path "$root\$image" -Force | Out-Null
+  Set-ItemProperty -Path "$root\$image" -Name DumpFolder -Value $dump -Type ExpandString
+  Set-ItemProperty -Path "$root\$image" -Name DumpType   -Value 2 -Type DWord
+  Set-ItemProperty -Path "$root\$image" -Name DumpCount  -Value 3 -Type DWord
+}
 ```
 
-Firefox 目标把子键名换成 `firefox.exe` 重复一次即可。
+### 2.2 复现（并自动留痕）
 
-### 2.2 复现
-
-按仓库既有口径复跑（runbook §0 记录的编排变量）：
+`LOGIPLAN_GATE1_TARGET` **只接受 `firefox` 与 `snapshot`**（没有 `chromium`）；
+设了 `TARGET` 或 `REPEAT > 1` 时，脚本会**自动开启时间线埋点**，逐行写 JSON 记录
+`iteration / event / at_ms / detail`——这正是逐次退出码与失败阶段的机器可读记录，无需手工誊抄。
+默认落在 `%TEMP%\logiplan-gate1-timeline-<pid>.jsonl`；建议显式指定到工作目录：
 
 ```powershell
-$env:LOGIPLAN_GATE1_TARGET = 'firefox'   # 或 'chromium'
+$env:LOGIPLAN_GATE1_TARGET = 'firefox'
 $env:LOGIPLAN_GATE1_REPEAT = '20'
-pnpm verify:gate1:isolated
-Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
+$env:LOGIPLAN_GATE1_TIMELINE_FILE = "$PWD\gate1-timeline.jsonl"
+pnpm verify:gate1:isolated 2>&1 | Tee-Object -FilePath "$PWD\gate1-run.log"
+Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT, Env:LOGIPLAN_GATE1_TIMELINE_FILE
 ```
 
 命中率约 20%/次，因此需要重复若干轮；**命中时保留现场，不重跑掩盖**（D-188 的重试政策）。
+命中后先做 §1 的只读取证，再原样重跑，两次都要如实记录。
 
 ### 2.3 清理（采集完立刻做）
 
 ```powershell
-Remove-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\chrome.exe' -Recurse -Force
-# firefox.exe 同理
+foreach ($image in @('firefox.exe','chrome.exe','headless_shell.exe')) {
+  Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$image" -Recurse -Force -ErrorAction SilentlyContinue
+}
 ```
 
 保留转储文件至结论写入文档后再删除；若转储体积过大，先只保留最小必要的一份。
+
+**转储文件名即崩溃进程名**（WER 以映像名 + 进程号命名，如 `firefox.exe.12345.dmp`）——
+仅凭文件名就能回答 §0 的关键问题"崩溃的是谁"，不装调试器也能推进到结论；
+进一步要 `Faulting module`，再用 WinDbg 打开转储执行 `!analyze -v`（可选，非必需）。
 
 ## 3. 判据与结论去向
 
