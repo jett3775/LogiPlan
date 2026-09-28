@@ -132,6 +132,17 @@ node scripts/run-gate1.mjs --target firefox --repeat 20
 跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的测试）机器保证；
 **它不参与 Gate 1 稳定性判定**，稳定性权威证据仍是 ubuntu 上的 `gate1` job（D-188）。
 
+**本机基线与 CI 对齐（一条命令）**：
+
+```bash
+node scripts/verify-local-baseline.mjs
+```
+
+依次执行 prettier / eslint / typecheck / vitest / `node --test scripts/*.test.mjs`，并在末尾打印可直接粘贴入档的汇总
+（平台、Node 与 pnpm 版本、各项通过与否与耗时、两套测试的计数）。跑之前会校验 Node 与 `.nvmrc` 是否一致：
+**低于则拒绝执行**（`.npmrc` 的 `engine-strict=true` 也会拦），高于则告警。
+它**不设置 `CI` 变量**，保留本地语义——因此本机与 CI 的任何差异都应作为**环境差异**去查，而不是当成偶发。
+
 **Gate 1（用户终端，单次）**：退出码 0。生产构建完整通过（`✓ Finalizing page optimization in 56ms`）。分项：数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip（当时口径为「零 fail、零 skip」；该口径已于同日收紧为「零 fail，且 `skipped` 精确等于显式声明的平台门控跳过数」，Windows 上的声明值即为 0，故该次记录仍成立）；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构/精度/三角色权限；不可变发布升级与核心查询；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；Firefox 核心冒烟 3/3（`V01-V04` 8.5s，含会话内曾 20/20 失败的「展开固定成本」一步）；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 另独立执行一次，同样四条腿零 fail 零 skip。
 
 **未达成的计划要求（完整 Gate 1 × 5 连续，要求 5/5 退出码 0）**：两批次均已执行，均未达成。

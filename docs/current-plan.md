@@ -293,8 +293,11 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `core.autocrlf=true` 使工作区为 CRLF，`pnpm format:check` 对 123 个文件报错；已由 `.gitattributes`
    的 `* text=auto eol=lf` 修复，随后四个 job 全绿（Windows 上 `scripts/` 测试 61 项 / 59 通过 / 0 失败）。
    用户当前**仅有 macOS 机器**，Windows 侧兼容性自此**只由 CI 保证**（矩阵里已有该 runner），无需本机 Windows。
-   待办：在 macOS 上跑一次完整 Gate 1（`pnpm verify:gate1:isolated`）作为**本地环境基线**——macOS 不存在
-   那股 Windows 原生崩溃，D-188 的「本地环境」一栏可由「已接受的环境限制」改写为「本地基线通过」。
+   待办：在 macOS 上执行 `node scripts/verify-local-baseline.mjs`（一条命令覆盖与 CI 对齐的全部检查，
+   并输出可粘贴入档的汇总：平台 / Node / pnpm 版本、各项结论与耗时、两套测试计数），
+   再按需跑一次完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）作为**本地环境基线**——
+   macOS 不存在那股 Windows 原生崩溃，D-188 的「本地环境」一栏届时可由「已接受的环境限制」改写为
+   「本地基线通过」（改写冻结决策需单独批准）。
 
 ---
 
