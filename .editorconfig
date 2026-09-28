@@ -1,0 +1,11 @@
+# 跨平台编辑器约定：Windows 与 macOS 默认的行尾、缩进、编码不同，
+# 这里统一为仓库既有口径（与 prettier 的 endOfLine: "lf"、.gitattributes 的 text=auto 一致）。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true

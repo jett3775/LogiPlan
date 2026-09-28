@@ -107,6 +107,31 @@ pnpm verify:gate1:isolated
 Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 ```
 
+**跨平台口径（2026-09-28 增补）**：开发机不再只有 Windows（macOS 亦是正式开发环境），上述写法会分化成两套命令。
+定向重复这一关键复现操作已封装为**平台中立的包装器**，两端同一条命令：
+
+```bash
+node scripts/run-gate1.mjs --target firefox --repeat 20
+```
+
+包装器把 `--target/--repeat/--timeline` 翻译成编排脚本既有的环境变量（默认写出 `gate1-timeline.jsonl`），
+并把解析后的口径先打印到 stderr；无需 `$env:`/`export`，也无需事后清理变量。
+**它不在工具执行闭包内**，改动它不影响已冻结的工具 SHA。
+
+零散命令仍需按平台书写，对照如下：
+
+| 目的               | Windows PowerShell                                                      | macOS / POSIX shell    |
+| ------------------ | ----------------------------------------------------------------------- | ---------------------- |
+| 设置环境变量       | `$env:NAME = 'value'`                                                   | `export NAME=value`    |
+| 清除环境变量       | `Remove-Item Env:NAME`                                                  | `unset NAME`           |
+| 删除目录           | `Remove-Item -Recurse -Force <path>`                                    | `rm -rf <path>`        |
+| 管道留痕           | `2>&1 \| Tee-Object -FilePath <path>`                                   | `2>&1 \| tee <path>`   |
+| 仅本平台适用的流程 | 见 `docs/windows-crash-evidence.md`（WER / LocalDumps 为 Windows 专有） | 无对应物，该流程不适用 |
+
+跨平台一致性由 CI 的 `cross-platform` job（`ubuntu-latest` / `macos-latest` / `windows-latest`，
+跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的测试）机器保证；
+**它不参与 Gate 1 稳定性判定**，稳定性权威证据仍是 ubuntu 上的 `gate1` job（D-188）。
+
 **Gate 1（用户终端，单次）**：退出码 0。生产构建完整通过（`✓ Finalizing page optimization in 56ms`）。分项：数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7` 零 fail 零 skip（当时口径为「零 fail、零 skip」；该口径已于同日收紧为「零 fail，且 `skipped` 精确等于显式声明的平台门控跳过数」，Windows 上的声明值即为 0，故该次记录仍成立）；从零迁移 0001—0003 后升级 0004—0010；V1 基线发布、V2 候选校验、显式激活与原子物化、重复发布幂等；结构/精度/三角色权限；不可变发布升级与核心查询；6 条查询计划 `temp_written_blocks` 全 0；快照集成 28/28；Chromium 双视口基础 10 passed / 22 skipped；Chromium 双视口历史证据 22/22；Firefox 核心冒烟 3/3（`V01-V04` 8.5s，含会话内曾 20/20 失败的「展开固定成本」一步）；并发 5 × 100 热查询 p50 30.316ms / p95 74.502ms / p99 104.476ms；运行后隔离容器、卷、网络全部移除。`pnpm test:db-integration` 另独立执行一次，同样四条腿零 fail 零 skip。
 
 **未达成的计划要求（完整 Gate 1 × 5 连续，要求 5/5 退出码 0）**：两批次均已执行，均未达成。
@@ -114,7 +139,7 @@ Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT
 - **批次一**（原始命令，无迭代间清理）：`0, 0, 0, 1, 1`，即 3/5。第 4 次在 `Firefox 核心冒烟` 以原生崩溃码 `3221226505` 失败、**零用例输出**（此前各阶段全部通过：数据库集成四条腿、迁移/发布/激活/查询计划、生产构建、快照 28/28、Chromium 双视口基础 10 passed、Chromium 双视口历史证据 22 passed）。第 5 次在 `Chromium 双视口基础冒烟` 以 `Error: http://127.0.0.1:4173/api/health/live is already used` 失败——第 4 次崩溃时 Playwright 进程先于收尾退出，`next start` 泄漏并占住 4173（实测泄漏进程 `next start --hostname 127.0.0.1 --port 4173`，父进程已消失），属**纯级联**而非独立失败。
 - **批次二**（加固编排：每次迭代前后清理 4173/4174 监听进程与泄漏的 `next start`，**不触碰断言、超时与用例选择**）：`0, 0, 0, 0, 1`，即 4/5。第 1—4 次全部退出码 0；第 5 次在 `Chromium 双视口历史证据验收` 失败，错误为 `Error: worker process exited unexpectedly (code=3221226505, signal=null)`，首个用例 `[chromium-1440] historical-evidence.spec.ts:326:5` 在 **0ms** 失败（worker 在用例体执行前崩溃），其余 **21 passed**。该次结束后隔离容器、命名卷、网络残留均为 `none`，端口无泄漏。
 
-**崩溃定性**：`3221226505` = `0xC0000005` = `STATUS_ACCESS_VIOLATION`。两批次共 10 次执行、2 次原生崩溃（`Firefox 核心冒烟` 1 次、`Chromium 双视口历史证据验收` 1 次）、**零断言失败**；崩溃跨两个阶段但均落在浏览器阶段的启动边界。同一崩溃码与同一阶段在 2026-09-21 已有记录（见第 0.1 节），判定为**既有环境不稳定**。已排除用户浏览器负载（批次二运行期间 `firefox.exe` 计数为 0）与磁盘空间（系统盘剩余 434 GB）。故本轮只记「代码侧验收全部通过」，**不得**记「Gate 1 稳定通过」。
+**崩溃定性**：`3221226505` = `0xC0000005` = `STATUS_ACCESS_VIOLATION`。（**2026-09-28 更正**：十进制 `3221226505` 实为 `0xC0000409`（fail-fast 语义），`0xC0000005` 的十进制是 `3221225477`；本行当时的映射有误，但当时的排查结论与处置不受影响——两批次均**零断言失败**、无 Windows 层记录，详见 D-188 与 `docs/windows-crash-evidence.md`。）两批次共 10 次执行、2 次原生崩溃（`Firefox 核心冒烟` 1 次、`Chromium 双视口历史证据验收` 1 次）、**零断言失败**；崩溃跨两个阶段但均落在浏览器阶段的启动边界。同一崩溃码与同一阶段在 2026-09-21 已有记录（见第 0.1 节），判定为**既有环境不稳定**。已排除用户浏览器负载（批次二运行期间 `firefox.exe` 计数为 0）与磁盘空间（系统盘剩余 434 GB）。故本轮只记「代码侧验收全部通过」，**不得**记「Gate 1 稳定通过」。
 
 **`#418` 修复**：根因、证据与修复见 `docs/development-roadmap.md` 第 0 节。要点：`apps/web/app/dashboard-workspace.tsx:509` 的 `<title>` 子节点数组长度为 5，React 服务端渲染为空 `<title></title>`，造成元素级水合不匹配；改为单个模板字符串后，生产 SSR 空 `<title>` 计数为 0（12/12 月度条形图标题文本正确），生产 Firefox 20 次迭代 `#418` 与 `pageerror` 计数均为 0。原「Firefox 独有」判断不成立（三个浏览器工程均出现）。
 

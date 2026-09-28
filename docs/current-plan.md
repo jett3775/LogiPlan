@@ -261,10 +261,14 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
    `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
 3. **`3221226505` 根因消除**：取证步骤与 LocalDumps 配置已写入 `docs/windows-crash-evidence.md`
-   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需你在本机执行**；
+   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需你在 Windows 本机执行**；
    注册表改动属机器级配置，须你明确批准。D-188 的现状（CI 为权威证据 + 本地记录为已接受环境限制）
-   在未取得 Faulting module 结论前**维持不变**。该文档同时标注了一处历史文档不一致：
-   `handoff-2026-09-25.md` §T6 写的是 `0xc0000005`，而本项目的退出码是 `3221226505` = `0xC0000409`。
+   在未取得 Faulting module 结论前**维持不变**。注意该流程为 **Windows 专有**（WER / LocalDumps），
+   macOS 上不存在对应机制；2026-09-25 那轮只读取证已执行完毕（`c0000005` 匹配 0 条、WER 与 Crashpad 无记录），
+   **不要重复排查**。另标注了一处**十进制/十六进制精度问题**（`3221226505` 实为 `0xC0000409`，
+   `0xC0000005` 的十进制是 `3221225477`），该问题在 D-188 首行与 runbook §0.3 的「崩溃定性」行同样存在，
+   已在 `handoff-2026-09-25.md` §T6、runbook §0.3、`windows-crash-evidence.md` §1.1 三处就地更正，
+   **未改写 D-188 正文**（冻结决策的三条结论不受影响）。
 4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
    并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
    3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，
@@ -275,6 +279,18 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    建议在 `dependabot.yml` 用 `groups` 把 react 家族编组；**不得**放宽 `strict-peer-dependencies`。
    另附当前 10 个开放 Dependabot PR 的分类（4 个改工作流 action SHA、4 个触碰冻结依赖组合、1 个常规补丁），
    结论是**一个都不应顺手合并**。详见 `docs/neon-vercel-baseline-runbook.md` §10.1.1—§10.1.2。
+6. **（待验证）macOS / Windows 双环境保障（2026-09-28 轮次）**。需求由你提出：两套系统都要能开发与使用。
+   已交付三项：① CI 新增 `cross-platform` job（`ubuntu-latest` / `macos-latest` / `windows-latest`，
+   跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的三个测试文件）——**不参与 Gate 1 稳定性判定**，
+   稳定性权威证据仍是 ubuntu 的 `gate1` job（D-188 不变）；② 新增平台中立包装器 `scripts/run-gate1.mjs`
+   （`--target/--repeat/--timeline` → 既有环境变量，两端同一条命令）；③ 新增 `.editorconfig`。
+   审计结论：代码层**原本就是跨平台设计**（`taskkill` / `detached` / `NUL` 与 `/dev/null` / Docker 候选探测
+   均有 win32 分支，全部 npm 脚本为 Node 而非 POSIX shell），真正缺口是**这些 win32 分支从未被机器验证过**——
+   `scripts/` 下的测试此前不在 vitest 收集范围内、也不在任何一个 CI job 中执行，本次由矩阵首次覆盖。
+   **刻意未改 `package.json`**：它在 `executionClosurePaths` 内，加 npm 脚本别名会让闭包再变一次、
+   又要重新锚定工具 SHA，故包装器只以 `node scripts/run-gate1.mjs` 调用。
+   **验证状态**：本机（Linux）已验证 prettier / lint / typecheck / 单元测试与包装器行为；
+   三个平台的机器验证以 CI 结果为准，**未通过前该项不算完成**。
 
 ---
 

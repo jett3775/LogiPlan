@@ -102,14 +102,13 @@ foreach ($image in @('firefox.exe')) {   # full 模式再加上 'chrome.exe'、'
 `LOGIPLAN_GATE1_TARGET` **只接受 `firefox` 与 `snapshot`**（没有 `chromium`）；
 设了 `TARGET` 或 `REPEAT > 1` 时，脚本会**自动开启时间线埋点**，逐行写 JSON 记录
 `iteration / event / at_ms / detail`——这正是逐次退出码与失败阶段的机器可读记录，无需手工誊抄。
-默认落在 `%TEMP%\logiplan-gate1-timeline-<pid>.jsonl`；建议显式指定到工作目录：
+默认落在 `%TEMP%\logiplan-gate1-timeline-<pid>.jsonl`；建议显式指定到工作目录。
+
+复现命令用**平台中立的包装器**（Windows 与 macOS 同一条命令，见 runbook §0.3 的跨平台口径），
+因此不需要手工设置/清理环境变量；`--timeline` 缺省即工作目录下的 `gate1-timeline.jsonl`：
 
 ```powershell
-$env:LOGIPLAN_GATE1_TARGET = 'firefox'
-$env:LOGIPLAN_GATE1_REPEAT = '20'
-$env:LOGIPLAN_GATE1_TIMELINE_FILE = "$PWD\gate1-timeline.jsonl"
-pnpm verify:gate1:isolated 2>&1 | Tee-Object -FilePath "$PWD\gate1-run.log"
-Remove-Item Env:LOGIPLAN_GATE1_TARGET, Env:LOGIPLAN_GATE1_REPEAT, Env:LOGIPLAN_GATE1_TIMELINE_FILE
+node scripts/run-gate1.mjs --target firefox --repeat 20 2>&1 | Tee-Object -FilePath "$PWD\gate1-run.log"
 ```
 
 命中率约 20%/次，因此需要重复若干轮；**命中时保留现场，不重跑掩盖**（D-188 的重试政策）。
