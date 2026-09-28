@@ -254,11 +254,10 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
 ## 5. 仍待你决策 / 待授权
 
 1. **E 段已全部完成**（E2a / E2b / E2c / E3 / E3b / E1 / E4 / E5，2026-09-27）。
-2. **凭据轮换（建议优先）**：本轮对话中曾明文出现 Neon 的 `neondb_owner` 连接串与三个角色密码，以及 Vercel
-   侧的操作上下文；这些凭据应视为已暴露。**轮换有硬性配套顺序**：
-   `Neon 改密码` → `更新 Vercel Production 的 DATABASE_URL Secret` → **产生新部署并 Promote**。
-   原因：Secret 值可编辑但只有新构建才带上新值；**在 Promote 之前，线上仍是旧密码的构建**，
-   若先停用旧密码会直接打断线上服务。轮换各步都为远程写，需你显式授权。
+2. **凭据轮换：已完成并验证（2026-09-28）**。四个角色（`app_reader` / `neondb_owner` / `schema_migrator` /
+   `data_publisher`）全部轮换；原始值与首次重设值共 7 个凭据经只读探测全部报 `28P01`；最终值由 Neon Console
+   的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
+   `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
 3. **（可选）`3221226505` 根因消除**：需批准启用崩溃转储采集（例如为 Playwright 的浏览器进程配置
    `LocalDumps`）。D-188 已明确其根因**未关闭**；不批准则维持「CI 为权威证据 + 本地环境限制」的现状。
 4. **（可选）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：
