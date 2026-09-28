@@ -827,3 +827,42 @@ Production 工作流必须由人工批准，并绑定已通过检查的具体提
 `main` 上执行破坏性数据库降级（D-156）。
 
 **验收**：回切路径已按上表写明；首次初始化场景的处置已明确为「停止公开流量并修复」。
+
+## 13. 凭据轮换执行记录（2026-09-27 起）
+
+**背景**：2026-09-26/27 的对话中曾明文出现 Neon 的 `neondb_owner` 连接串与 `app_reader` /
+`data_publisher` / `schema_migrator` 三个角色的密码，这些凭据应视为**已暴露**，须全部轮换。
+
+**Neon 官方 leak-response 要点**（`neon.com/docs/security/security-overview#rotate-credentials`、
+`neon.com/docs/manage/roles#reset-a-password`）：
+
+1. 重置入口：Console → 选项目 → 选分支 → **Postgres database → Roles** → 角色菜单 → **Reset password**。
+   Console 生成随机值；要自定义值须用 SQL：`ALTER USER <role> WITH PASSWORD '<新值>'`。
+2. **「A password reset takes effect immediately. The old password stops working on the next connection.」**
+3. **重置按分支生效**（branch-scoped），多分支项目须逐分支重置。
+4. 密码要求 **60 位熵**（建议 ≥12 字符、含大小写与符号）。
+5. 泄露后轮换**从默认角色（`neondb_owner`）开始**；之后盯应用日志中的 `password authentication failed`，
+   它会指出漏改的存储位置。
+
+**本项目采取的工程约束（由 D-189 与运行架构推出）**：
+
+- **新密码限制在 URL 安全字符集内**（`A–Z a–z 0–9 - _ ~ .`，长度 ≥ 20）。这样连接串无需百分号转义，
+  从字符集上绕开 `%`→`%25`、`#`→`%23` 这类已知陷阱（见 §2.1 E2b 与 §11.4）。
+- **触发新部署只能走「推送 `main`」**，**不得用 Vercel 的 Redeploy**：推送路径已实测产生 `Staged` 部署；
+  Redeploy 是否同样不绑域名未经验证，若它直接绑域名，会在密码尚未生效前就把线上切到新值。
+- `app_reader` 有唯一线上消费者（Vercel Production 的 `DATABASE_URL` Secret），其轮换顺序必须是
+  `更新 Secret → 推送产生新部署 → 重置密码 → 立刻 Promote`，中断窗口只在「重置密码 → Promote」之间。
+
+**执行状态（截至 2026-09-27 本文档更新时）**：
+
+| 阶段            | 内容                                                                   | 状态                                                      | 依据                                              |
+| --------------- | ---------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- |
+| Phase 1         | 重置 `neondb_owner`、`schema_migrator`、`data_publisher`               | **未执行**                                                | 2026-09-27 只读探测：三个角色的旧密码**仍然可用** |
+| Phase 2 第 1 步 | 更新 Vercel Production 的 `DATABASE_URL` Secret 为新 `app_reader` 密码 | 用户声明已完成；**不可独立验证**（Secret 保存后不可读回） | —                                                 |
+| Phase 2 第 2 步 | 推送产生带新 Secret 的 Staged 部署                                     | 已执行                                                    | 本次提交触发的部署                                |
+| Phase 2 第 3 步 | 在 Neon 重置 `app_reader` 密码（立即生效）                             | 待执行                                                    | —                                                 |
+| Phase 2 第 4 步 | 立刻 Promote 该 Staged 部署                                            | 待执行                                                    | —                                                 |
+
+**只读探测方法**（用于确认某角色是否已轮换；不写任何数据）：以该角色的旧密码经直连端点尝试连接，
+成功即「未轮换」，报 `28P01` 即「已轮换」。沙箱内需经代理隧道并把 Neon 主机名映射到本机
+（见 §11.4「环境事实」）。
