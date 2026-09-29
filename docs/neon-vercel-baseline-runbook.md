@@ -177,6 +177,18 @@ open -a Docker                 # 首次启动需完成引导（可能要求装�
 docker version --format '{{.Server.Version}}'   # 必须打印版本号：只有 Server 可用才代表引擎就绪
 ```
 
+**也可以从官网下载 `.dmg` 安装**（2026-09-28 用户实际采用；当时该网络下 brew 命令行不好用）。
+该路径与 brew 等价，**唯一额外要求是 `docker` CLI 在 PATH 上**：
+
+- Docker Desktop 首次启动会询问/提供「Install CLI tools」（Settings → Advanced），装到 `/usr/local/bin/docker`；
+  跳过它就会出现「GUI 里引擎在跑、终端里 `docker: command not found`」。
+- 若 CLI 不在 PATH 上，`run-docker-compose.mjs` 支持用 `DOCKER_CLI` 指定绝对路径（其候选顺序为
+  `DOCKER_CLI` → `docker` → [Windows] `docker.exe` → [WSL] `/mnt/c/.../docker.exe`），例如指向
+  `/Applications/Docker.app/Contents/Resources/bin/docker`（该目录随发行版可能不同，以实际安装为准）。
+
+**首次运行的额外代价**：数据库集成两条腿会拉取 `postgres:18.4` 与 `postgres:18.6` 镜像；网络受限时这一步
+可能很慢或失败，失败时把输出保留下来再重跑即可（不会留下半成品资源）。
+
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
 
