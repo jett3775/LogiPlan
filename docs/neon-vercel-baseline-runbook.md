@@ -143,6 +143,32 @@ node scripts/run-gate1.mjs --target firefox --repeat 20
 §0.1 记录的本机环境事实（PATH 上的 Node 22、`pnpm exec` 在当前 shell 不可用、`.ps1` 无法被 prettier 解析）
 属**当时 Windows 机器**的结论，在 macOS / Linux 上不适用（`pnpm exec` 正常）。
 
+**全新 macOS 机器的完整引导（2026-09-28 以此路径到达终点：基线五项全绿）**：
+
+```bash
+# 1) Xcode 命令行工具（Homebrew 与 git 的前置）
+xcode-select --install
+
+# 2) Homebrew；装完按它打印的提示把 brew 加入 PATH（Apple 芯片为 /opt/homebrew）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 3) Node 版本管理器 fnm，并让 zsh 在进入仓库目录时自动切到 .node-version
+brew install fnm
+echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc && exec zsh
+
+# 4) 取代码（仓库为公开，克隆无需登录；推送才需要凭据）
+git clone https://github.com/jett3775/LogiPlan.git && cd LogiPlan
+
+# 5) 建立本机基线＝上文「4 行命令」
+fnm install && node -v && corepack enable
+pnpm install --frozen-lockfile
+node scripts/verify-local-baseline.mjs
+```
+
+若用 nvm / 官方安装包等**等价工具**替代第 3 步，终点一致即可（要求只有一条：`node -v` 为 24.15.x）。
+基线不需要浏览器；`pnpm exec playwright install` 只在跑 E2E 时才需要。
+`corepack` 若不可用（个别发行版不含），以 `npm install -g pnpm@10.34.5` 替代第 5 步第一行。
+
 **本机基线与 CI 对齐（一条命令，五项检查）**：
 
 ```bash
