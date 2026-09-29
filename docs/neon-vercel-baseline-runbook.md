@@ -174,7 +174,11 @@ node scripts/verify-local-baseline.mjs
 ```bash
 brew install --cask docker     # 或等价的 docker CLI + 引擎（OrbStack / colima 均可）
 open -a Docker                 # 首次启动需完成引导（可能要求装特权组件并输密码）
-docker version --format '{{.Server.Version}}'   # 必须打印版本号：只有 Server 可用才代表引擎就绪
+
+# 就绪判据（两条都要过）：CLI 在 PATH 上，且引擎能返回 Server 版本
+command -v docker                                # 打印路径＝在 PATH 上；无输出＝不在
+docker version --format '{{.Server.Version}}'    # 打印版本号＝引擎就绪
+docker compose version                           # 打印 v2 版本＝compose 插件可用（仓库用 docker compose）
 ```
 
 **也可以从官网下载 `.dmg` 安装**（2026-09-28 用户实际采用；当时该网络下 brew 命令行不好用）。
