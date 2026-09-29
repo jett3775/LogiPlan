@@ -169,6 +169,25 @@ node scripts/verify-local-baseline.mjs
 基线不需要浏览器；`pnpm exec playwright install` 只在跑 E2E 时才需要。
 `corepack` 若不可用（个别发行版不含），以 `npm install -g pnpm@10.34.5` 替代第 5 步第一行。
 
+**完整 Gate 1 的额外前置：Docker**（`verify-local-baseline.mjs` 不需要它，`pnpm verify:gate1:isolated` 需要）：
+
+```bash
+brew install --cask docker     # 或等价的 docker CLI + 引擎（OrbStack / colima 均可）
+open -a Docker                 # 首次启动需完成引导（可能要求装特权组件并输密码）
+docker version --format '{{.Server.Version}}'   # 必须打印版本号：只有 Server 可用才代表引擎就绪
+```
+
+Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
+平台门控跳过数），用户侧实测报错形如：
+
+```text
+[DB 集成] Docker 探测失败：无法启动 docker：spawn docker ENOENT
+[DB 集成] 前置条件不满足：Docker 不可用，数据库集成验收不能以 skip 计为通过
+```
+
+紧随其后的 `[Gate 1] 隔离资源清理失败` 是**同一根因的级联**，不是第二个故障；该情形下数据库集成是第一步、
+构建与服务阶段尚未启动，因此机器上不会留下容器、卷、网络或 4173 端口泄漏。装上并启动 Docker 后原样重跑即可。
+
 **本机基线与 CI 对齐（一条命令，五项检查）**：
 
 ```bash
