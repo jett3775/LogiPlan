@@ -1,13 +1,19 @@
-# 临时诊断工作流：只做的是只读取证，手动触发、用完即删。
+# 临时诊断工作流：只做的是只读取证，用完即删。
 #
 # 目的：在真实的 macOS runner 上回答两个问题——
 #   1) 仓库锁定的 Playwright（1.62.1 / firefox-1538 / Firefox 153）在该 macOS 上能否启动 Firefox；
 #   2) 上游 1.63.0（firefox-1553 / Firefox 156）在同一台机器上能否启动。
 # 依赖说明：1.63.0 的探针在 /tmp 下独立安装，**不修改仓库依赖、不触碰冻结的工具闭包**
 # （`.github/workflows/` 不在 `executionClosurePaths` 内）。
+#
+# 触发方式：`push` 带路径过滤——只有本文件自身被改动时才跑，不影响日常推送；
+# 同时保留 `workflow_dispatch`（当前凭据无 actions:write，手动触发会 403，故以 push 为主）。
 name: macOS Firefox probe (temporary)
 
 on:
+  push:
+    paths:
+      - ".github/workflows/macos-probe.yml"
   workflow_dispatch:
 
 permissions:
