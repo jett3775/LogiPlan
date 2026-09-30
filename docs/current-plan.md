@@ -300,6 +300,15 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    本地环境换为 macOS、D-188 三条决策不变、Windows 记录转历史。
    剩余可选：完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）——跑通后可提请把
    D-188 的「本地环境」一栏由「已接受的环境限制」改写为「本地基线通过」（**改写冻结决策需单独批准**）。
+7. **（open）macOS 上 `Firefox 核心冒烟` 挂起（2026-09-30，首台 macOS 机器实测）**。同日 macOS 首次完整 Gate 1
+   已推进至浏览器阶段，此前全部阶段通过（数据库集成四条腿、迁移/发布/激活/校验、生产构建、快照 `28/28`、
+   Chromium 双视口基础 `10 passed / 22 skipped`、Chromium 历史证据 `22/22`）；**唯一失败**是 Firefox 冒烟：
+   首条用例 `0ms` 失败且无用例输出，随后 Playwright 挂起，被步骤超时 `240s` 终止（`timedOut` 分支），
+   Playwright 的失败详情未及打印（编排 `stdio: inherit`，无缓冲可补）。
+   已排除：权限位问题（同日已修复）、Docker/镜像、`.env` 缺失。**待取证判据**：① Playwright Firefox 能否
+   单独启动（`firefox.launch()` 最小判据）；② `~/Library/Logs/DiagnosticReports` 是否有 Firefox 崩溃报告；
+   ③ 4173/4174 是否有泄漏监听进程。该问题**与 Windows 的 `3221226505` 签名不同**（挂起 vs 原生崩溃），
+   不得合并；Windows 项仍按 §5.3 挂起。
 
 ---
 
