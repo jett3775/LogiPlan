@@ -305,10 +305,16 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    Chromium 双视口基础 `10 passed / 22 skipped`、Chromium 历史证据 `22/22`）；**唯一失败**是 Firefox 冒烟：
    首条用例 `0ms` 失败且无用例输出，随后 Playwright 挂起，被步骤超时 `240s` 终止（`timedOut` 分支），
    Playwright 的失败详情未及打印（编排 `stdio: inherit`，无缓冲可补）。
-   已排除：权限位问题（同日已修复）、Docker/镜像、`.env` 缺失。**待取证判据**：① Playwright Firefox 能否
-   单独启动（`firefox.launch()` 最小判据）；② `~/Library/Logs/DiagnosticReports` 是否有 Firefox 崩溃报告；
-   ③ 4173/4174 是否有泄漏监听进程。该问题**与 Windows 的 `3221226505` 签名不同**（挂起 vs 原生崩溃），
-   不得合并；Windows 项仍按 §5.3 挂起。
+   已排除：权限位问题（同日已修复）、Docker/镜像、`.env` 缺失。**2026-09-30 续：根因区间已收窄**——
+   最小判据（`firefox.launch()`，无需数据库/服务）复现为 `browserType.launch: Timeout 180000ms exceeded`，
+   日志显示 `sandbox_extension_issue_file_to_process failed for …/plugin-container.app: 1 (Operation not permitted)`：
+   Firefox 主进程能起，但**内容进程的沙箱扩展签发被拒**，Juggler 管道未建立。同机 Chromium 两轮全过 ⇒
+   非系统范围策略问题，指向该 Firefox 构建在本机的签名/沙箱条件。
+   同次发现的 `4173 已占用` 是该失败的**后果**（挂起被强杀时 Playwright 自起的 webServer 未被清理），
+   属次生现象、需先清理以免掩盖真因。**待判据**：`xattr -l`（`com.apple.quarantine`）、
+   `codesign -v --deep`（嵌套 app 签名是否有效）、`spctl -a -vv`、`sw_vers`；
+   修复尝试：`pnpm exec playwright install --force firefox` 后重跑最小判据。
+   **边界**：不得用浏览器启动参数类开关（如关闭内容进程沙箱）绕过——属 §6 明确不做项，需单独批准。
 
 ---
 

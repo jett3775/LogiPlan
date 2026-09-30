@@ -239,6 +239,23 @@ docker pull postgres:18.4 && docker pull postgres:18.6
 `docs/current-plan.md` §5.7。注意该情形与 Windows 的 `3221226505` **签名不同**（此处是挂起，非原生崩溃），
 不得合并为同一问题。
 
+**2026-09-30 续：Firefox 在 macOS 上无法启动（open）**
+
+- **最小判据**（不需要数据库与服务）：`node -e "import('@playwright/test').then(async ({ firefox }) => { const b = await firefox.launch(); console.log(await b.version()); await b.close(); })"`
+  → `browserType.launch: Timeout 180000ms exceeded`；调用日志中可见
+  `sandbox_extension_issue_file_to_process failed for …/Nightly.app/Contents/MacOS/plugin-container.app: 1 (Operation not permitted)`
+  与 `RenderCompositorSWGL failed mapping default framebuffer, no dt`。
+  即：Firefox 主进程能启动，但**内容进程的沙箱扩展签发被拒**，Juggler 管道始终未建立 → 启动超时。
+  同一台机器上 Playwright 的 **Chromium 正常**（Chromium 两轮全过），故不是系统范围的策略问题，
+  而指向该 Firefox 构建在本机的签名/沙箱条件。
+- **4173 端口被占是上述失败的后果**：Firefox 步骤挂起被强杀时，Playwright 自起的 webServer 未被清理，
+  残留 `next start` 占着 4173；定向模式重跑因此**立即**（0.6s）报
+  `Error: http://127.0.0.1:4173/api/health/live is already used`（配置为 `reuseExistingServer: false`）。
+  处置顺序：先用 `lsof -nP -iTCP:4173 -sTCP:LISTEN` 找到残留进程、**确认是本项目的 `next start`** 后再结束它，
+  然后才继续 Firefox 取证——否则端口冲突会掩盖真正的失败。
+- **本段未改动任何执行代码与浏览器配置**。边界：**不得**用浏览器启动参数类开关（例如关闭内容进程沙箱）
+  绕过该问题——属 `docs/current-plan.md` §6 的明确不做项，需单独批准。
+
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
 
