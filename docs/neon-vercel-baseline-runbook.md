@@ -256,6 +256,28 @@ docker pull postgres:18.4 && docker pull postgres:18.6
 - **本段未改动任何执行代码与浏览器配置**。边界：**不得**用浏览器启动参数类开关（例如关闭内容进程沙箱）
   绕过该问题——属 `docs/current-plan.md` §6 的明确不做项，需单独批准。
 
+**2026-09-30 续②：本机取证结果（Firefox 仍无法启动）**
+
+- **4173 上的残留进程是孤儿**：`ps` 显示 `PPID 1`、`ELAPSED 12:30:54`、`next-server (v16.3.1)`——
+  即**早于当日全部 Gate 1 尝试**就已存在，且 **`kill`（SIGTERM）无效**，仍需 `kill -9`。
+  因此那次定向重跑的失败（`0.6s` 内报 `already used`）**没有跑到浏览器**，不能用作 Firefox 的现场。
+  （注意：其存在时长与当日 Chromium 步骤全部通过之间存在张力，提示该进程可能长期处于"端口在 listen、
+  服务不响应"的半死状态；不作为结论，仅记录。）
+- **Firefox 构建的签名证据**：`codesign -v --deep` 报
+  `Nightly.app: code has no resources but signature indicates they must be present`；
+  `plugin-container.app` 的 `CodeDirectory` 为 `flags=0x20002(adhoc,linker-signed)`、`Signature=adhoc`、
+  `Sealed Resources=none`、`Info.plist=not bound`、`TeamIdentifier=not set`。即该构建为 **ad-hoc 签名**，
+  与"内容进程沙箱扩展签发被拒"的机制一致。
+- **系统版本**：`sw_vers` = macOS **27.0** / Build **26A428**（预发布版本）。
+- **`pnpm exec playwright install --force firefox` 重装无效**：同一 EPERM 原样复现 ⇒ 不是解包损坏。
+  同机 Playwright 的 Chromium 两轮全过 ⇒ 非系统范围的策略问题。综上判定为**该 Firefox 构建与本版 macOS 的
+  组合不兼容**，非仓库缺陷。
+- **上游现状（本地查询，未取得可信上游引用）**：`@playwright/test` 上游最新 **1.63.0**，其 Firefox 为
+  **156.0 / firefox-1553**；本仓库为 **1.62.1 / firefox-1538（Firefox 153.0）**。仓库内**已有** Dependabot
+  PR **#8**（`chore(deps-dev): bump @playwright/test from 1.62.1 to 1.63.0`），可作为升级路径的现成载体。
+  该升级会改动 `pnpm-lock.yaml`（在 `executionClosurePaths` 内）⇒ 冻结工具 SHA 需重新锚定并独立批准，
+  且升级后必须重跑全量 Gate 1 才能判定是否修复。**本轮未执行该升级**（依赖组合冻结）。
+
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
 

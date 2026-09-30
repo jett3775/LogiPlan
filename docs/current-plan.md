@@ -315,6 +315,15 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `codesign -v --deep`（嵌套 app 签名是否有效）、`spctl -a -vv`、`sw_vers`；
    修复尝试：`pnpm exec playwright install --force firefox` 后重跑最小判据。
    **边界**：不得用浏览器启动参数类开关（如关闭内容进程沙箱）绕过——属 §6 明确不做项，需单独批准。
+   **2026-09-30 取证结果（Firefox 仍无法启动）**：4173 上的残留进程为**孤儿**（`PPID 1`、已存活 12h30m、
+   `SIGTERM` 无效，需 `kill -9`），故那次定向重跑 0.6s 报 `already used` **未跑到浏览器**、不可作现场；
+   `codesign -v --deep` 显示该构建 **ad-hoc 签名**（`Signature=adhoc`、`Sealed Resources=none`、
+   `Nightly.app: code has no resources but signature indicates they must be present`）；
+   `sw_vers` = macOS **27.0 / 26A428（预发布）**；`--force` 重装无效 ⇒ 判定为**该 Firefox 构建与本版 macOS
+   的组合不兼容**，非仓库缺陷。**升级路径已现成**：上游 1.63.0 的 Firefox 为 156.0（firefox-1553），
+   而仓库内已有 Dependabot **PR #8**（1.62.1 → 1.63.0）；但该升级会改 `pnpm-lock.yaml`（闭包内）⇒
+   需重新锚定工具 SHA + 全量重跑验证，**须先批准**。备选收口：把 macOS 本地 Firefox 腿记为环境限制
+   （与 D-188 对 Windows 的处置同构但**平台不同，不得合并**），稳定性权威证据仍为 CI（ubuntu 上 Firefox 腿真跑）。
 
 ---
 
