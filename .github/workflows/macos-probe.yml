@@ -1,0 +1,76 @@
+# 临时诊断工作流：只做的是只读取证，手动触发、用完即删。
+#
+# 目的：在真实的 macOS runner 上回答两个问题——
+#   1) 仓库锁定的 Playwright（1.62.1 / firefox-1538 / Firefox 153）在该 macOS 上能否启动 Firefox；
+#   2) 上游 1.63.0（firefox-1553 / Firefox 156）在同一台机器上能否启动。
+# 依赖说明：1.63.0 的探针在 /tmp 下独立安装，**不修改仓库依赖、不触碰冻结的工具闭包**
+# （`.github/workflows/` 不在 `executionClosurePaths` 内）。
+name: macOS Firefox probe (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Firefox launch probe on macOS
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24.15.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.15.0
+
+      - name: Enable pnpm 10.34.5
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.34.5 --activate
+          pnpm --version
+
+      - name: Platform facts
+        run: |
+          echo "--- sw_vers"
+          sw_vers
+          echo "--- 架构"
+          uname -m
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Probe A - 仓库锁定版本（1.62.1 / Firefox 153）
+        run: |
+          pnpm exec playwright install firefox
+          node -e 'import("@playwright/test").then(async ({ firefox }) => { const b = await firefox.launch(); console.log("PROBE_A=OK firefox " + (await b.version())); await b.close(); }).catch((e) => { console.log("PROBE_A=FAIL\n" + e.message); });'
+
+      - name: Probe A - 该构建的签名与隔离属性
+        run: |
+          CACHE="$HOME/Library/Caches/ms-playwright"
+          APP_DIR="$(ls -d "$CACHE"/firefox-* 2>/dev/null | head -1)"
+          echo "APP_DIR=$APP_DIR"
+          if [ -z "$APP_DIR" ]; then echo "未找到 firefox-* 安装目录"; exit 0; fi
+          APP="$APP_DIR/firefox/Nightly.app"
+          echo "APP=$APP"
+          echo "--- xattr"
+          xattr -l "$APP" 2>&1 | head -5 || true
+          echo "--- codesign 校验（--deep）"
+          codesign -v --deep "$APP" 2>&1 | head -5 || true
+          echo "--- codesign 详情（主 app）"
+          codesign -dv --verbose=4 "$APP" 2>&1 | head -25 || true
+          echo "--- codesign 详情（plugin-container.app）"
+          codesign -dv --entitlements - "$APP/Contents/MacOS/plugin-container.app" 2>&1 | head -25 || true
+
+      - name: Probe B - 上游 1.63.0 / Firefox 156（仓库外，不改依赖）
+        run: |
+          mkdir -p /tmp/pw163 && cd /tmp/pw163
+          npm init -y >/dev/null
+          npm i @playwright/test@1.63.0 --no-audit --no-fund
+          npx playwright install firefox
+          node -e 'import("@playwright/test").then(async ({ firefox }) => { const b = await firefox.launch(); console.log("PROBE_B=OK firefox " + (await b.version())); await b.close(); }).catch((e) => { console.log("PROBE_B=FAIL\n" + e.message); });'
