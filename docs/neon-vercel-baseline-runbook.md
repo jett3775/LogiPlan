@@ -166,8 +166,9 @@ node scripts/verify-local-baseline.mjs
 ```
 
 若用 nvm / 官方安装包等**等价工具**替代第 3 步，终点一致即可（要求只有一条：`node -v` 为 24.15.x）。
-基线不需要浏览器；`pnpm exec playwright install` 只在跑 E2E 时才需要。
 `corepack` 若不可用（个别发行版不含），以 `npm install -g pnpm@10.34.5` 替代第 5 步第一行。
+**浏览器**：本机基线（`verify-local-baseline.mjs`）不需要；**完整 Gate 1 需要**，先执行
+`pnpm exec playwright install chromium firefox`（macOS 不需要 `--with-deps`；首次下载较大，网络受限时可能慢）。
 
 **完整 Gate 1 的额外前置：Docker**（`verify-local-baseline.mjs` 不需要它，`pnpm verify:gate1:isolated` 需要）：
 
@@ -184,8 +185,9 @@ docker compose version                           # 打印 v2 版本＝compose �
 **也可以从官网下载 `.dmg` 安装**（2026-09-28 用户实际采用；当时该网络下 brew 命令行不好用）。
 该路径与 brew 等价，**唯一额外要求是 `docker` CLI 在 PATH 上**：
 
-- Docker Desktop 首次启动会询问/提供「Install CLI tools」（Settings → Advanced），装到 `/usr/local/bin/docker`；
-  跳过它就会出现「GUI 里引擎在跑、终端里 `docker: command not found`」。
+- Docker Desktop 首次启动会询问/提供「Install CLI tools」（Settings → Advanced）。**装到哪个目录随版本而异**：
+  2026-09-30 用户实测该版本装到 `~/.docker/bin/docker`（首次引导会把它加入 PATH），并非总是 `/usr/local/bin/docker`；
+  以 `command -v docker` 的实际输出为准。跳过该步骤就会出现「GUI 里引擎在跑、终端里 `docker: command not found`」。
 - 若 CLI 不在 PATH 上，`run-docker-compose.mjs` 支持用 `DOCKER_CLI` 指定绝对路径（其候选顺序为
   `DOCKER_CLI` → `docker` → [Windows] `docker.exe` → [WSL] `/mnt/c/.../docker.exe`），例如指向
   `/Applications/Docker.app/Contents/Resources/bin/docker`（该目录随发行版可能不同，以实际安装为准）。
