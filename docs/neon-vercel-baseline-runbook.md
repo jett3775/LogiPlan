@@ -209,6 +209,23 @@ docker pull postgres:18.4 && docker pull postgres:18.6
 **注**：若要改为"测试内自动预拉 / 延长该超时"，需修改 `scripts/neon-baseline.test.mjs`——它在
 `executionClosurePaths` 内，会使已冻结的工具 SHA 失效并需重新锚定与独立批准；故当前采取**只记前置、不改代码**。
 
+**macOS（Docker Desktop 文件共享）特有：init 脚本被当作可执行文件运行**（2026-09-30 定位并修复）：
+
+- **症状**：`up -d --wait` 成功、容器 Healthy，但 Gate 1 的迁移步骤报
+  `数据库迁移失败：password authentication failed for user "schema_migrator"`；容器日志里可见三行关键信息：
+  `running /docker-entrypoint-initdb.d/010-roles.sh` →
+  `/docker-entrypoint-initdb.d/010-roles.sh: /usr/bin/env: bad interpreter: Permission denied` →
+  `PostgreSQL Database directory appears to contain a database; Skipping initialization`。
+- **根因**：官方 entrypoint 对 `*.sh` 的分支是 `[ -x "$f" ] ? 直接执行 : source`。`database/bootstrap/010-roles.sh`
+  在 git 中为 `100644`（不可执行）：**Linux** 上挂载保留 644 → 走 `source` → 正常建角色；
+  **macOS 的文件共享层把宿主机文件呈现为可执行** → 走"直接执行" → execve 被拒。脚本一失败，容器随即重启，
+  而 PGDATA 已存在 → entrypoint **跳过初始化**，三个角色从未创建；PostgreSQL 对"角色不存在"同样返回
+  `password authentication failed`，故表象易被误判为密码问题。
+- **修复**：把该文件置为可执行（`100755`）。选 755 而非改写脚本，是因为 755 本就是脚本的标准状态，
+  且两端行为随后一致（都走"直接执行"）。该文件**不在 `executionClosurePaths` 内**，不影响已冻结的工具 SHA。
+- **旁注**：`.env` 缺失与本案无关——已实测 Node 的 `--env-file` **不覆盖**已存在的环境变量，隔离编排显式传入的
+  连接串与随机密码始终生效。Windows（WSL2 后端）此前不受影响，因其权限语义与 Linux 一致（644 → `source`）。
+
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
 
