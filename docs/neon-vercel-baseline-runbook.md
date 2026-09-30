@@ -192,8 +192,22 @@ docker compose version                           # 打印 v2 版本＝compose �
   `DOCKER_CLI` → `docker` → [Windows] `docker.exe` → [WSL] `/mnt/c/.../docker.exe`），例如指向
   `/Applications/Docker.app/Contents/Resources/bin/docker`（该目录随发行版可能不同，以实际安装为准）。
 
-**首次运行的额外代价**：数据库集成两条腿会拉取 `postgres:18.4` 与 `postgres:18.6` 镜像；网络受限时这一步
-可能很慢或失败，失败时把输出保留下来再重跑即可（不会留下半成品资源）。
+**首次运行前必须先预拉镜像**（否则会以一条容易误判为故障的错误失败一次）：
+
+```bash
+docker pull postgres:18.4 && docker pull postgres:18.6
+```
+
+原因（2026-09-30 用户实测，已核实代码）：数据库集成测试对**每条 docker 命令**设了 **60 秒**超时
+（`scripts/neon-baseline.test.mjs` 的 `runDocker`，`timeout: 60_000`），而 `docker run postgres:18.4`
+内部会自行拉取镜像——冷机器＋受限网络下拉取超过 60 秒即被截断，报错形如
+`隔离 PostgreSQL 命令失败：Unable to find image 'postgres:18.4' locally …`（失败耗时实测 `60.1s`）。
+
+这**不是缺陷**：CI（GitHub runner）网络快，不会暴露该问题；`docker pull` 在终端里不受这个超时约束，
+预拉一次即可永久消除。该次实测的旁证：腿 2（18.6）在 `56.2s` 内通过——其 layers 大多已被前一次对 18.4 的拉取缓存。
+
+**注**：若要改为"测试内自动预拉 / 延长该超时"，需修改 `scripts/neon-baseline.test.mjs`——它在
+`executionClosurePaths` 内，会使已冻结的工具 SHA 失效并需重新锚定与独立批准；故当前采取**只记前置、不改代码**。
 
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
