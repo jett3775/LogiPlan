@@ -1,0 +1,510 @@
+Last login: Wed Sep 30 10:42:50 on ttys000
+julianhwang@Air ~ % cd ~/LogiPlan
+julianhwang@Air LogiPlan % git pull
+Already up to date.
+julianhwang@Air LogiPlan % pnpm verify:gate1:isolated 2>&1 | tee ~/gate1-macos-$(date +%Y%m%d-%H%M).log
+
+> logiplan@0.1.0 verify:gate1:isolated /Users/julianhwang/LogiPlan
+> node scripts/verify-gate1-isolated.mjs
+
+
+[Gate 1] 数据库集成测试（真实角色事务与 ACL，PostgreSQL 18.4 与 18.6）
+
+> logiplan@0.1.0 test:db-integration /Users/julianhwang/LogiPlan
+> node scripts/run-db-integration-tests.mjs
+
+[DB 集成] Docker 29.8.1 可用；镜像腿：postgres:18.4、postgres:18.6；每条腿超时 900000ms
+
+[DB 集成] 腿 1/4：Neon 基线入口与真实角色/ACL 回归测试（postgres:18.4）
+✔ 真实 PostgreSQL 角色创建事务保持原子性和既有密码 (2779.923333ms)
+✔ 真实 PostgreSQL 权限基线检查路径执行生产 ACL 查询 (1342.936542ms)
+✔ 默认参数不允许把连接串放入命令行 (1.06925ms)
+✔ 目标元数据任一字段错误时失败关闭 (0.425375ms)
+✔ 候选 SHA 必须与显式批准和冻结基线同时一致 (0.31575ms)
+✔ 写入模式必须同时固定并独立批准工具 SHA (0.358958ms)
+✔ 当前分支和 HEAD 必须精确绑定工具闭包 (0.233125ms)
+✔ 执行闭包覆盖实际加载的 Gate1 编排、查询和契约包源码 (0.146583ms)
+✔ Git 子进程不继承仓库或配置覆盖变量 (0.381334ms)
+✔ Node 版本必须满足冻结的 24.15.0 下限 (0.457042ms)
+✔ 角色属性和 ACL 必须是迁移定义的精确基线 (0.290291ms)
+✔ 严格接受 PostgreSQL 18 CREATEROLE 自动管理关系 (0.359875ms)
+✔ 三角色成员关系的方向、选项、授予者和证据完整性全部受限 (0.643083ms)
+✔ 管理和发布必须直连，运行角色必须池化 (0.582625ms)
+✔ 从 admin 主机和隐藏密码构造编码后的直连与池化角色连接 (0.998833ms)
+✔ 拒绝 admin URL 中覆盖 host、角色或密码的查询参数 (0.499292ms)
+✔ 不读取旧的角色连接串环境变量覆盖内部构造结果 (0.600833ms)
+✔ 缺少任一角色密码时拒绝写入凭据构造 (0.525208ms)
+✔ 角色初始化计划区分全部缺失、全部存在并拒绝部分漂移 (0.245042ms)
+✔ 角色事务的连接异常和 COMMIT 确认丢失均为 unknown (0.230208ms)
+✔ 默认预检不读取连接串且不执行数据库写入 (0.911458ms)
+✔ 预检失败路径也不读取凭据 (1.054208ms)
+✔ 写入模式拒绝继承可改写迁移、发布或 Node 加载行为的环境变量 (0.678916ms)
+✔ 首次初始化按角色、迁移、候选校验、权限验证顺序完成 (0.979958ms)
+✔ 重复执行保持相同编排且不隐式切换活动发布 (0.682ms)
+✔ 迁移异常会停止发布和权限验证 (0.469083ms)
+✔ 发布校验失败会保留最后完成的迁移阶段 (0.508166ms)
+✔ 中途失败后可从入口完整重试 (0.858417ms)
+✔ 报告路径在任何预检副作用之前原子预留，被占用时立即失败 (7.354916ms)
+✔ 失败路径不再吞掉报告写入错误 (0.401792ms)
+✔ 失败消息和报告不泄露连接串或密码 (0.418625ms)
+✔ 未知写入结果会进入 unknown 报告并保留只读复核结果 (0.235625ms)
+✔ 已提交写入的提交后观察失败进入独立结果，不冒充未知写入或 known_failed (0.237625ms)
+✔ 未发生提交后观察失败的报告中该标志为 false (0.174958ms)
+✔ 数据库子进程超时会终止进程树并标记未知写入结果 (104.572542ms)
+✔ 数据库子进程报告 COMMIT 确认丢失时保留未知结果 (41.047917ms)
+✔ 数据库写入子进程异常退出码不再被当作已知失败 (54.648209ms)
+✔ 写入口自报提交后观察失败时保留独立结果，不再归为未知写入 (28.793208ms)
+✔ 写入子进程以退出码 1 失败但没有该前缀时仍不是提交后观察失败 (28.351208ms)
+✔ 只读子进程失败和启动失败仍是已知失败 (30.6195ms)
+﹣ PowerShell 入口原样透传 Node 退出码 (0.058417ms) # SKIP
+✔ 写入子进程异常终止的分类规则是单一纯函数 (0.09825ms)
+✔ Node 入口把未知写入结果映射为退出码 75 (0.251292ms)
+✔ 非法参数以已知失败结束并输出脱敏错误信息 (0.080333ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 4500.245
+[DB 集成] 腿 1 结果：镜像=postgres:18.4 tests=44 pass=43 fail=0 skipped=1 耗时=4.5s 退出码=0 判定=通过
+
+[DB 集成] 腿 2/4：Neon 基线入口与真实角色/ACL 回归测试（postgres:18.6）
+✔ 真实 PostgreSQL 角色创建事务保持原子性和既有密码 (1271.444042ms)
+✔ 真实 PostgreSQL 权限基线检查路径执行生产 ACL 查询 (1367.358125ms)
+✔ 默认参数不允许把连接串放入命令行 (0.991208ms)
+✔ 目标元数据任一字段错误时失败关闭 (0.406125ms)
+✔ 候选 SHA 必须与显式批准和冻结基线同时一致 (0.313583ms)
+✔ 写入模式必须同时固定并独立批准工具 SHA (0.349375ms)
+✔ 当前分支和 HEAD 必须精确绑定工具闭包 (0.225375ms)
+✔ 执行闭包覆盖实际加载的 Gate1 编排、查询和契约包源码 (0.146709ms)
+✔ Git 子进程不继承仓库或配置覆盖变量 (0.373625ms)
+✔ Node 版本必须满足冻结的 24.15.0 下限 (0.5005ms)
+✔ 角色属性和 ACL 必须是迁移定义的精确基线 (0.278958ms)
+✔ 严格接受 PostgreSQL 18 CREATEROLE 自动管理关系 (0.357ms)
+✔ 三角色成员关系的方向、选项、授予者和证据完整性全部受限 (0.64075ms)
+✔ 管理和发布必须直连，运行角色必须池化 (0.596167ms)
+✔ 从 admin 主机和隐藏密码构造编码后的直连与池化角色连接 (0.883584ms)
+✔ 拒绝 admin URL 中覆盖 host、角色或密码的查询参数 (0.213542ms)
+✔ 不读取旧的角色连接串环境变量覆盖内部构造结果 (0.368417ms)
+✔ 缺少任一角色密码时拒绝写入凭据构造 (0.251542ms)
+✔ 角色初始化计划区分全部缺失、全部存在并拒绝部分漂移 (0.381041ms)
+✔ 角色事务的连接异常和 COMMIT 确认丢失均为 unknown (0.276708ms)
+✔ 默认预检不读取连接串且不执行数据库写入 (1.054875ms)
+✔ 预检失败路径也不读取凭据 (1.286042ms)
+✔ 写入模式拒绝继承可改写迁移、发布或 Node 加载行为的环境变量 (1.383417ms)
+✔ 首次初始化按角色、迁移、候选校验、权限验证顺序完成 (1.387375ms)
+✔ 重复执行保持相同编排且不隐式切换活动发布 (1.032625ms)
+✔ 迁移异常会停止发布和权限验证 (0.769209ms)
+✔ 发布校验失败会保留最后完成的迁移阶段 (0.656959ms)
+✔ 中途失败后可从入口完整重试 (1.068625ms)
+✔ 报告路径在任何预检副作用之前原子预留，被占用时立即失败 (9.267625ms)
+✔ 失败路径不再吞掉报告写入错误 (0.405709ms)
+✔ 失败消息和报告不泄露连接串或密码 (0.420458ms)
+✔ 未知写入结果会进入 unknown 报告并保留只读复核结果 (0.232292ms)
+✔ 已提交写入的提交后观察失败进入独立结果，不冒充未知写入或 known_failed (0.252333ms)
+✔ 未发生提交后观察失败的报告中该标志为 false (0.174334ms)
+✔ 数据库子进程超时会终止进程树并标记未知写入结果 (106.588667ms)
+✔ 数据库子进程报告 COMMIT 确认丢失时保留未知结果 (55.406541ms)
+✔ 数据库写入子进程异常退出码不再被当作已知失败 (58.50675ms)
+✔ 写入口自报提交后观察失败时保留独立结果，不再归为未知写入 (28.990542ms)
+✔ 写入子进程以退出码 1 失败但没有该前缀时仍不是提交后观察失败 (28.831667ms)
+✔ 只读子进程失败和启动失败仍是已知失败 (27.652291ms)
+﹣ PowerShell 入口原样透传 Node 退出码 (0.053125ms) # SKIP
+✔ 写入子进程异常终止的分类规则是单一纯函数 (0.0925ms)
+✔ Node 入口把未知写入结果映射为退出码 75 (0.255875ms)
+✔ 非法参数以已知失败结束并输出脱敏错误信息 (0.080958ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 3029.59025
+[DB 集成] 腿 2 结果：镜像=postgres:18.6 tests=44 pass=43 fail=0 skipped=1 耗时=3.1s 退出码=0 判定=通过
+
+[DB 集成] 腿 3/4：Neon 权限只读诊断回归测试（与镜像无关）
+✔ 只读诊断帮助和参数不读取连接串 (0.738167ms)
+✔ 成功 CLI 只输出一个 JSON 对象和换行，不包含报告路径 (2.920792ms)
+✔ 帮助、--report 失败和成功注入入口均不产生文件副作用 (95.982875ms)
+✔ 帮助、旧参数、缺参和非法目标均在数据库连接前结束 (186.774625ms)
+✔ 只读诊断在连接前严格核对目标和管理连接 (0.414875ms)
+✔ 诊断查询只使用 READ ONLY 事务并始终回滚 (0.766625ms)
+✔ 连接串、独立原始密码和 percent-encoded 密码均不会出现在错误输出 (0.396042ms)
+✔ 实连身份、数据库和 PostgreSQL 18.6 版本漂移均失败并回滚 (0.199833ms)
+✔ 阶段二对象存在时读取迁移和 V2 数据包校验和 (0.251875ms)
+✔ 阶段二对象或目标记录缺失时标记未知且不查询不存在对象 (0.237875ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 364.403708
+[DB 集成] 腿 3 结果：镜像=不适用 tests=10 pass=10 fail=0 skipped=0 耗时=0.4s 退出码=0 判定=通过
+
+[DB 集成] 腿 4/4：本地 API 服务等待逻辑回归测试（与镜像无关）
+✔ 超时会中止已接受但永不响应的健康请求并自然释放资源 (167.028542ms)
+✔ 健康响应成功后会清除该次请求的 deadline 定时器 (195.504458ms)
+✔ 连接失败后会在总 deadline 内重试并接受后续健康响应 (268.767875ms)
+✔ 服务子进程已退出时保留提前退出错误 (1.8895ms)
+✔ 服务子进程启动错误会在下一次轮询时报告 (251.376791ms)
+✔ 进程树终止会一并结束后代进程 (125.515583ms)
+✔ 进程树终止在缺少 pid 时安全返回 (0.160625ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1072.828792
+[DB 集成] 腿 4 结果：镜像=不适用 tests=7 pass=7 fail=0 skipped=0 耗时=1.1s 退出码=0 判定=通过
+[DB 集成] 兜底清理容器 logiplan-role-bootstrap-test-18996-8cdfa98dc6e89b26（--force --volumes）完成
+[DB 集成] 兜底清理容器 logiplan-acl-baseline-test-18996-01a0ae23412aa5f1（--force --volumes）完成
+[DB 集成] 兜底清理容器 logiplan-role-bootstrap-test-18996-c99756dc22f3459f（--force --volumes）完成
+[DB 集成] 兜底清理容器 logiplan-acl-baseline-test-18996-1886afc5d075a7eb（--force --volumes）完成
+
+[DB 集成] 汇总
+[DB 集成]   腿 1 镜像=postgres:18.4 tests=44 pass=43 fail=0 skipped=1 耗时=4.5s 退出码=0 判定=通过
+[DB 集成]   腿 2 镜像=postgres:18.6 tests=44 pass=43 fail=0 skipped=1 耗时=3.1s 退出码=0 判定=通过
+[DB 集成]   腿 3 镜像=不适用 tests=10 pass=10 fail=0 skipped=0 耗时=0.4s 退出码=0 判定=通过
+[DB 集成]   腿 4 镜像=不适用 tests=7 pass=7 fail=0 skipped=0 耗时=1.1s 退出码=0 判定=通过
+[DB 集成] 4 条腿全部零 fail，skipped 与显式声明的平台门控跳过数一致（合计 skipped=2，已声明 2），总耗时 9.1s：真实 PostgreSQL 角色事务与 ACL 查询已在 postgres:18.4、postgres:18.6 上执行，只读诊断与本地 API 等待逻辑回归通过
+
+[Gate 1] 启动隔离 PostgreSQL 18.4
+ Network logiplan-gate1-18982-a98b5135_default Creating 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Creating 
+ Network logiplan-gate1-18982-a98b5135_default Creating 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Creating 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Created 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Created 
+ Network logiplan-gate1-18982-a98b5135_default Created 
+ Network logiplan-gate1-18982-a98b5135_default Created 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Creating 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Created 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Starting 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Started 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Waiting 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Healthy 
+
+[Gate 1] 从零执行 0001—0003 迁移
+
+> logiplan@0.1.0 db:migrate /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db migrate
+
+
+> @logiplan/db@0.1.0 migrate /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/migrate.ts
+
+../../.env not found. Continuing without it.
+已执行迁移 0001_gate1_schema.sql
+已执行迁移 0002_release_reactivation.sql
+已执行迁移 0003_schema_version_reader.sql
+
+[Gate 1] 使用测试专用 harness 发布 0003 基线 V1 数据
+测试基线 LOGIPLAN_2026_DEMO_V1 已校验并激活
+
+[Gate 1] 从 0003 升级执行完整迁移
+
+> logiplan@0.1.0 db:migrate /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db migrate
+
+
+> @logiplan/db@0.1.0 migrate /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/migrate.ts
+
+../../.env not found. Continuing without it.
+跳过已执行迁移 0001_gate1_schema.sql
+跳过已执行迁移 0002_release_reactivation.sql
+跳过已执行迁移 0003_schema_version_reader.sql
+已执行迁移 0004_active_country_order_fact.sql
+已执行迁移 0005_evidence_snapshots.sql
+已执行迁移 0006_evidence_snapshot_permissions.sql
+已执行迁移 0007_evidence_snapshot_idempotence.sql
+已执行迁移 0008_publisher_materialization_views.sql
+已执行迁移 0009_publisher_country_order_view.sql
+已执行迁移 0010_realtime_evidence_snapshot.sql
+
+[Gate 1] 导入并校验 V2 候选但不激活
+
+> logiplan@0.1.0 db:publish /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run publish
+
+
+> @logiplan/db@0.1.0 publish /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/publish-release.ts
+
+../../.env not found. Continuing without it.
+发布 LOGIPLAN_2026_DEMO_V2 已完成校验并停留在 VALIDATED；未切换活动发布
+
+[Gate 1] 重复校验 VALIDATED V2 候选
+
+> logiplan@0.1.0 db:publish /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run publish
+
+
+> @logiplan/db@0.1.0 publish /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/publish-release.ts
+
+../../.env not found. Continuing without it.
+发布 LOGIPLAN_2026_DEMO_V2 已完成校验并停留在 VALIDATED；未切换活动发布
+
+[Gate 1] 显式激活 V2 并原子物化固定证据
+
+> logiplan@0.1.0 db:activate-release /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run activate-release LOGIPLAN_2026_DEMO_V2
+
+
+> @logiplan/db@0.1.0 activate-release /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/activate-release.ts LOGIPLAN_2026_DEMO_V2
+
+../../.env not found. Continuing without it.
+(node:20003) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+活动发布已原子切换为 LOGIPLAN_2026_DEMO_V2，固定证据已物化
+
+[Gate 1] 重复发布幂等验证
+
+> logiplan@0.1.0 db:publish /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run publish
+
+
+> @logiplan/db@0.1.0 publish /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/publish-release.ts
+
+../../.env not found. Continuing without it.
+(node:20036) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+发布 LOGIPLAN_2026_DEMO_V2 已处于活动状态；校验通过，未重复写入
+
+[Gate 1] 结构、精度与三角色权限验证
+
+> logiplan@0.1.0 db:verify /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db verify
+
+
+> @logiplan/db@0.1.0 verify /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/verify-schema.ts
+
+../../.env not found. Continuing without it.
+数据库结构、精度和三角色权限验证通过
+
+[Gate 1] 不可变发布升级与核心查询验证
+
+> logiplan@0.1.0 db:verify-release /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run verify-release
+
+
+> @logiplan/db@0.1.0 verify-release /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/verify-release-workflow.ts
+
+../../.env not found. Continuing without it.
+0003→0009 不可变发布升级、活动订单事实和诊断查询验证通过
+
+[Gate 1] 核心查询计划验证
+
+> logiplan@0.1.0 db:verify-plans /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/db run verify-plans
+
+
+> @logiplan/db@0.1.0 verify-plans /Users/julianhwang/LogiPlan/packages/db
+> node --env-file-if-exists=../../.env --import tsx src/verify-query-plans.ts
+
+../../.env not found. Continuing without it.
+[{"name":"dashboard-variable-cost-by-series","planning_ms":1.452,"execution_ms":13.034,"top_node":"Aggregate","actual_rows":3,"temp_written_blocks":0,"relations":["active_data_release","fulfillment_scenario_fact","scenario_cost_component_fact"]},{"name":"august-gb-chain-attribution","planning_ms":0.396,"execution_ms":7.648,"top_node":"Aggregate","actual_rows":5,"temp_written_blocks":0,"relations":["active_data_release","fulfillment_route","variance_attribution_fact"]},{"name":"monthly-cost-trend","planning_ms":0.972,"execution_ms":291.854,"top_node":"Sort","actual_rows":24,"temp_written_blocks":0,"relations":["active_data_release","fixed_cost_scenario_fact","fulfillment_scenario_fact","scenario_cost_component_fact","scenario_version"]},{"name":"top-adverse-anomalies","planning_ms":0.247,"execution_ms":10.656,"top_node":"Aggregate","actual_rows":72,"temp_written_blocks":0,"relations":["active_data_release","fulfillment_route","fulfillment_scenario_fact","scenario_cost_component_fact"]},{"name":"fixed-cost-breakdown","planning_ms":0.139,"execution_ms":1.975,"top_node":"Aggregate","actual_rows":168,"temp_written_blocks":0,"relations":["active_data_release","fixed_cost_scenario_fact","scenario_version"]},{"name":"diagnostic-metrics","planning_ms":0.889,"execution_ms":0.674,"top_node":"Sort","actual_rows":2,"temp_written_blocks":0,"relations":["active_data_release","actual_country_warehouse_fulfillment","budget_country_month","fulfillment_route","fulfillment_scenario_fact","scenario_version"]}]
+
+[Gate 1] 生产构建
+
+> logiplan@0.1.0 build /Users/julianhwang/LogiPlan
+> pnpm --filter @logiplan/web build
+
+
+> @logiplan/web@0.1.0 build /Users/julianhwang/LogiPlan/apps/web
+> next build
+
+▲ Next.js 16.3.1 (Turbopack)
+✓ Running next.config.ts took 72ms
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.4s
+  Running TypeScript ...
+  Finished TypeScript in 906ms ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/2) ...
+✓ Generating static pages using 7 workers (2/2) in 56ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ƒ /api/health/live
+├ ƒ /api/health/ready
+├ ƒ /api/v1/query
+└ ƒ /attribution
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+[Gate 1] 启动快照集成本地 API
+▲ Next.js 16.3.1
+- Local:         http://127.0.0.1:4174
+- Network:       http://127.0.0.1:4174
+✓ Ready in 78ms
+✓ Running next.config.ts took 19ms
+
+[Gate 1] 完整持久化证据 PostgreSQL/API/Chromium 集成测试
+
+ RUN  v4.1.11 /Users/julianhwang/LogiPlan
+
+(node:20178) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:20186) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/db/src/evidence-snapshot.test.ts (28 tests) 18742ms
+     ✓ preserves historical release evidence across both Chromium viewports  6034ms
+     ✓ preserves all six factor source scopes, exact metrics and four-level reconciliation through the real API  1109ms
+     ✓ binds factor row evidence to its source snapshot across navigation in both Chromium viewports  7794ms
+     ✓ blocks stale row evidence while factor requests are gated and rejects late responses  1618ms
+     ✓ saves all supported dispatches, including unmaterialized scopes and legacy lookups  1486ms
+
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+   Start at  02:44:05
+   Duration  19.00s (transform 113ms, setup 0ms, import 170ms, tests 18.74s, environment 0ms)
+
+
+[Gate 1] Chromium 双视口基础冒烟
+
+> logiplan@0.1.0 test:e2e:gate1 /Users/julianhwang/LogiPlan
+> playwright test --project=chromium-1440 --project=chromium-1280 --workers=1
+
+
+Running 32 tests using 1 worker
+
+[WebServer] (node:20241) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+[WebServer] (Use `node --trace-deprecation ...` to show where the warning was created)
+  ✓   1 [chromium-1440] › apps/web/tests/gate1.spec.ts:305:1 › @firefox-smoke V01-V04 dashboard is readable, expandable and navigates to GB attribution (1.6s)
+  ✓   2 [chromium-1440] › apps/web/tests/gate1.spec.ts:368:1 › @firefox-smoke V05-V09 and V11 attribution supports factors, drilldown, evidence and history (1.6s)
+  ✓   3 [chromium-1440] › apps/web/tests/gate1.spec.ts:430:1 › V10 four-step guide starts, crosses pages, completes, exits and restarts (2.4s)
+  ✓   4 [chromium-1440] › apps/web/tests/gate1.spec.ts:457:1 › evidence lookup API returns exact evidence and explicit errors (58ms)
+  ✓   5 [chromium-1440] › apps/web/tests/gate1.spec.ts:489:1 › @firefox-smoke diagnostic metrics API returns E07 and E10 from active PostgreSQL (33ms)
+  -   6 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › / uses complete source scope and close/back/forward restore the right view
+  -   7 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › / serves saved evidence when missing active release makes ordinary SSR fail
+  -   8 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › /attribution uses complete source scope and close/back/forward restore the right view
+  -   9 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › /attribution serves saved evidence when missing active release makes ordinary SSR fail
+  -  10 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:415:3 › issue 6 independent historical evidence view › server-rendered return links preserve non-evidence parameters before client effects run
+  -  11 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:440:3 › issue 6 independent historical evidence view › / restores release A after release B activation, reload and a fresh-context share
+  -  12 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:582:3 › issue 6 independent historical evidence view › invalid or incomplete addresses fail without stale data or realtime fallback
+  -  13 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:615:3 › issue 6 independent historical evidence view › shared history view rejects missing ids, missing scope, unknown evidence and mismatched scope
+  -  14 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:679:3 › issue 6 independent historical evidence view › service failure and client timeout clear the previous historical value and status
+  -  15 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:768:3 › issue 6 independent historical evidence view › switching from historical evidence to a current snapshot clears stale state while loading
+  -  16 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:828:3 › issue 6 independent historical evidence view › a delayed evidence A lookup cannot overwrite the latest evidence B URL
+  ✓  17 [chromium-1280] › apps/web/tests/gate1.spec.ts:305:1 › @firefox-smoke V01-V04 dashboard is readable, expandable and navigates to GB attribution (1.6s)
+  ✓  18 [chromium-1280] › apps/web/tests/gate1.spec.ts:368:1 › @firefox-smoke V05-V09 and V11 attribution supports factors, drilldown, evidence and history (1.5s)
+  ✓  19 [chromium-1280] › apps/web/tests/gate1.spec.ts:430:1 › V10 four-step guide starts, crosses pages, completes, exits and restarts (2.4s)
+  ✓  20 [chromium-1280] › apps/web/tests/gate1.spec.ts:457:1 › evidence lookup API returns exact evidence and explicit errors (51ms)
+  ✓  21 [chromium-1280] › apps/web/tests/gate1.spec.ts:489:1 › @firefox-smoke diagnostic metrics API returns E07 and E10 from active PostgreSQL (34ms)
+  -  22 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › / uses complete source scope and close/back/forward restore the right view
+  -  23 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › / serves saved evidence when missing active release makes ordinary SSR fail
+  -  24 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › /attribution uses complete source scope and close/back/forward restore the right view
+  -  25 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › /attribution serves saved evidence when missing active release makes ordinary SSR fail
+  -  26 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:415:3 › issue 6 independent historical evidence view › server-rendered return links preserve non-evidence parameters before client effects run
+  -  27 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:440:3 › issue 6 independent historical evidence view › / restores release A after release B activation, reload and a fresh-context share
+  -  28 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:582:3 › issue 6 independent historical evidence view › invalid or incomplete addresses fail without stale data or realtime fallback
+  -  29 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:615:3 › issue 6 independent historical evidence view › shared history view rejects missing ids, missing scope, unknown evidence and mismatched scope
+  -  30 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:679:3 › issue 6 independent historical evidence view › service failure and client timeout clear the previous historical value and status
+  -  31 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:768:3 › issue 6 independent historical evidence view › switching from historical evidence to a current snapshot clears stale state while loading
+  -  32 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:828:3 › issue 6 independent historical evidence view › a delayed evidence A lookup cannot overwrite the latest evidence B URL
+
+  22 skipped
+  10 passed (12.7s)
+
+[Gate 1] Chromium 双视口历史证据验收
+
+Running 22 tests using 1 worker
+
+[WebServer] (node:20279) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+[WebServer] (Use `node --trace-deprecation ...` to show where the warning was created)
+  ✓   1 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › / uses complete source scope and close/back/forward restore the right view (2.3s)
+[WebServer] ⨯ Error: 活动正式版本数量不是 1
+[WebServer]     at k (.next/server/chunks/ssr/_0pkfv-x._.js:1:3670)
+[WebServer]     at async l (.next/server/chunks/ssr/_0pkfv-x._.js:1:3838)
+[WebServer]     at async i (.next/server/chunks/ssr/[root-of-the-server]__0p59hhu._.js:1:628) {
+[WebServer]   digest: '1167226524'
+[WebServer] }
+  ✓   2 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › / serves saved evidence when missing active release makes ordinary SSR fail (355ms)
+  ✓   3 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › /attribution uses complete source scope and close/back/forward restore the right view (909ms)
+[WebServer] ⨯ Error: 活动正式版本数量不是 1
+[WebServer]     at k (.next/server/chunks/ssr/_0pkfv-x._.js:1:3670)
+[WebServer]     at async m (.next/server/chunks/ssr/_0pkfv-x._.js:1:4135)
+[WebServer]     at async l (.next/server/chunks/ssr/_076yfw2._.js:1:1255) {
+[WebServer]   digest: '888480592'
+[WebServer] }
+  ✓   4 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › /attribution serves saved evidence when missing active release makes ordinary SSR fail (340ms)
+  ✓   5 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:415:3 › issue 6 independent historical evidence view › server-rendered return links preserve non-evidence parameters before client effects run (237ms)
+  ✓   6 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:440:3 › issue 6 independent historical evidence view › / restores release A after release B activation, reload and a fresh-context share (615ms)
+  ✓   7 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:582:3 › issue 6 independent historical evidence view › invalid or incomplete addresses fail without stale data or realtime fallback (309ms)
+  ✓   8 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:615:3 › issue 6 independent historical evidence view › shared history view rejects missing ids, missing scope, unknown evidence and mismatched scope (391ms)
+  ✓   9 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:679:3 › issue 6 independent historical evidence view › service failure and client timeout clear the previous historical value and status (11.0s)
+  ✓  10 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:768:3 › issue 6 independent historical evidence view › switching from historical evidence to a current snapshot clears stale state while loading (334ms)
+  ✓  11 [chromium-1440] › apps/web/tests/historical-evidence.spec.ts:828:3 › issue 6 independent historical evidence view › a delayed evidence A lookup cannot overwrite the latest evidence B URL (280ms)
+  ✓  12 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › / uses complete source scope and close/back/forward restore the right view (932ms)
+[WebServer] ⨯ Error: 活动正式版本数量不是 1
+[WebServer]     at k (.next/server/chunks/ssr/_0pkfv-x._.js:1:3670)
+[WebServer]     at async l (.next/server/chunks/ssr/_0pkfv-x._.js:1:3838)
+[WebServer]     at async i (.next/server/chunks/ssr/[root-of-the-server]__0p59hhu._.js:1:628) {
+[WebServer]   digest: '198898909'
+[WebServer] }
+  ✓  13 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › / serves saved evidence when missing active release makes ordinary SSR fail (342ms)
+  ✓  14 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:326:5 › issue 6 independent historical evidence view › /attribution uses complete source scope and close/back/forward restore the right view (2.1s)
+[WebServer] ⨯ Error: 活动正式版本数量不是 1
+[WebServer]     at k (.next/server/chunks/ssr/_0pkfv-x._.js:1:3670)
+[WebServer]     at async m (.next/server/chunks/ssr/_0pkfv-x._.js:1:4135)
+[WebServer]     at async l (.next/server/chunks/ssr/_076yfw2._.js:1:1255) {
+[WebServer]   digest: '888480592'
+[WebServer] }
+  ✓  15 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:378:5 › issue 6 independent historical evidence view › /attribution serves saved evidence when missing active release makes ordinary SSR fail (344ms)
+  ✓  16 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:415:3 › issue 6 independent historical evidence view › server-rendered return links preserve non-evidence parameters before client effects run (233ms)
+  ✓  17 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:440:3 › issue 6 independent historical evidence view › / restores release A after release B activation, reload and a fresh-context share (625ms)
+  ✓  18 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:582:3 › issue 6 independent historical evidence view › invalid or incomplete addresses fail without stale data or realtime fallback (300ms)
+  ✓  19 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:615:3 › issue 6 independent historical evidence view › shared history view rejects missing ids, missing scope, unknown evidence and mismatched scope (391ms)
+  ✓  20 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:679:3 › issue 6 independent historical evidence view › service failure and client timeout clear the previous historical value and status (11.0s)
+  ✓  21 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:768:3 › issue 6 independent historical evidence view › switching from historical evidence to a current snapshot clears stale state while loading (330ms)
+  ✓  22 [chromium-1280] › apps/web/tests/historical-evidence.spec.ts:828:3 › issue 6 independent historical evidence view › a delayed evidence A lookup cannot overwrite the latest evidence B URL (282ms)
+
+  22 passed (35.9s)
+
+[Gate 1] Firefox 核心冒烟
+
+> logiplan@0.1.0 test:e2e:firefox-smoke /Users/julianhwang/LogiPlan
+> playwright test --project=firefox-smoke --grep @firefox-smoke
+
+
+Running 3 tests using 1 worker
+
+  ✘  1 [firefox-smoke] › apps/web/tests/gate1.spec.ts:305:1 › @firefox-smoke V01-V04 dashboard is readable, expandable and navigates to GB attribution (0ms)
+ ELIFECYCLE  Command failed.
+
+[Gate 1] 清理本次隔离 PostgreSQL 项目与命名卷
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Stopping 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Stopped 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Removing 
+ Container logiplan-gate1-18982-a98b5135-postgres-1 Removed 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Removing 
+ Network logiplan-gate1-18982-a98b5135_default Removing 
+ Volume logiplan-gate1-18982-a98b5135_logiplan_postgres_data Removed 
+ Network logiplan-gate1-18982-a98b5135_default Removed 
+[Gate 1] 验证失败：Firefox 核心冒烟 超时，子进程已退出
+ ELIFECYCLE  Command failed with exit code 1.
+julianhwang@Air LogiPlan % 
