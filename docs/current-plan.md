@@ -324,6 +324,13 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    而仓库内已有 Dependabot **PR #8**（1.62.1 → 1.63.0）；但该升级会改 `pnpm-lock.yaml`（闭包内）⇒
    需重新锚定工具 SHA + 全量重跑验证，**须先批准**。备选收口：把 macOS 本地 Firefox 腿记为环境限制
    （与 D-188 对 Windows 的处置同构但**平台不同，不得合并**），稳定性权威证据仍为 CI（ubuntu 上 Firefox 腿真跑）。
+   **2026-09-30 判定完成（对照探针，run `36739876157`）**：同一构建、同一 ad-hoc 签名，在 GitHub 的
+   **macOS 26.6.2** runner 上 Firefox 153 **正常启动**（`PROBE_A=OK firefox 153.0`）、上游 1.63.0 的
+   Firefox 155 亦正常（`PROBE_B=OK firefox 155.0`），而在用户的 **macOS 27.0 / 26A428 预发布版**上失败
+   ⇒ **变量是操作系统版本**，非构建损坏、非签名缺失。**升级路径因此失去依据**（构建本身没问题）；
+   `1.63.0` 的 Firefox 实测版本号亦更正为 **155.0**。**建议收口口径（待你批准）**：把 macOS 本机 Firefox 腿
+   记为本地环境限制，CI 仍为权威证据；待 macOS 27 转正式版或上游更新后再复核。
+   **未获批准前不改任何结论记录。**
 
 ---
 

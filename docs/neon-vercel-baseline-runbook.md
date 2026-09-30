@@ -278,6 +278,26 @@ docker pull postgres:18.4 && docker pull postgres:18.6
   该升级会改动 `pnpm-lock.yaml`（在 `executionClosurePaths` 内）⇒ 冻结工具 SHA 需重新锚定并独立批准，
   且升级后必须重跑全量 Gate 1 才能判定是否修复。**本轮未执行该升级**（依赖组合冻结）。
 
+**2026-09-30 续③：CI 上的对照探针（已由沙箱代为执行，结论确定）**
+
+临时工作流 `macos-probe`（`workflow_dispatch` + 路径过滤的 push 触发；**不在 `executionClosurePaths` 内**，
+用完已删除）在真实 macOS runner 上跑同一探针。run **`36739876157`**（success）：
+
+| 环境                              | macOS                       | Firefox 153（仓库锁定 firefox-1538）                                                          | Firefox 155（上游 1.63.0）         |
+| --------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------- |
+| 用户 Mac                          | **27.0 / 26A428（预发布）** | **FAIL**：`sandbox_extension_issue_file_to_process … Operation not permitted` → 180s 启动超时 | 未测                               |
+| GitHub runner（`macos-26-arm64`） | **26.6.2 / 25G83**          | **OK**：`PROBE_A=OK firefox 153.0`                                                            | **OK**：`PROBE_B=OK firefox 155.0` |
+
+- **签名不是判据**：两侧同为 ad-hoc（`flags=0x20002(ad-hoc,linker-signed)`、`Signature=adhoc`、
+  `Sealed Resources=none`）——runner 上带同样签名却正常启动。
+- **版本号更正**：1.63.0 的 Firefox 实测为 **155.0**（此前据 main 分支 `browsers.json` 写作 156.0，以实测为准）。
+- **结论**：同一构建、同一签名，在 **macOS 26.6.2 正常**、在 **macOS 27.0 预发布版失败** ⇒ 变量是**操作系统版本**，
+  既非构建损坏、也非签名缺失。故"升级 Playwright"**不再是更有依据的修复路径**（构建本身没问题）；
+  若要确认新构建在 macOS 27 上是否可用，只能在 macOS 27 环境里另测。
+- **建议收口**（待用户批准后落为记录）：把 macOS 本机 Firefox 腿记为**本地环境限制**——与 D-188 对 Windows 的
+  处置同构，但**平台不同、不得合并**；稳定性权威证据仍为 CI（ubuntu 的 `gate1` job 真跑 Firefox 腿，
+  本轮另有 macOS runner 对照）；待 macOS 27 转正式版或上游更新后再复核。
+
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：
 
