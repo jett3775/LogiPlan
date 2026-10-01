@@ -298,8 +298,10 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `packageManager` 指定值）；脚本测试 `61 / 58 / 0 / 3`、单元测试 `122 / 11 / 133`，
    与 CI `ubuntu-latest` 及沙箱 Linux **逐项一致**。据此 `docs/development-roadmap.md` §0 已加注：
    本地环境换为 macOS、D-188 三条决策不变、Windows 记录转历史。
-   剩余可选：完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）——跑通后可提请把
-   D-188 的「本地环境」一栏由「已接受的环境限制」改写为「本地基线通过」（**改写冻结决策需单独批准**）。
+   剩余可选：完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）——**已在 2026-09-30 执行**：
+   除 `Firefox 核心冒烟`（该版本 macOS 的环境限制，见 §5.7）外全部通过。因此**不提请**把 D-188 的
+   「本地环境」一栏改写为「本地基线通过」——本地仍有腿不可运行，该栏**维持原措辞**；事实更新以
+   `docs/development-roadmap.md` §0 的 2026-09-30 注记为准（平台区分，不改 D-188 正文）。
 7. **（已收口，2026-09-30）macOS 上 `Firefox 核心冒烟` 挂起（首台 macOS 机器实测）**。同日 macOS 首次完整 Gate 1
    已推进至浏览器阶段，此前全部阶段通过（数据库集成四条腿、迁移/发布/激活/校验、生产构建、快照 `28/28`、
    Chromium 双视口基础 `10 passed / 22 skipped`、Chromium 历史证据 `22/22`）；**唯一失败**是 Firefox 冒烟：
