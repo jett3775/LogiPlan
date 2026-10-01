@@ -300,7 +300,7 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    本地环境换为 macOS、D-188 三条决策不变、Windows 记录转历史。
    剩余可选：完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）——跑通后可提请把
    D-188 的「本地环境」一栏由「已接受的环境限制」改写为「本地基线通过」（**改写冻结决策需单独批准**）。
-7. **（open）macOS 上 `Firefox 核心冒烟` 挂起（2026-09-30，首台 macOS 机器实测）**。同日 macOS 首次完整 Gate 1
+7. **（已收口，2026-09-30）macOS 上 `Firefox 核心冒烟` 挂起（首台 macOS 机器实测）**。同日 macOS 首次完整 Gate 1
    已推进至浏览器阶段，此前全部阶段通过（数据库集成四条腿、迁移/发布/激活/校验、生产构建、快照 `28/28`、
    Chromium 双视口基础 `10 passed / 22 skipped`、Chromium 历史证据 `22/22`）；**唯一失败**是 Firefox 冒烟：
    首条用例 `0ms` 失败且无用例输出，随后 Playwright 挂起，被步骤超时 `240s` 终止（`timedOut` 分支），
@@ -328,9 +328,18 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    **macOS 26.6.2** runner 上 Firefox 153 **正常启动**（`PROBE_A=OK firefox 153.0`）、上游 1.63.0 的
    Firefox 155 亦正常（`PROBE_B=OK firefox 155.0`），而在用户的 **macOS 27.0 / 26A428 预发布版**上失败
    ⇒ **变量是操作系统版本**，非构建损坏、非签名缺失。**升级路径因此失去依据**（构建本身没问题）；
-   `1.63.0` 的 Firefox 实测版本号亦更正为 **155.0**。**建议收口口径（待你批准）**：把 macOS 本机 Firefox 腿
+   `1.63.0` 的 Firefox 实测版本号亦更正为 **155.0**（第 323 行原写的 156.0/firefox-1553 取自上游 `main`
+   分支未发布的 `browsers.json`，与已发布的 1.63.0 不符）。**建议收口口径（待你批准）**：把 macOS 本机 Firefox 腿
    记为本地环境限制，CI 仍为权威证据；待 macOS 27 转正式版或上游更新后再复核。
    **未获批准前不改任何结论记录。**
+   **2026-09-30 收口完成（用户已批准，不新增决策条目）**：本项由 **open 转已收口**，落地口径如下——
+   ① macOS 本机 `Firefox 核心冒烟` 记为**本地环境限制**（成因：macOS **27.0 / 26A428 预发布版**；
+   同构建、同 ad-hoc 签名在 CI 的 macOS **26.6.2** runner 上正常启动，故非仓库缺陷、非构建缺陷）；
+   ② 稳定性权威证据**仍为 CI**（ubuntu 的 `gate1` job 真跑 Firefox 腿，另有本轮 macOS runner 对照）；
+   ③ 与 D-188 的 Windows 限制**平台不同、不得合并**，且**不改写 D-188 正文、不新增决策条目**；
+   ④ **复核触发条件**：macOS 27 转正式版，或上游 Playwright / Firefox 构建更新；
+   ⑤ **本机不再重复尝试**：不升级依赖（无依据）、不再跑最小判据与定向复跑、不使用关闭内容进程沙箱的启动开关。
+   本机 macOS 的其余证据保持不变：完整 Gate 1 除 Firefox 腿外全部通过（详见 `docs/neon-vercel-baseline-runbook.md` §0.3）。
 
 ---
 

@@ -297,6 +297,10 @@ docker pull postgres:18.4 && docker pull postgres:18.6
 - **建议收口**（待用户批准后落为记录）：把 macOS 本机 Firefox 腿记为**本地环境限制**——与 D-188 对 Windows 的
   处置同构，但**平台不同、不得合并**；稳定性权威证据仍为 CI（ubuntu 的 `gate1` job 真跑 Firefox 腿，
   本轮另有 macOS runner 对照）；待 macOS 27 转正式版或上游更新后再复核。
+- **收口已获批准（2026-09-30）**：该项由 open 转**已收口**，口径按上一条落地，并明确：**不新增决策条目、
+  不改写 D-188 正文、本机不再重复尝试**（不升级依赖、不再跑最小判据与定向复跑、不使用关闭内容进程沙箱的
+  启动开关）。落点见 `docs/current-plan.md` §5.7（含复核触发条件）与 `docs/development-roadmap.md` §0 的
+  2026-09-30 注记。
 
 Docker 缺失或引擎未启动时，Gate 1 **按设计硬失败而非跳过**（口径：`skipped` 必须精确等于显式声明的
 平台门控跳过数），用户侧实测报错形如：

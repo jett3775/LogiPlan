@@ -68,6 +68,8 @@
 
 **2026-09-28 更新（本地环境已换，决策不变）**：本地环境迁至 **macOS**（当前唯一开发机），上段所述「本地 Windows 执行记录」自此为**历史**。macOS 本机基线已实测通过——`node scripts/verify-local-baseline.mjs` 五项检查全通过，脚本测试 `61 / 58 / 0 / 3`、单元测试 `122 / 11 / 133`，与 CI `ubuntu-latest` 及沙箱 Linux **逐项一致**；且 macOS 上不存在 `3221226505`。**D-188 的三条决策均不变**（CI 为权威证据、本地记录与 CI 分别记录不得合并、本决策不解除其它前置）；`3221226505` 的取证因无可用 Windows 机器而**挂起**（见 `docs/current-plan.md` §5.3、`docs/windows-crash-evidence.md`）。跨平台一致性自本轮起由 CI 的 `cross-platform` job（ubuntu / macOS / Windows 三平台）机器保证。
 
+**2026-09-30 更新（macOS 上的 Firefox 腿：本地环境限制，已收口）**：macOS 首台机器（**macOS 27.0 / 26A428，预发布版**）上完整 Gate 1 除 `Firefox 核心冒烟` 外**全部通过**（数据库集成四条腿、迁移/发布/激活/校验、查询计划、生产构建、快照 `28/28`、Chromium 双视口基础与历史证据）；Firefox 腿因 `sandbox_extension_issue_file_to_process … Operation not permitted`（内容进程沙箱扩展签发被拒）而无法启动。CI 对照探针（run `36739876157`，macOS **26.6.2** runner）证明：**同一构建、同一 ad-hoc 签名**的 Firefox 153 与上游 1.63.0 的 Firefox 155 **均正常启动** ⇒ 变量是**操作系统版本**，非仓库或构建缺陷，**升级依赖无依据**。收口口径（用户已批准，**不新增决策条目、不改写 D-188 正文**）：macOS 本机 Firefox 腿记为**本地环境限制**，稳定性权威证据**仍为 CI**（ubuntu 的 `gate1` job 真跑 Firefox 腿）；**与 D-188 的 Windows 限制平台不同、不得合并**。复核触发条件：macOS 27 转正式版，或上游 Playwright / Firefox 构建更新。详见 `docs/current-plan.md` §5.7 与 `docs/neon-vercel-baseline-runbook.md` §0.3。
+
 **交接文档**：`docs/handoff-2026-09-25.md`（窗口 2026-09-25 → 2026-10-01，任务 T1—T8）与 `docs/handoff-2026-10-01.md`（窗口 2026-10-01 → 2026-10-05，任务 P1—P6 / E1—E5 / S1—S2）。两份均按用户指示放入仓库并推送；与既有 `%TEMP%` 约定的偏差已在 `docs/handoff-2026-09-25.md` §0 说明。
 
 **遗留项（本轮新增，含独立审查 4 项 P2）**：
