@@ -19,7 +19,58 @@ import {
   persistQueryEvidenceSnapshot,
 } from "./evidence-snapshot";
 
+/**
+ * `QueryDatabase` 只是结构约束：`query` 既可能是真实 `Pool`（每次调用独占一条空闲连接，
+ * 池级并发是预期用法），也可能是单个 `Client`／事务连接。`pg@8` 对同一个 `Client`
+ * 并发提交 `query()` 会触发弃用告警（`pg@9` 移除该行为），因此单连接判定点必须串行化。
+ */
 type QueryDatabase = Pick<Pool, "query">;
+
+/**
+ * 在同一条连接上把查询串成 promise 链：每次 `query()` 都排在上一条之后。
+ * - `(text, values?)` 原样透传；缺省 `values` 时不补第二个实参（`pg` 的 `Query` 对
+ *   `values === undefined` 与省略实参处理完全相同，`new Query(config, values, callback)`
+ *   只是把 `undefined` 赋给 `this.values`）。`verify-query-plans.ts` 依赖 `values` 捕获查询计划。
+ * - 每条语句都写成 `db.query(...)` 的方法调用，接收者恒为 `db`。`pg` 的
+ *   `Client.prototype.query` 依赖 `this`，解构成裸函数再转发会丢失接收者。
+ * - 链中某条查询失败时，错误以**同一对象**抛给该次调用方，不替换为通用错误。
+ * - 失败不会永久阻断后续查询，链在每次失败后仍继续排队。
+ *
+ * 已知取舍（必须显式披露，不能只靠阅读实现得出）：
+ * - `chain = pending.then(noop, noop)` 会给 `pending` 挂上 rejection handler。副作用是
+ *   **进程级抑制**：调用方一旦丢弃本函数返回的 promise，Node 不会再为它发出
+ *   `unhandledRejection`。也就是说「错误一定被上报」依赖调用点自己 `await` 或 `.catch`，
+ *   而不是由本包装强制保证。
+ * - 当前仓库内所有会经由本包装发出的查询调用点都显式 `await` 或 `.catch`：
+ *   `runDeterministicQuery` 的 `BEGIN`／活动发布读取／两处业务分支 `ROLLBACK`／`COMMIT`／
+ *   catch 内的 `ROLLBACK`，`materializeEvidenceSnapshots` 的全部语句，以及传入 `serial` 的
+ *   `executeQuery`（含三处 `Promise.all`）与 `persist*EvidenceSnapshot` 的下游查询。
+ *   因此今天不存在静默失败；但**新增调用点必须遵守这一约定**，否则错误会被静默丢弃。
+ * - 该 rejection handler 同时是链不中断的必要条件：没有它，一次拒绝会让 `chain`
+ *   自身变成 rejected，之后每条查询都被同一个错误拒绝。
+ *
+ * 真实 `Pool` 路径不经过本包装，池级并发与全部查询语义保持不变。
+ */
+function serializeQueries(db: QueryDatabase): QueryDatabase {
+  let chain: Promise<unknown> = Promise.resolve();
+  const query = (text: string, values?: unknown[]): Promise<unknown> => {
+    const pending = chain.then(() =>
+      values === undefined ? db.query(text) : db.query(text, values),
+    );
+    chain = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  };
+  // 这里必须断言，且只能断言这一次：`@types/pg` 把 `Pool#query` 声明为 7 个重载
+  // （含 `Submittable` 与回调形态），任何单一签名都无法被 tsc 证明满足它；
+  // 手写重载等于复制 `@types/pg` 的内部声明、随其版本漂移，比断言更脆弱。
+  // 用普通 `as` 而非 `as unknown as`：前者受 comparability 检查（不相关会报 TS2352），
+  // 断言只作用于“实现 → 重载”的这一次收窄；对外签名仍是完整的
+  // `QueryDatabase["query"]`，所有调用点的参数校验强度与包裹前完全一致。
+  return { query: query as QueryDatabase["query"] };
+}
 
 type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
@@ -2051,35 +2102,38 @@ export async function runDeterministicQuery(
     return lookupEvidenceSnapshot(pool, intent, request_id);
   }
   const client = await pool.connect();
+  // Single-connection path: pg deprecates concurrent client.query() on one Client,
+  // so every statement here is queued on one promise chain instead of racing.
+  const serial = serializeQueries(client);
   let commitStarted = false;
   let discardClient: Error | undefined;
   try {
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await serial.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
     // Establish the snapshot before any concurrent release activation.
-    const release = await client.query("SELECT data_release_id FROM logiplan.active_release");
+    const release = await serial.query("SELECT data_release_id FROM logiplan.active_release");
     if (release.rowCount !== 1) {
-      await client.query("ROLLBACK");
+      await serial.query("ROLLBACK");
       return error("VERSION_NOT_FOUND", "活动正式版本数量不是 1", request_id);
     }
-    const result = await executeQuery(client, intent, request_id);
+    const result = await executeQuery(serial, intent, request_id);
     if ("code" in result) {
-      await client.query("ROLLBACK");
+      await serial.query("ROLLBACK");
       return result;
     }
     const saved = await persistQueryEvidenceSnapshot(
-      client,
+      serial,
       result,
       release.rows[0]?.data_release_id,
     );
     // A successful response is only available once its snapshot is committed.
     commitStarted = true;
-    await client.query("COMMIT");
+    await serial.query("COMMIT");
     return saved;
   } catch (cause) {
     // A lost COMMIT acknowledgement has an unknown outcome. Attempt cleanup,
     // discard the connection, and propagate failure without claiming rollback.
     if (commitStarted) discardClient = new Error("Snapshot COMMIT outcome is unconfirmed");
-    await client.query("ROLLBACK").catch(() => {
+    await serial.query("ROLLBACK").catch(() => {
       discardClient = new Error("Snapshot transaction cleanup failed");
     });
     throw cause;
@@ -2093,11 +2147,14 @@ export async function materializeEvidenceSnapshots(
   intents: readonly QueryIntent[],
   requestPrefix = "publish-materialization",
 ): Promise<void> {
-  const isolation = await client.query("SHOW transaction_isolation");
+  // Publisher materialization always runs on one transaction client; queue its
+  // statements on a single chain so pg never sees concurrent client.query() calls.
+  const serial = serializeQueries(client);
+  const isolation = await serial.query("SHOW transaction_isolation");
   if (String(isolation.rows[0]?.transaction_isolation) !== "repeatable read") {
     throw new Error("证据快照物化必须在 REPEATABLE READ 事务内执行");
   }
-  const release = await client.query(
+  const release = await serial.query(
     `SELECT a.data_release_id
      FROM logiplan.active_data_release AS a
      JOIN logiplan.data_release AS r USING (data_release_id)
@@ -2109,9 +2166,9 @@ export async function materializeEvidenceSnapshots(
     if (!("contract_version" in intent) || intent.question_type === "EVIDENCE_LOOKUP") {
       throw new Error("发布物化入口只接受 V1.1 确定性查询");
     }
-    const result = await executeQuery(client, intent, `${requestPrefix}:${resultId(intent)}`);
+    const result = await executeQuery(serial, intent, `${requestPrefix}:${resultId(intent)}`);
     if ("code" in result) throw new Error(result.message_zh);
-    await persistEvidenceSnapshot(client, result, releaseId);
+    await persistEvidenceSnapshot(serial, result, releaseId);
   }
 }
 

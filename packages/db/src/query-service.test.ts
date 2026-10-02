@@ -4,7 +4,11 @@ import { LogiPlanDecimal } from "@logiplan/domain";
 import { describe, expect, it, vi } from "vitest";
 
 import { runDiagnosticMetrics } from "./diagnostic-metrics";
-import { checkReadiness, runDeterministicQuery } from "./query-service";
+import {
+  checkReadiness,
+  materializeEvidenceSnapshots,
+  runDeterministicQuery,
+} from "./query-service";
 
 const versions = {
   budget: "BUDGET_2026_V1",
@@ -1647,5 +1651,260 @@ describe("query service boundary paths", () => {
       ),
     } as unknown as Pool;
     await expect(checkReadiness(noActiveReleasePool)).rejects.toThrow("活动正式版本数量不是 1");
+  });
+});
+
+describe("单连接查询串行化（pg 并发弃用回归防线）", () => {
+  const releaseId = "RELEASE-SERIAL";
+  const dashboardV11: QueryIntent = {
+    contract_version: "V1.1",
+    question_type: "DASHBOARD_OVERVIEW",
+    scope: intent("DASHBOARD_OVERVIEW", []).scope,
+    metrics: ["COST"],
+    group_by: [],
+    output_locale: "zh-CN",
+    context_sources: ["FIXED_TEMPLATE"],
+  };
+
+  /**
+   * 并发检测替身：在飞（in-flight）计数大于 1 即判定「同一连接上并发提交 query()」，
+   * 也就是 `pg@8` 会触发弃用通知、`pg@9` 会移除的形态。判定完全确定，
+   * 不依赖 `nodeUtils.deprecate` 每进程只发一次的告警计数。
+   */
+  const probe = (handler: (sql: string, values?: unknown[]) => unknown) => {
+    const state = { maxInFlight: 0, violations: [] as string[] };
+    let inFlight = 0;
+    const query = vi.fn(async (sql: string, values?: unknown[]) => {
+      inFlight += 1;
+      state.maxInFlight = Math.max(state.maxInFlight, inFlight);
+      if (inFlight > 1) state.violations.push(sql);
+      try {
+        return await handler(sql, values);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+    return { query, state };
+  };
+
+  const withSnapshotMetadata = (payload: string, id: string) => {
+    const result = JSON.parse(payload);
+    delete result._data_release_id;
+    result.evidence = result.evidence.map((item: object) => ({
+      ...item,
+      evidence_snapshot_id: id,
+      data_release_id: releaseId,
+    }));
+    return { rows: [{ result }], rowCount: 1 };
+  };
+
+  // costByVersion 的变动成本聚合也含 AS variable_cost，与经营指标 SQL 重叠，需要独立标记。
+  const variableCostMarker = "cost_scope_type IN ('FULFILLMENT_CENTER','SHARED')";
+  // DASHBOARD_OVERVIEW 在单次请求里发出 6 条聚合查询，是并发提交最密集的路径。
+  const dashboardSql = (sql: string, values?: unknown[]) => {
+    if (sql.includes("persist_query_evidence_snapshot"))
+      return withSnapshotMetadata(String(values?.[0]), "ES-00000000-0000-4000-8000-000000000003");
+    if (sql.includes("persist_evidence_snapshot"))
+      return withSnapshotMetadata(String(values?.[0]), "ES-00000000-0000-4000-8000-000000000004");
+    if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [], rowCount: 0 };
+    if (sql.includes("SHOW transaction_isolation"))
+      return { rows: [{ transaction_isolation: "repeatable read" }], rowCount: 1 };
+    if (sql.includes("SELECT data_release_id FROM logiplan.active_release"))
+      return { rows: [{ data_release_id: releaseId }], rowCount: 1 };
+    if (sql.includes("FROM logiplan.active_data_release"))
+      return { rows: [{ data_release_id: releaseId }], rowCount: 1 };
+    if (sql.includes("/* DASHBOARD_OPERATING_METRICS */"))
+      return {
+        rows: [
+          {
+            order_qty: "1200",
+            package_qty: "2400.5",
+            chargeable_weight_kg: "600.25",
+            variable_cost: "70",
+            transport_cost: "20",
+            gmv: "900",
+          },
+        ],
+        rowCount: 1,
+      };
+    if (sql.includes(variableCostMarker))
+      return {
+        rows: [{ variable_cost: values?.[0] === versions.actual ? "20.5" : "10.25" }],
+        rowCount: 1,
+      };
+    if (sql.includes("FROM logiplan.active_fixed_cost_scenario_fact"))
+      return { rows: [{ fixed_cost: "3.125" }], rowCount: 1 };
+    throw new Error(`未模拟 SQL：${sql}`);
+  };
+
+  const connectedPool = (query: unknown, release = vi.fn()) =>
+    ({ connect: vi.fn(async () => ({ query, release })) }) as unknown as Pool;
+  const writerClient = (query: unknown) =>
+    ({ query }) as unknown as Parameters<typeof materializeEvidenceSnapshots>[0];
+  const issued = (query: ReturnType<typeof probe>["query"]) =>
+    query.mock.calls.map(([sql]) => String(sql));
+  const countIssued = (query: ReturnType<typeof probe>["query"], marker: string) =>
+    query.mock.calls.filter(([sql]) => String(sql).includes(marker)).length;
+  // evidence 的 source_result_id 与 snapshot_generated_at 来自 intent 与运行时刻，
+  // 跨契约版本比较时只比对确定性字段。
+  const evidenceShape = (result: { evidence: { [key: string]: unknown }[] }) =>
+    result.evidence.map((item) => ({
+      evidence_id: item.evidence_id,
+      metric: item.metric,
+      value: item.value,
+      unit: item.unit,
+      period: item.period,
+      comparison: item.comparison,
+      filters: item.filters,
+      group_by: item.group_by,
+      versions: item.versions,
+      calculation_method: item.calculation_method,
+      source_refs: item.source_refs,
+    }));
+
+  it("真实 Pool 路径保留池级并发（串行化只注入单连接判定点）", async () => {
+    const poolProbe = probe(dashboardSql);
+
+    const result = payloadOf(
+      await runDeterministicQuery(
+        { query: poolProbe.query } as unknown as Pool,
+        intent("DASHBOARD_OVERVIEW", []),
+        "pool-concurrency",
+      ),
+    );
+
+    // 6 条聚合查询仍然并发提交，既证明替身能检出并发，也证明池级并发未被削弱。
+    expect(result.warnings).toHaveLength(1);
+    expect(poolProbe.state.maxInFlight).toBeGreaterThan(1);
+    expect(poolProbe.state.violations.length).toBeGreaterThan(0);
+  });
+
+  it("V1.1 单连接路径任意时刻至多一条查询在飞，且结果与 Pool 路径逐字段相同", async () => {
+    const baseline = payloadOf(
+      await runDeterministicQuery(
+        { query: probe(dashboardSql).query } as unknown as Pool,
+        intent("DASHBOARD_OVERVIEW", []),
+        "pool-baseline",
+      ),
+    );
+    const client = probe(dashboardSql);
+
+    const actual = payloadOf(
+      await runDeterministicQuery(connectedPool(client.query), dashboardV11, "client-serial"),
+    );
+
+    expect(client.state.violations).toEqual([]);
+    expect(client.state.maxInFlight).toBe(1);
+    expect(countIssued(client.query, "/* DASHBOARD_OPERATING_METRICS */")).toBe(3);
+    expect(countIssued(client.query, variableCostMarker)).toBe(3);
+    expect(actual.payload).toEqual(baseline.payload);
+    expect(actual.warnings).toEqual(baseline.warnings);
+    expect(actual.scope_label).toEqual(baseline.scope_label);
+    expect(actual.precision).toEqual(baseline.precision);
+    expect(actual.reporting_currency).toBe(baseline.reporting_currency);
+    expect(evidenceShape(actual)).toEqual(evidenceShape(baseline));
+  });
+
+  it("完整透传 query() 的 text 与可选 values，并保持单参数调用的元数", async () => {
+    const client = probe(dashboardSql);
+
+    await runDeterministicQuery(connectedPool(client.query), dashboardV11, "client-values");
+
+    // 元数必须原样保留：无 values 的语句不得被补上第二个实参。
+    expect(client.query.mock.calls[0]).toEqual(["BEGIN ISOLATION LEVEL REPEATABLE READ"]);
+    expect(client.query.mock.calls[1]).toEqual([
+      "SELECT data_release_id FROM logiplan.active_release",
+    ]);
+    for (const [, values] of client.query.mock.calls.filter(([sql]) =>
+      String(sql).includes("/* DASHBOARD_OPERATING_METRICS */"),
+    ))
+      expect(values).toEqual([expect.any(String), "2026-01-01", "2026-12-01", "CALC_V1"]);
+    for (const [, values] of client.query.mock.calls.filter(([sql]) =>
+      String(sql).includes(variableCostMarker),
+    ))
+      expect(values).toEqual([expect.any(String), "2026-01-01", "2026-12-01"]);
+    for (const [, values] of client.query.mock.calls.filter(([sql]) =>
+      String(sql).includes("persist_query_evidence_snapshot"),
+    ))
+      expect(values).toHaveLength(1);
+    expect(issued(client.query).at(-1)).toBe("COMMIT");
+  });
+
+  it("发布物化在单连接事务内串行提交查询，且仍校验 REPEATABLE READ", async () => {
+    const writer = probe(dashboardSql);
+
+    await expect(
+      materializeEvidenceSnapshots(writerClient(writer.query), [dashboardV11], "serial-publish"),
+    ).resolves.toBeUndefined();
+    expect(writer.state.violations).toEqual([]);
+    expect(writer.state.maxInFlight).toBe(1);
+    expect(writer.query.mock.calls[0]).toEqual(["SHOW transaction_isolation"]);
+    expect(issued(writer.query).at(-1)).toContain("persist_evidence_snapshot");
+
+    const wrongIsolation = probe((sql, values) =>
+      sql.includes("SHOW transaction_isolation")
+        ? { rows: [{ transaction_isolation: "read committed" }], rowCount: 1 }
+        : dashboardSql(sql, values),
+    );
+    await expect(
+      materializeEvidenceSnapshots(writerClient(wrongIsolation.query), [dashboardV11]),
+    ).rejects.toThrow("证据快照物化必须在 REPEATABLE READ 事务内执行");
+    expect(countIssued(wrongIsolation.query, "FROM logiplan.active_data_release")).toBe(0);
+  });
+
+  it("串行化后的 query() 始终以传入的连接对象作为接收者调用", async () => {
+    // pg 的 Client.prototype.query 依赖 this；把 db.query 解构成裸函数转发会静默丢失接收者。
+    const receiverProbe = () => {
+      const receivers: unknown[] = [];
+      const client = {
+        query(this: unknown, sql: string, values?: unknown[]) {
+          receivers.push(this);
+          return Promise.resolve(dashboardSql(sql, values));
+        },
+      };
+      return { client, receivers };
+    };
+
+    const publish = receiverProbe();
+    await materializeEvidenceSnapshots(
+      publish.client as unknown as Parameters<typeof materializeEvidenceSnapshots>[0],
+      [dashboardV11],
+      "serial-receiver",
+    );
+    const web = receiverProbe();
+    const webClient = { ...web.client, release: vi.fn() };
+    await runDeterministicQuery(
+      { connect: vi.fn(async () => webClient) } as unknown as Pool,
+      dashboardV11,
+      "serial-receiver-web",
+    );
+
+    expect(publish.receivers.length).toBeGreaterThan(0);
+    expect(publish.receivers.every((receiver) => receiver === publish.client)).toBe(true);
+    expect(web.receivers.length).toBeGreaterThan(0);
+    expect(web.receivers.every((receiver) => receiver === webClient)).toBe(true);
+  });
+
+  it("链中查询失败时错误如实抛给调用方，且失败后仍继续提交后续查询", async () => {
+    const boom = new Error("注入的单连接查询故障");
+    const client = probe((sql, values) => {
+      if (sql.includes("/* DASHBOARD_OPERATING_METRICS */")) throw boom;
+      return dashboardSql(sql, values);
+    });
+    const release = vi.fn();
+
+    await expect(
+      runDeterministicQuery(connectedPool(client.query, release), dashboardV11, "client-failure"),
+    ).rejects.toBe(boom);
+
+    // 失败没有吞错也没有被替换为通用错误；排在失败之后的查询与 ROLLBACK 照常发起。
+    expect(client.state.violations).toEqual([]);
+    expect(countIssued(client.query, "/* DASHBOARD_OPERATING_METRICS */")).toBe(3);
+    expect(countIssued(client.query, variableCostMarker)).toBe(3);
+    expect(issued(client.query).at(-1)).toBe("ROLLBACK");
+    expect(issued(client.query)).not.toContain("COMMIT");
+    expect(countIssued(client.query, "persist_query_evidence_snapshot")).toBe(0);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith(undefined);
   });
 });
