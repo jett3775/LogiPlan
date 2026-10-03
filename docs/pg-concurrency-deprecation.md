@@ -2,7 +2,7 @@
 
 版本：V1.0
 日期：2026-09-28
-状态：**归因结论仍然成立（`pg@9` 未发布，D-183 闸门当前无可执行对象）；修复已于 2026-10-02 落地并通过真实库验证**（第 1—7 节为 2026-09-28 的原始结论文本，原文保留不改；本次**已修改**生产代码 `packages/db/src/query-service.ts`——落地位置、对应第 6 节四条建议的覆盖情况与验证证据见第 8 节）
+状态：**归因结论仍然成立（`pg@9` 未发布，D-183 闸门当前无可执行对象）；修复已于 2026-10-02 落地并通过真实库验证；并发判定目标已于 2026-10-04 显式类型化为 `QueryTarget`（唯一工厂 + 模块私有 nominal brand），第 6 节第 1 条的类型层面缺口随之实质闭合**（第 1—7 节为 2026-09-28 的原始结论文本，原文保留不改；本次**已修改**生产代码 `packages/db/src/query-service.ts`——落地位置、对应第 6 节四条建议的覆盖情况与验证证据见第 8 节；2026-10-04 的重构与证据见第 8.2、8.3、8.6 节的更新注记）
 依据：本地 `pg@8.23.0` 源码、仓库静态路径分析、2026-09-27 E1 激活的真实运行日志、npm registry 版本查询。
 
 ---
@@ -134,6 +134,8 @@ D-183 闸门无可执行对象）与第 5 节仍**完全成立**，本节不改�
 
 ### 8.2 修复位置与形态
 
+**2026-10-04 更新（修复形态已重构为唯一工厂 `createQueryTarget(source, concurrency)`，`serializeQueries` 不再作为独立函数存在）**：本节下方原文按约定**原文保留不改**，它描述的是提交 `7e089efb`（2026-10-02）的形态。模块私有函数 `serializeQueries(db)` **现已不存在**（`grep -c 'function serializeQueries'` = 0）：其全部逻辑已**并入唯一工厂** `createQueryTarget(source: QueryDatabase, concurrency: "pool" | "single"): QueryTarget`（同文件，**未导出**）的 **`"single"` 分支**——在同一条连接上把查询串成一条 promise 链，每次 `query()` 排在上一条之后。下方 8.2 的每一条要点（`values` 透传、接收者恒为 `db`、错误以同一对象抛出、失败不永久阻断、对外签名仍为完整重载集、**进程级抑制 `unhandledRejection`**、「所有调用点必须 `await`/`.catch`」的清单、rejection handler 是链不中断的必要条件）**逐条迁入工厂注释，语义未变**。`"pool"` 分支不做任何包装，`db` 就是传入对象本身。注入点仍是那两个「单连接判定点」，只是改为 `createQueryTarget(client, "single")`。
+
 新增模块私有函数 `serializeQueries(db)`（`packages/db/src/query-service.ts`，**未导出**）：在同一条连接上把查询
 串成一条 promise 链，每次 `query()` 排在上一条之后。
 
@@ -170,6 +172,12 @@ handler，副作用是**进程级抑制** `unhandledRejection`——调用方一
 
 代码改动已通过独立审查。
 
+**2026-10-04 更新（上表第 1 条的状态由「部分落地」更新为「已落地」；第 2、3 条的计数随之更新）**：上表原文按约定**原文保留不改**，其状态以本注记为准，完整证据见 8.6 节。
+
+- **第 1 条（类型层面区分「可并发的池」与「必须串行的单连接」）现为「已落地」。** 落地形态：新增并发判定点的唯一入口类型 `type QueryTarget = { readonly db: QueryDatabase; readonly concurrency: "pool" | "single"; readonly [queryTargetBrand]: true }`，其中 `const queryTargetBrand: unique symbol = Symbol("logiplan.queryTarget")` 是**模块私有的 nominal brand**（`QueryTarget` 与 `queryTargetBrand` 均不对外导出），带 brand 的 `QueryTarget` **只能由 `createQueryTarget` 构造**。7 个会把多条查询并发提交的函数改签名收 `target: QueryTarget`（`validateVariableCoverage`、`dashboard`、`bridge`、`monthlyCostTrend`、`topAdverseAnomalies`、`evidenceLookup`、`executeQuery`）；只发单条查询的函数仍收 `QueryDatabase`，调用处传 `target.db`。**三处并发点的 `Promise.all` 逐字未改**，只把接收者换成 `target.db`——并发决策完全由 `db` 的构造决定。原先「`QueryDatabase` 的结构约束未变、以注释披露 + 签名收窄 + 接收者用例替代」这一状态**已不再成立**。
+- **缺口闭合的真实边界（不得夸大）**：**已闭合**——裸 `Client`、`Pick<Client, "query">`、包装对象、字面量 `{}` 在编译期被拒绝，**手写字面量 `{ db, concurrency }` 同样被拒绝**（缺 `[queryTargetBrand]`），因此**无法伪造**一个「自称已串行化但实际未串行化」的并发目标；「裸 `Client` 仍能静默满足 `QueryDatabase`」这一缺口**已实质闭合**。**仍存在的一层（不得宣称已闭合）**——类型系统只证明「对象出自本工厂」，**不证明 `concurrency` 实参传对了**：若对单连接误传 `concurrency: "pool"`，类型仍然成立但不会串行化。这一层由**既有行为测试（单连接在飞计数探测）兜底，不是类型系统解决的**。
+- **第 2 条**维持「已落地」，实现形态由独立包装函数改为工厂的 `"single"` 分支（`"pool"` 分支无包装，保留池级并发）；**第 3 条**的回归测试由 6 个增至**累计 8 个**；**第 4 条不变**：`pg@9` 未发布，第 1 节与第 5 节判定不变，闸门仍不可执行。
+
 ### 8.4 验证证据（2026-10-02，本机 macOS，真实 `postgres:18.4`）
 
 - **`pnpm verify:gate1:isolated` 在真实 PostgreSQL 18.4 上以 `NODE_OPTIONS=--trace-deprecation` 完整跑完**，
@@ -192,6 +200,8 @@ handler，副作用是**进程级抑制** `unhandledRejection`——调用方一
 | B    | 同样 3 条查询走 promise 链（`serializeQueries` 等价形态） | **零告警**                            |
 | C    | 真实 `Pool` `max: 2` 上并发 6 条 `pool.query()`           | **零告警**（独立证实第 8.1 节的证伪） |
 
+**对照 B 表中的「`serializeQueries` 等价形态」指的就是 8.2 节所述的同连接 promise 链包装**；按 2026-10-04 的形态，它即 `createQueryTarget(source, "single")` 的 `"single"` 分支（`serializeQueries` 作为独立函数已不存在）。上表与 8.4 节的记录对应提交 `7e089efb`，**原文保留不改**。
+
 **权威证据（2026-10-03，CI）**：改动已提交为 `7e089efb`（`fix(db)`），文档为 `6c828dc9`，`.gitignore` 为
 `94f1caf7`，三者推送至 `main`（`b3a62b4c..94f1caf7`）。CI run **`37088307553`**（head = `94f1caf7`）**全绿**：
 `Gate 1 deterministic validation`（ubuntu-latest，含完整 `pnpm verify:gate1:isolated`，**Firefox 核心冒烟腿真跑并通过**，
@@ -205,3 +215,26 @@ handler，副作用是**进程级抑制** `unhandledRejection`——调用方一
 告警本身已消除，触发面已被串行化并由回归测试锁定。第 1 节与第 5 节的判定**不变**：`pg` 最新版本仍为 `8.23.0`、
 无任何 `9.*`，D-183 的兼容性闸门**当前仍无可执行对象**。一旦 9.x 发布，第 8.3 节表中的第 1 条缺口（裸 `Client`
 静默满足 `QueryDatabase`）与闸门入口条件需要在升级动作前正式处置。
+
+**2026-10-04 更新**：上句所列「第 8.3 节表中的第 1 条缺口」**已实质闭合**（见 8.3 节更新注记与 8.6 节），不再是升级动作前的
+待处置项；`pg@9` 升级动作的入口条件**仍只包含回归防线**（不得在同一 client 上并发提交，已由测试锁定）。第 1 节与第 5 节的判定
+**不变**。
+
+### 8.6 2026-10-04 更新（`QueryTarget` 类型显式化，类型层面缺口实质闭合）
+
+**落地形态**：`serializeQueries` 的串行化逻辑已并入唯一工厂 `createQueryTarget(source: QueryDatabase, concurrency: "pool" | "single"): QueryTarget`；`QueryTarget` 带**模块私有**的 `unique symbol` nominal brand `queryTargetBrand`，只有本工厂能产出。`"pool"` → `db` 为传入对象本身（真实 `Pool`，或 `verify-query-plans.ts` 用来采集查询计划 `values` 的 `Proxy`），**保留真并发**；`"single"` → `db` 为同连接 promise 链包装。因此**并发决策完全由 `db` 的构造决定**，三处并发点的 `Promise.all` 无需改动、逐字未改，只把接收者换成 `target.db`。7 个并发判定点改收 `target: QueryTarget`，只发单条查询的函数仍收 `QueryDatabase`（调用处传 `target.db`）。
+
+**缺口闭合的真实边界**：
+
+- **已闭合**：裸 `Client`、`Pick<Client, "query">`、包装对象、字面量 `{}` 在编译期被拒绝；**手写字面量 `{ db, concurrency }` 同样被拒绝**（缺 `[queryTargetBrand]`）⇒ **无法伪造**一个「自称已串行化但实际未串行化」的并发目标。上一轮记录的「裸 `Client` 仍能静默满足 `QueryDatabase`，这一缺口尚未闭合」**已被本轮改动推翻**。
+- **仍存在的一层（不得宣称已闭合）**：类型系统只证明「对象出自本工厂」，**不证明 `concurrency` 实参传对了**。若对单连接误传 `concurrency: "pool"`，类型仍然成立但不会串行化——这一层由**既有行为测试（单连接在飞计数探测）兜底，不是类型系统解决的**。
+
+**验证证据（2026-10-04）**：
+
+- 代码已通过**三轮独立审查**，最终判 **PASS**；期间独立审查者以**仓库外副本**做了 20+ 组变异实验。
+- `pnpm test` = 15 文件 **136 passed / 11 skipped / 147**（`pg` 修复前基线 122 / 11 / 133）。
+- `query-service.ts` 覆盖率 **93.76 / 85.02 / 94.23 / 94.13**（`pg` 修复前 93.68 / 84.94 / 94.23 / 94.06，三项均未下降）。
+- `pnpm typecheck`（4 个 workspace）、`pnpm lint`、`pnpm format:check`、`pnpm build` 均**退出码 0**。
+- 回归测试累计 **8 个**（本轮新增）：串行性、池级并发保留、参数与元数透传、`REPEATABLE READ` 校验保留、接收者绑定、失败语义与链不中断、V1.0 池级目标即传入 `Pool` 本身（复现 `verify-query-plans` 的 `Proxy` 拦截并核对接收者）、brand 与守卫识别前提。**既有 6 个串行化回归用例一行未改且仍通过**（`git diff` 删除行数为 0），证明重构行为等价。
+- 编译期断言取自**真实 tsc 输出**：手写字面量伪造 → `error TS2741: Property '[queryTargetBrand]' is missing in type '{ db: QueryDatabase; concurrency: "single"; }' but required in type 'QueryTarget'`；裸 `Client` 传入 → `error TS2739: Type 'Client' is missing the following properties from type 'QueryTarget': db, concurrency, [queryTargetBrand]`；移除 brand → `error TS2578: Unused '@ts-expect-error' directive`。
+- **进行中、尚未完成（不得表述为已通过）**：`pnpm verify:gate1:isolated`（真实 `postgres:18.4` + `--trace-deprecation` 的端到端复验）由主 Agent 在合并前执行。8.4 节的 2026-10-02 本机记录与 2026-10-03 的 CI 权威证据**继续有效**，但对应的是提交 `7e089efb` 的形态，**不得当作本轮重构的端到端证据**。
