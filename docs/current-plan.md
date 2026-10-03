@@ -367,6 +367,11 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    **遗留**：类型层面区分「可并发的池」与「必须串行的单连接」尚未闭合（裸 `Client` 仍能静默满足
    `QueryDatabase`），当前以注释披露 + 签名收窄 + 接收者用例替代；该项须在 `pg@9` 升级动作前正式处置。
    **维护提示**：不要再去改那三处 `Promise.all`（既无收益，又会摧毁池级并发）。
+   **权威证据（2026-10-03）**：改动已提交（`7e089efb` / `6c828dc9` / `94f1caf7`）并推送 `main`（`b3a62b4c..94f1caf7`）。
+   CI run **`37088307553`**（head = `94f1caf7`）**全绿**：`Gate 1 deterministic validation`（ubuntu-latest，含完整
+   `pnpm verify:gate1:isolated`，**Firefox 核心冒烟腿真跑并通过**——本机 macOS 27.0 跑不了该腿）3m55s success、
+   `Cross-platform checks` 三平台矩阵 job 全部 success、`CodeQL` success、PR 依赖审查按设计 skipped。
+   按 **D-188**，CI 为稳定性权威证据来源；上条本机记录与之**分别记录、不得合并**。
 
 ---
 

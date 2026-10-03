@@ -192,6 +192,14 @@ handler，副作用是**进程级抑制** `unhandledRejection`——调用方一
 | B    | 同样 3 条查询走 promise 链（`serializeQueries` 等价形态） | **零告警**                            |
 | C    | 真实 `Pool` `max: 2` 上并发 6 条 `pool.query()`           | **零告警**（独立证实第 8.1 节的证伪） |
 
+**权威证据（2026-10-03，CI）**：改动已提交为 `7e089efb`（`fix(db)`），文档为 `6c828dc9`，`.gitignore` 为
+`94f1caf7`，三者推送至 `main`（`b3a62b4c..94f1caf7`）。CI run **`37088307553`**（head = `94f1caf7`）**全绿**：
+`Gate 1 deterministic validation`（ubuntu-latest，含完整 `pnpm verify:gate1:isolated`，**Firefox 核心冒烟腿真跑并通过**，
+本机 macOS 27.0 无法运行该腿）3m55s success；`Cross-platform checks` 的 ubuntu / macOS / windows 三个矩阵 job
+全部 success；`CodeQL JavaScript and TypeScript` success；`Pull request dependency review` 按设计 skipped（仅 PR 触发）。
+按 **D-188**，CI `ubuntu-latest` 为 Gate 1 稳定性的**权威证据来源**，故本次修复的稳定性主张以该 run 为准，
+本节 8.4 的本机记录为与之**分别记录、不得合并**的本地证据。
+
 ### 8.5 结论
 
 告警本身已消除，触发面已被串行化并由回归测试锁定。第 1 节与第 5 节的判定**不变**：`pg` 最新版本仍为 `8.23.0`、
