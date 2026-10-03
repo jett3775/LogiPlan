@@ -23,39 +23,77 @@ import {
  * `QueryDatabase` 只是结构约束：`query` 既可能是真实 `Pool`（每次调用独占一条空闲连接，
  * 池级并发是预期用法），也可能是单个 `Client`／事务连接。`pg@8` 对同一个 `Client`
  * 并发提交 `query()` 会触发弃用告警（`pg@9` 移除该行为），因此单连接判定点必须串行化。
+ *
+ * 正因为它是纯结构类型，裸 `Client` 会静默满足它，`query`-only 的签名无法表达
+ * 「这条 db 能不能并发」。`QueryTarget` 就是补上这一维度的载体。
  */
 type QueryDatabase = Pick<Pool, "query">;
 
 /**
- * 在同一条连接上把查询串成 promise 链：每次 `query()` 都排在上一条之后。
+ * `QueryTarget` 的 nominal brand。它由模块内 `const` 声明并持有真实的 `Symbol()` 值，
+ * 因此**任何手写字面量都无法伪造**：即使在模块内部，也必须经由 `createQueryTarget`
+ * 才能产出带 brand 的对象。不能用 `declare` 取代——计算属性键需要运行期值。
+ */
+const queryTargetBrand: unique symbol = Symbol("logiplan.queryTarget");
+
+/**
+ * 并发判定点的唯一入口类型：`db` 是实际发查询的对象，`concurrency` 说明它是否已经过串行化。
+ * 只发单条查询的函数仍然只收 `QueryDatabase`；只有会把多条查询并发提交的判定点收 `QueryTarget`。
+ *
+ * `readonly [queryTargetBrand]` 是这条不变式的载体，也是唯一的载体：纯结构类型
+ * （`{ db, concurrency }`）可以被任何模块内代码手写伪造出「自称 `single` 却未串行化」的
+ * 目标，而且伪造品与正确写法在代码审阅中无法区分。加上模块私有 brand 后，这类伪造在
+ * 编译期直接报错。
+ */
+type QueryTarget = {
+  readonly db: QueryDatabase;
+  readonly concurrency: "pool" | "single";
+  readonly [queryTargetBrand]: true;
+};
+
+/**
+ * 构造并发判定点的唯一途径，并发决策完全由 `concurrency` 决定：
+ * - `"pool"`：`db` 就是传入对象本身（真实 `Pool`，或 `verify-query-plans.ts` 用来采集查询计划
+ *   `values` 的 `Proxy`），池级真并发与全部查询语义保持不变，不经过任何包装。
+ * - `"single"`：`db` 是把传入连接上的查询串成 promise 链的包装（每次 `query()` 都排在
+ *   上一条之后），因此并发点现有的 `Promise.all` 天然安全。**因此不需要 thunk、也不需要
+ *   `all()` 辅助方法**：两种模式下 `Promise.all([...])` 都保持原样。
+ *
+ * 类型系统强制的不变量：并发点只接受 `QueryTarget`，而带 brand 的 `QueryTarget` 只能由本工厂
+ * 构造——手写字面量与裸 `Client` 都在编译期被拒绝，因此「到达并发点的 db 必定已经过串行化处理」
+ * 由类型系统保证，而不是靠调用点约定与注释。
+ * **不能由类型系统保证的部分（不得夸大）**：brand 只证明「对象出自本工厂」，不证明工厂的
+ * `concurrency` 实参传对了。若有人对单连接误传 `"pool"`，类型仍然成立但不会串行化；这一层由
+ * 既有行为测试（单连接在飞计数探测）兜底，不是类型系统解决的。
+ *
+ * `"single"` 分支的已知取舍（必须显式披露，不能只靠阅读实现得出）：
  * - `(text, values?)` 原样透传；缺省 `values` 时不补第二个实参（`pg` 的 `Query` 对
  *   `values === undefined` 与省略实参处理完全相同，`new Query(config, values, callback)`
  *   只是把 `undefined` 赋给 `this.values`）。`verify-query-plans.ts` 依赖 `values` 捕获查询计划。
- * - 每条语句都写成 `db.query(...)` 的方法调用，接收者恒为 `db`。`pg` 的
+ * - 每条语句都写成 `db.query(...)` 的方法调用，接收者恒为传入的连接对象。`pg` 的
  *   `Client.prototype.query` 依赖 `this`，解构成裸函数再转发会丢失接收者。
  * - 链中某条查询失败时，错误以**同一对象**抛给该次调用方，不替换为通用错误。
  * - 失败不会永久阻断后续查询，链在每次失败后仍继续排队。
- *
- * 已知取舍（必须显式披露，不能只靠阅读实现得出）：
  * - `chain = pending.then(noop, noop)` 会给 `pending` 挂上 rejection handler。副作用是
- *   **进程级抑制**：调用方一旦丢弃本函数返回的 promise，Node 不会再为它发出
+ *   **进程级抑制**：调用方一旦丢弃 `db.query` 返回的 promise，Node 不会再为它发出
  *   `unhandledRejection`。也就是说「错误一定被上报」依赖调用点自己 `await` 或 `.catch`，
  *   而不是由本包装强制保证。
  * - 当前仓库内所有会经由本包装发出的查询调用点都显式 `await` 或 `.catch`：
  *   `runDeterministicQuery` 的 `BEGIN`／活动发布读取／两处业务分支 `ROLLBACK`／`COMMIT`／
- *   catch 内的 `ROLLBACK`，`materializeEvidenceSnapshots` 的全部语句，以及传入 `serial` 的
- *   `executeQuery`（含三处 `Promise.all`）与 `persist*EvidenceSnapshot` 的下游查询。
+ *   catch 内的 `ROLLBACK`，`materializeEvidenceSnapshots` 的全部语句，以及传入 `target.db` 的
+ *   `executeQuery`（含三处并发点）与 `persist*EvidenceSnapshot` 的下游查询。
  *   因此今天不存在静默失败；但**新增调用点必须遵守这一约定**，否则错误会被静默丢弃。
  * - 该 rejection handler 同时是链不中断的必要条件：没有它，一次拒绝会让 `chain`
  *   自身变成 rejected，之后每条查询都被同一个错误拒绝。
- *
- * 真实 `Pool` 路径不经过本包装，池级并发与全部查询语义保持不变。
  */
-function serializeQueries(db: QueryDatabase): QueryDatabase {
+function createQueryTarget(source: QueryDatabase, concurrency: "pool" | "single"): QueryTarget {
+  // 两个返回分支都必须直接写出 brand（计算属性字面量），不得用 `as QueryTarget` 之类的断言
+  // 绕过：断言等于把 brand 刚关上的门重新打开。
+  if (concurrency === "pool") return { db: source, concurrency, [queryTargetBrand]: true };
   let chain: Promise<unknown> = Promise.resolve();
   const query = (text: string, values?: unknown[]): Promise<unknown> => {
     const pending = chain.then(() =>
-      values === undefined ? db.query(text) : db.query(text, values),
+      values === undefined ? source.query(text) : source.query(text, values),
     );
     chain = pending.then(
       () => undefined,
@@ -69,8 +107,31 @@ function serializeQueries(db: QueryDatabase): QueryDatabase {
   // 用普通 `as` 而非 `as unknown as`：前者受 comparability 检查（不相关会报 TS2352），
   // 断言只作用于“实现 → 重载”的这一次收窄；对外签名仍是完整的
   // `QueryDatabase["query"]`，所有调用点的参数校验强度与包裹前完全一致。
-  return { query: query as QueryDatabase["query"] };
+  return {
+    db: { query: query as QueryDatabase["query"] },
+    concurrency,
+    [queryTargetBrand]: true,
+  };
 }
+
+/**
+ * 编译期断言（两道）：两种此前能通过、现在必须报错的伪造形态。
+ * 1. 裸 `Client`——结构上满足 `QueryDatabase`，但既不是工厂产物，也没有 `{ db, concurrency }`。
+ * 2. 手写字面量——字段齐全、字面写着 `concurrency: "single"`，却绕过了串行化；brand 让它报错。
+ * 若日后有人放宽 `QueryTarget`（或去掉 brand），下面两行会变成「未使用的 `@ts-expect-error`」
+ * 而让 `pnpm typecheck` 失败；反之，若有人把某个并发判定点的形参改回 `QueryDatabase`，
+ * 则它的调用点立刻报参数类型错误。只写赋值表达式、不引入函数与分支，因此不改变运行期行为，
+ * 也不新增对外导出。
+ */
+// @ts-expect-error 裸 Client 不能作为并发判定点（必须是 createQueryTarget 的产物）
+const _bareClientRejectedByConcurrencyPoint: QueryTarget = {} as Client;
+// @ts-expect-error 手写字面量无法携带模块私有 brand，不能伪造并发判定点
+const _handWrittenLiteralRejected: QueryTarget = {
+  db: {} as QueryDatabase,
+  concurrency: "single",
+};
+void _bareClientRejectedByConcurrencyPoint;
+void _handWrittenLiteralRejected;
 
 type PreciseDecimal = InstanceType<typeof LogiPlanDecimal>;
 
@@ -300,13 +361,13 @@ type VariableCoverageRow = {
 };
 
 async function validateVariableCoverage(
-  pool: QueryDatabase,
+  target: QueryTarget,
   scope: AnalysisScope,
   latestClosed: string,
   requestId: string,
 ) {
   const [routeResult, coverageResult] = await Promise.all([
-    pool.query(
+    target.db.query(
       `/* CANONICAL_ROUTES */
        SELECT route_id, destination_country_id, valid_from::text AS valid_from,
               valid_to::text AS valid_to
@@ -314,7 +375,7 @@ async function validateVariableCoverage(
        WHERE status='ACTIVE'
        ORDER BY route_id`,
     ),
-    pool.query(
+    target.db.query(
       `/* VARIABLE_COVERAGE */
        SELECT u.scenario_version_id, u.month_id::text AS month_id, u.route_id,
               COUNT(DISTINCT c.cost_category)::int AS component_count
@@ -682,13 +743,13 @@ const costParts = (row: MonthlyCostRow) => {
   return { variable, fixed, total: variable.plus(fixed) };
 };
 
-async function monthlyCostTrend(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
+async function monthlyCostTrend(target: QueryTarget, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
-  const latestClosed = await latestClosedMonth(pool, s, requestId);
-  await validateVariableCoverage(pool, s, latestClosed, requestId);
-  const fixedCostRows = await loadFixedCostRows(pool, s);
+  const latestClosed = await latestClosedMonth(target.db, s, requestId);
+  await validateVariableCoverage(target, s, latestClosed, requestId);
+  const fixedCostRows = await loadFixedCostRows(target.db, s);
   validateFixedCostCoverage(fixedCostRows, s, latestClosed, requestId);
-  const rows = await monthlyCosts(pool, s);
+  const rows = await monthlyCosts(target.db, s);
   const find = (version: string | undefined, month: string) =>
     rows.find((row) => row.scenario_version_id === version && monthText(row.month_id) === month);
   const monthIds = monthRange(s.period.from, s.period.to);
@@ -770,10 +831,10 @@ type CountryCostRow = {
   amount: string;
 };
 
-async function topAdverseAnomalies(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
+async function topAdverseAnomalies(target: QueryTarget, intent: QueryIntent, requestId: string) {
   const s = intent.scope;
-  const latestClosed = await latestClosedMonth(pool, s, requestId);
-  const canonicalRoutes = await validateVariableCoverage(pool, s, latestClosed, requestId);
+  const latestClosed = await latestClosedMonth(target.db, s, requestId);
+  const canonicalRoutes = await validateVariableCoverage(target, s, latestClosed, requestId);
   const params: unknown[] = [
     [s.budget_version_id, s.actual_version_id ?? "", s.forecast_version_id ?? ""],
     monthDate(s.period.from),
@@ -785,7 +846,7 @@ async function topAdverseAnomalies(pool: QueryDatabase, intent: QueryIntent, req
     params.push(s.destination_country_ids);
     countryFilter = `AND r.destination_country_id=ANY($${params.length}::text[])`;
   }
-  const result = await pool.query(
+  const result = await target.db.query(
     `/* TOP_ADVERSE_ANOMALIES */
      WITH scoped_fulfillment AS MATERIALIZED (
        SELECT data_release_id, fulfillment_fact_id, scenario_version_id, month_id, route_id
@@ -1148,7 +1209,7 @@ async function fixedCostBreakdown(pool: QueryDatabase, intent: QueryIntent, requ
   };
 }
 
-async function dashboard(pool: QueryDatabase, intent: QueryIntent) {
+async function dashboard(target: QueryTarget, intent: QueryIntent) {
   const s = intent.scope;
   const emptyOperating: DashboardOperatingRow = {
     order_qty: "0",
@@ -1160,19 +1221,19 @@ async function dashboard(pool: QueryDatabase, intent: QueryIntent) {
   };
   const [budget, actual, forecast, budgetOperating, actualOperating, forecastOperating] =
     await Promise.all([
-      costByVersion(pool, s, s.budget_version_id),
+      costByVersion(target.db, s, s.budget_version_id),
       s.actual_version_id
-        ? costByVersion(pool, s, s.actual_version_id)
+        ? costByVersion(target.db, s, s.actual_version_id)
         : Promise.resolve({ variable: "0", fixed: "0" }),
       s.forecast_version_id
-        ? costByVersion(pool, s, s.forecast_version_id)
+        ? costByVersion(target.db, s, s.forecast_version_id)
         : Promise.resolve({ variable: "0", fixed: "0" }),
-      dashboardOperatingByVersion(pool, s, s.budget_version_id),
+      dashboardOperatingByVersion(target.db, s, s.budget_version_id),
       s.actual_version_id
-        ? dashboardOperatingByVersion(pool, s, s.actual_version_id)
+        ? dashboardOperatingByVersion(target.db, s, s.actual_version_id)
         : Promise.resolve(emptyOperating),
       s.forecast_version_id
-        ? dashboardOperatingByVersion(pool, s, s.forecast_version_id)
+        ? dashboardOperatingByVersion(target.db, s, s.forecast_version_id)
         : Promise.resolve(emptyOperating),
     ]);
   const latest = {
@@ -1297,10 +1358,10 @@ async function country(pool: QueryDatabase, intent: QueryIntent) {
   };
 }
 
-async function bridge(pool: QueryDatabase, intent: QueryIntent) {
+async function bridge(target: QueryTarget, intent: QueryIntent) {
   const s = intent.scope;
   const [rows, baselineCost, currentCost] = await Promise.all([
-    pool.query(
+    target.db.query(
       `SELECT factor, COALESCE(SUM(attribution_cny),0)::text AS amount FROM logiplan.active_variance_attribution_fact f JOIN logiplan.active_variance_comparison c USING (data_release_id, comparison_id) JOIN logiplan.active_fulfillment_route r USING (data_release_id, route_id) WHERE c.budget_version_id=$1 AND c.comparison_scenario_version_id=$2 AND f.attribution_method='CHAIN_SUBSTITUTION' AND f.month_id BETWEEN $3::date AND $4::date AND ($5::text[] IS NULL OR r.destination_country_id=ANY($5::text[])) GROUP BY factor`,
       [
         s.budget_version_id,
@@ -1310,9 +1371,9 @@ async function bridge(pool: QueryDatabase, intent: QueryIntent) {
         s.destination_country_ids ?? null,
       ],
     ),
-    costByVersion(pool, s, s.budget_version_id, s.destination_country_ids),
+    costByVersion(target.db, s, s.budget_version_id, s.destination_country_ids),
     costByVersion(
-      pool,
+      target.db,
       s,
       s.actual_version_id ?? s.forecast_version_id ?? "",
       s.destination_country_ids,
@@ -1853,7 +1914,7 @@ async function warehouseContext(pool: QueryDatabase, intent: QueryIntent) {
     warnings: [],
   };
 }
-async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestId: string) {
+async function evidenceLookup(target: QueryTarget, intent: QueryIntent, requestId: string) {
   if (!("contract_version" in intent) || !intent.evidence_id) {
     throw error("EVIDENCE_NOT_FOUND", "V1.1 证据查询缺少 evidence_id", requestId);
   }
@@ -1881,7 +1942,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceDashboardRangeScope,
       execute: () =>
         dashboard(
-          pool,
+          target,
           sourceIntent("DASHBOARD_OVERVIEW", evidenceDashboardRangeScope, ["COST"], []),
         ),
     };
@@ -1890,7 +1951,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceDashboardMonthScope,
       execute: () =>
         monthlyCostTrend(
-          pool,
+          target,
           sourceIntent(
             "MONTHLY_COST_TREND",
             evidenceDashboardMonthScope,
@@ -1905,7 +1966,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceDashboardMonthScope,
       execute: () =>
         topAdverseAnomalies(
-          pool,
+          target,
           {
             ...sourceIntent(
               "TOP_ADVERSE_ANOMALIES",
@@ -1923,7 +1984,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceDashboardRangeScope,
       execute: () =>
         fixedCostBreakdown(
-          pool,
+          target.db,
           sourceIntent(
             "FIXED_COST_BREAKDOWN",
             evidenceDashboardRangeScope,
@@ -1938,7 +1999,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceWarehouseScope,
       execute: () =>
         warehouseContext(
-          pool,
+          target.db,
           sourceIntent(
             "WAREHOUSE_VARIANCE_CONTEXT",
             evidenceWarehouseScope,
@@ -1952,7 +2013,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceAttributionScope,
       execute: () =>
         country(
-          pool,
+          target.db,
           sourceIntent(
             "COUNTRY_VARIANCE_SUMMARY",
             evidenceAttributionScope,
@@ -1966,7 +2027,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope: evidenceAttributionScope,
       execute: () =>
         bridge(
-          pool,
+          target,
           sourceIntent(
             "ATTRIBUTION_BRIDGE",
             evidenceAttributionScope,
@@ -1981,7 +2042,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       execute: () =>
         runDiagnosticMetrics(
           // This existing module uses query only; preserve its public signature.
-          pool as Pool,
+          target.db as Pool,
           sourceIntent(
             "DIAGNOSTIC_METRICS",
             evidenceAttributionScope,
@@ -2002,7 +2063,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
       scope,
       execute: () =>
         drilldown(
-          pool,
+          target.db,
           sourceIntent(
             "ATTRIBUTION_DRILLDOWN",
             scope,
@@ -2028,7 +2089,7 @@ async function evidenceLookup(pool: QueryDatabase, intent: QueryIntent, requestI
 }
 
 async function executeQuery(
-  pool: QueryDatabase,
+  target: QueryTarget,
   rawIntent: unknown,
   request_id: string,
 ): Promise<DeterministicResult | QueryServiceError> {
@@ -2041,25 +2102,25 @@ async function executeQuery(
   try {
     const out =
       intent.question_type === "DASHBOARD_OVERVIEW"
-        ? await dashboard(pool, intent)
+        ? await dashboard(target, intent)
         : intent.question_type === "MONTHLY_COST_TREND"
-          ? await monthlyCostTrend(pool, intent, request_id)
+          ? await monthlyCostTrend(target, intent, request_id)
           : intent.question_type === "TOP_ADVERSE_ANOMALIES"
-            ? await topAdverseAnomalies(pool, intent, request_id)
+            ? await topAdverseAnomalies(target, intent, request_id)
             : intent.question_type === "FIXED_COST_BREAKDOWN"
-              ? await fixedCostBreakdown(pool, intent, request_id)
+              ? await fixedCostBreakdown(target.db, intent, request_id)
               : intent.question_type === "COUNTRY_VARIANCE_SUMMARY"
-                ? await country(pool, intent)
+                ? await country(target.db, intent)
                 : intent.question_type === "DIAGNOSTIC_METRICS"
-                  ? await runDiagnosticMetrics(pool as Pool, intent, request_id)
+                  ? await runDiagnosticMetrics(target.db as Pool, intent, request_id)
                   : intent.question_type === "ATTRIBUTION_BRIDGE"
-                    ? await bridge(pool, intent)
+                    ? await bridge(target, intent)
                     : intent.question_type === "ATTRIBUTION_DRILLDOWN"
-                      ? await drilldown(pool, intent, request_id)
+                      ? await drilldown(target.db, intent, request_id)
                       : intent.question_type === "EVIDENCE_LOOKUP"
-                        ? await evidenceLookup(pool, intent, request_id)
+                        ? await evidenceLookup(target, intent, request_id)
                         : intent.question_type === "WAREHOUSE_VARIANCE_CONTEXT"
-                          ? await warehouseContext(pool, intent)
+                          ? await warehouseContext(target.db, intent)
                           : {
                               payload: {
                                 status: "SUPPORTED_DATA_ACCESS_PENDING",
@@ -2097,43 +2158,46 @@ export async function runDeterministicQuery(
   const intent = parsed.data;
   const validation = validateIntent(intent, request_id);
   if (validation) return validation;
-  if (!("contract_version" in intent)) return executeQuery(pool, intent, request_id);
+  // V1.0 keeps true pool-level concurrency: the raw Pool is the concurrency target.
+  if (!("contract_version" in intent)) {
+    return executeQuery(createQueryTarget(pool, "pool"), intent, request_id);
+  }
   if (intent.question_type === "EVIDENCE_LOOKUP" && intent.evidence_snapshot_id) {
     return lookupEvidenceSnapshot(pool, intent, request_id);
   }
   const client = await pool.connect();
   // Single-connection path: pg deprecates concurrent client.query() on one Client,
   // so every statement here is queued on one promise chain instead of racing.
-  const serial = serializeQueries(client);
+  const target = createQueryTarget(client, "single");
   let commitStarted = false;
   let discardClient: Error | undefined;
   try {
-    await serial.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
+    await target.db.query("BEGIN ISOLATION LEVEL REPEATABLE READ");
     // Establish the snapshot before any concurrent release activation.
-    const release = await serial.query("SELECT data_release_id FROM logiplan.active_release");
+    const release = await target.db.query("SELECT data_release_id FROM logiplan.active_release");
     if (release.rowCount !== 1) {
-      await serial.query("ROLLBACK");
+      await target.db.query("ROLLBACK");
       return error("VERSION_NOT_FOUND", "活动正式版本数量不是 1", request_id);
     }
-    const result = await executeQuery(serial, intent, request_id);
+    const result = await executeQuery(target, intent, request_id);
     if ("code" in result) {
-      await serial.query("ROLLBACK");
+      await target.db.query("ROLLBACK");
       return result;
     }
     const saved = await persistQueryEvidenceSnapshot(
-      serial,
+      target.db,
       result,
       release.rows[0]?.data_release_id,
     );
     // A successful response is only available once its snapshot is committed.
     commitStarted = true;
-    await serial.query("COMMIT");
+    await target.db.query("COMMIT");
     return saved;
   } catch (cause) {
     // A lost COMMIT acknowledgement has an unknown outcome. Attempt cleanup,
     // discard the connection, and propagate failure without claiming rollback.
     if (commitStarted) discardClient = new Error("Snapshot COMMIT outcome is unconfirmed");
-    await serial.query("ROLLBACK").catch(() => {
+    await target.db.query("ROLLBACK").catch(() => {
       discardClient = new Error("Snapshot transaction cleanup failed");
     });
     throw cause;
@@ -2149,12 +2213,12 @@ export async function materializeEvidenceSnapshots(
 ): Promise<void> {
   // Publisher materialization always runs on one transaction client; queue its
   // statements on a single chain so pg never sees concurrent client.query() calls.
-  const serial = serializeQueries(client);
-  const isolation = await serial.query("SHOW transaction_isolation");
+  const target = createQueryTarget(client, "single");
+  const isolation = await target.db.query("SHOW transaction_isolation");
   if (String(isolation.rows[0]?.transaction_isolation) !== "repeatable read") {
     throw new Error("证据快照物化必须在 REPEATABLE READ 事务内执行");
   }
-  const release = await serial.query(
+  const release = await target.db.query(
     `SELECT a.data_release_id
      FROM logiplan.active_data_release AS a
      JOIN logiplan.data_release AS r USING (data_release_id)
@@ -2166,9 +2230,9 @@ export async function materializeEvidenceSnapshots(
     if (!("contract_version" in intent) || intent.question_type === "EVIDENCE_LOOKUP") {
       throw new Error("发布物化入口只接受 V1.1 确定性查询");
     }
-    const result = await executeQuery(serial, intent, `${requestPrefix}:${resultId(intent)}`);
+    const result = await executeQuery(target, intent, `${requestPrefix}:${resultId(intent)}`);
     if ("code" in result) throw new Error(result.message_zh);
-    await persistEvidenceSnapshot(serial, result, releaseId);
+    await persistEvidenceSnapshot(target.db, result, releaseId);
   }
 }
 

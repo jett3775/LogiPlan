@@ -1,4 +1,6 @@
 import type { Pool } from "pg";
+import type { Client } from "pg";
+import { readFileSync } from "node:fs";
 import { evidenceObjectSchema, type MoneyValue, type QueryIntent } from "@logiplan/contracts";
 import { LogiPlanDecimal } from "@logiplan/domain";
 import { describe, expect, it, vi } from "vitest";
@@ -1906,5 +1908,299 @@ describe("单连接查询串行化（pg 并发弃用回归防线）", () => {
     expect(countIssued(client.query, "persist_query_evidence_snapshot")).toBe(0);
     expect(release).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("V1.0 池级判定目标就是传入的 Pool 对象本身，Proxy 拦截 pool.query 的机制不失效", async () => {
+    // verify-query-plans.ts 靠 Proxy 拦截 pool.query 采集查询计划 values；一旦工厂把池也包一层，
+    // 拦截就会失效。这里按同样的 Proxy 形态复现该机制，并核对接收者仍是那个 Proxy。
+    const intercepted = vi.fn();
+    const receivers: unknown[] = [];
+    const poolLike = {
+      query(this: unknown, sql: string, values?: unknown[]) {
+        receivers.push(this);
+        return Promise.resolve(dashboardSql(sql, values));
+      },
+    };
+    const proxiedPool = new Proxy(poolLike, {
+      get: (target, property, receiver) => {
+        if (property === "query") intercepted();
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const result = payloadOf(
+      await runDeterministicQuery(
+        proxiedPool as unknown as Pool,
+        intent("DASHBOARD_OVERVIEW", []),
+        "pool-proxy",
+      ),
+    );
+
+    expect(result.payload).toBeDefined();
+    expect(intercepted.mock.calls.length).toBeGreaterThan(0);
+    expect(receivers.length).toBeGreaterThan(0);
+    expect(receivers.every((receiver) => receiver === proxiedPool)).toBe(true);
+  });
+
+  it("V1.1 单连接路径下另一个并发点（bridge）同样逐条串行提交", async () => {
+    const bridgeSql = (sql: string, values?: unknown[]) => {
+      if (sql.includes("persist_query_evidence_snapshot"))
+        return withSnapshotMetadata(String(values?.[0]), "ES-00000000-0000-4000-8000-000000000005");
+      if (/^(BEGIN|COMMIT|ROLLBACK)/.test(sql)) return { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT data_release_id FROM logiplan.active_release"))
+        return { rows: [{ data_release_id: releaseId }], rowCount: 1 };
+      if (sql.includes("FROM logiplan.active_variance_attribution_fact"))
+        return { rows: [{ factor: "VOLUME", amount: "5" }], rowCount: 1 };
+      if (sql.includes(variableCostMarker))
+        return {
+          rows: [{ variable_cost: values?.[0] === versions.budget ? "10" : "12.5" }],
+          rowCount: 1,
+        };
+      if (sql.includes("FROM logiplan.active_fixed_cost_scenario_fact"))
+        return { rows: [{ fixed_cost: "2" }], rowCount: 1 };
+      throw new Error(`未模拟 SQL：${sql}`);
+    };
+    const bridgeV11: QueryIntent = {
+      ...intent("ATTRIBUTION_BRIDGE", []),
+      contract_version: "V1.1",
+    };
+    const client = probe(bridgeSql);
+
+    const result = payloadOf(
+      await runDeterministicQuery(connectedPool(client.query), bridgeV11, "client-bridge"),
+    );
+
+    // bridge 的 3 条并发语句（归因查询 + 两次 costByVersion）在单连接上仍逐条排队。
+    expect(client.state.violations).toEqual([]);
+    expect(client.state.maxInFlight).toBe(1);
+    expect(countIssued(client.query, "FROM logiplan.active_variance_attribution_fact")).toBe(1);
+    expect(countIssued(client.query, variableCostMarker)).toBe(2);
+    expect(issued(client.query).at(-1)).toBe("COMMIT");
+    // 归因查询 + 5 个因素证据，桥接链路完整走完（bridge 的 warnings 按契约为空）。
+    expect(result.evidence).toHaveLength(6);
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+/**
+ * 编译期断言（形状镜像）：并发判定点的结构不可能由裸 `Client` 满足——`Client` 只有一个
+ * `query`，没有 `{ db, concurrency }`；也不可能由手写字面量伪造——镜像里同样带一个模块私有
+ * brand。权威断言是 `query-service.ts` 里的模块私有 `@ts-expect-error`（`QueryTarget` 与
+ * `queryTargetBrand` 都不对外导出）；下面的运行时守卫负责让这份镜像不与源码脱节。
+ */
+const mirroredTargetBrand: unique symbol = Symbol("logiplan.mirroredQueryTarget");
+type MirroredConcurrencyTarget = {
+  readonly db: Pick<Pool, "query">;
+  readonly concurrency: "pool" | "single";
+  readonly [mirroredTargetBrand]: true;
+};
+// @ts-expect-error 裸 Client 结构上满足 Pick<Pool, "query">，但缺少 { db, concurrency, brand }
+const _bareClientIsNotConcurrencyTarget: MirroredConcurrencyTarget = {} as Client;
+// @ts-expect-error 手写字面量无法携带镜像 brand，同样不能伪造并发判定点
+const _handWrittenLiteralIsNotConcurrencyTarget: MirroredConcurrencyTarget = {
+  db: {} as Pick<Pool, "query">,
+  concurrency: "single",
+};
+void _bareClientIsNotConcurrencyTarget;
+void _handWrittenLiteralIsNotConcurrencyTarget;
+
+/**
+ * 识别边界（必须如实理解，不得把本守卫当成完备枚举）：
+ * 本守卫以源码字面出现的 `Promise.all` 作为「并发判定点」的可识别标记，据此断言宿主函数与
+ * 形参类型。**非该形态的并发提交不在覆盖范围内**——例如新增一个只收 `QueryDatabase` 的函数，
+ * 内部用 `const a = pool.query(...); const b = pool.query(...); await a; await b;` 手工交错，
+ * 同样会造成同连接并发提交，但既不会被本守卫发现，类型系统也不会拦（它不是并发点形参）。
+ * 这类形态由行为测试的在飞计数探测与代码审阅兜底。要扩展本守卫的识别面，需要另行设计
+ * 「多条 query() 出现在同一函数且未被 await 串起来」的静态判据，不在本次范围内。
+ */
+describe("并发判定点的架构守卫（类型不变量）", () => {
+  const source = readFileSync(new URL("./query-service.ts", import.meta.url), "utf8");
+  const lines = source.split("\n");
+  // 文档注释里出现的 Promise.all 是说明文字而不是判定点，按注释行剔除。
+  const isCommentLine = (line: string) => {
+    const trimmed = line.trim();
+    return (
+      trimmed.startsWith("*") ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("/*") ||
+      trimmed.startsWith("*/")
+    );
+  };
+  const enclosingFunctionName = (index: number) => {
+    for (let cursor = index; cursor >= 0; cursor -= 1) {
+      const match = /^(?:export )?(?:async )?function ([A-Za-z0-9_$]+)\(/.exec(lines[cursor] ?? "");
+      if (match) return match[1];
+    }
+    return null;
+  };
+  // 从函数声明行起，取到第一个以 "{" 结尾的行为止，即该函数的签名。
+  const startLineOf = (name: string | null | undefined) => {
+    if (!name) throw new Error("未找到宿主函数名");
+    return lines.findIndex((line) =>
+      new RegExp(`^(?:export )?(?:async )?function ${name}\\(`).test(line),
+    );
+  };
+  // 从函数声明行取到列 0 的 "}"，即整个函数体（含签名行）。
+  const bodyOf = (name: string | null | undefined) => {
+    const start = startLineOf(name);
+    let end = start;
+    while (end < lines.length && lines[end] !== "}") end += 1;
+    return lines.slice(start, end + 1).join("\n");
+  };
+  const signatureOf = (name: string | null | undefined) => {
+    const start = startLineOf(name);
+    let end = start;
+    while (end < lines.length && !(lines[end] ?? "").trimEnd().endsWith("{")) end += 1;
+    return lines.slice(start, end + 1).join(" ");
+  };
+  // 剥掉注释：先按行去掉 `//` 及其后内容（含尾随注释），再丢掉整行都是注释的行。
+  // 这样源码里的说明性注释不会被当成代码扫描，同时行首与尾随两种注释形态都能覆盖。
+  // 前提：被扫描的函数体内不使用 `/* ... */` 块注释（工厂体内当前确实没有）；
+  // 该前提由「识别前提」守卫用例在**原始文本**上显式断言，不靠这里自证。
+  const stripComments = (body: string) =>
+    body
+      .split("\n")
+      .map((line) => {
+        const trimmed = line.trim();
+        if (
+          trimmed.startsWith("*") ||
+          trimmed.startsWith("//") ||
+          trimmed.startsWith("/*") ||
+          trimmed.startsWith("*/")
+        )
+          return "";
+        const inline = line.indexOf("//");
+        return inline === -1 ? line : line.slice(0, inline);
+      })
+      .join("\n");
+  // 取出所有字符串/模板字面量的内容（不含引号本身），用于检查字面量内的特殊字符。
+  const stringLiteralBodies = (body: string) =>
+    [...body.matchAll(/"([^"\n]*)"|`([^`]*)`/g)].map((match) => match[1] ?? match[2] ?? "");
+  // 从某个 "{" 起做括号深度扫描，取出配平的对象字面量全文。
+  // 比「切到首个 ";"」更耐格式变动（多行字面量、尾随逗号都无所谓）。
+  // 前提：字面量内不含字符串字面量里的 "{" 或 "}"（工厂体内当前确实没有）。
+  const balancedLiteral = (code: string, openIndex: number) => {
+    let depth = 0;
+    for (let cursor = openIndex; cursor < code.length; cursor += 1) {
+      if (code[cursor] === "{") depth += 1;
+      if (code[cursor] !== "}") continue;
+      depth -= 1;
+      if (depth === 0) return code.slice(openIndex, cursor + 1);
+    }
+    return code.slice(openIndex);
+  };
+  // 工厂内每一处「产出 QueryTarget 的对象字面量」：`return { ... }` 或 `const x: QueryTarget = { ... }`。
+  // 两类都必须直接带 brand，因此局部变量中转（先构造再 return）同样受约束。
+  const targetLiterals = (body: string) => {
+    const code = stripComments(body);
+    const opens = [
+      ...[...code.matchAll(/\breturn\s*\{/g)].map(
+        (match) => (match.index ?? 0) + match[0].length - 1,
+      ),
+      ...[...code.matchAll(/: QueryTarget\s*=\s*\{/g)].map(
+        (match) => (match.index ?? 0) + match[0].length - 1,
+      ),
+    ].sort((left, right) => left - right);
+    return opens.map((open) => balancedLiteral(code, open));
+  };
+  // 与 targetLiterals 同一口径（已剥注释）下的 brand 出现次数，用于总数断言。
+  const countBrandOccurrences = (body: string) =>
+    (stripComments(body).match(/\[queryTargetBrand\]: true/g) ?? []).length;
+  // 每一处并发提交所在的宿主函数（按源码顺序）。
+  const concurrencyHosts = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.includes("Promise.all") && !isCommentLine(line))
+    .map(({ index }) => enclosingFunctionName(index));
+
+  it("Promise.all 恰好出现在已知的四处，其中三处并发点的形参是 QueryTarget", () => {
+    expect(concurrencyHosts).toEqual([
+      "validateVariableCoverage",
+      "dashboard",
+      "bridge",
+      "checkReadiness",
+    ]);
+    for (const name of concurrencyHosts.slice(0, 3)) {
+      expect(signatureOf(name)).toContain("target: QueryTarget");
+      expect(signatureOf(name)).not.toContain("pool:");
+    }
+    // checkReadiness 由 readiness 路由传入真实 Pool，不属于需要串行化的判定点。
+    expect(signatureOf("checkReadiness")).toContain("pool: QueryDatabase");
+    expect(signatureOf("checkReadiness")).not.toContain("QueryTarget");
+  });
+
+  it("并发可达闭包内的其余函数也只接受 QueryTarget", () => {
+    for (const name of [
+      "executeQuery",
+      "monthlyCostTrend",
+      "topAdverseAnomalies",
+      "evidenceLookup",
+    ])
+      expect(signatureOf(name)).toContain("target: QueryTarget");
+  });
+
+  it("串行化不再是独立函数，并发决策只有工厂一处", () => {
+    expect(source).not.toMatch(/serializeQueries/);
+    expect(source.match(/function createQueryTarget\(/g) ?? []).toHaveLength(1);
+    expect(source.match(/concurrency === "pool"/g) ?? []).toHaveLength(1);
+  });
+
+  it("QueryTarget 带模块私有 nominal brand，工厂两个分支都显式带上", () => {
+    // brand 由 const + Symbol() 产生，因此计算属性键有运行期值，手写字面量无法伪造。
+    expect(source).toMatch(
+      /const queryTargetBrand: unique symbol = Symbol\("logiplan\.queryTarget"\);/,
+    );
+    expect(source).toMatch(
+      /type QueryTarget = \{\s*readonly db: QueryDatabase;\s*readonly concurrency: "pool" \| "single";\s*readonly \[queryTargetBrand\]: true;\s*\};/,
+    );
+    // 按位置校验：工厂里每一处产出 QueryTarget 的对象字面量都必须直接写出 brand。
+    // 纯总数计数可被 decoy 配平（别处加一行 brand 字面量补足总数），因此不能只靠计数。
+    // 判定同时覆盖 `return { ... }` 与 `const x: QueryTarget = { ... }`，故「先构造局部变量
+    // 再 return」这种合法中转写法不会被误报，而「去掉 brand 后 return 局部变量」会被判失败。
+    // 注释已在 targetLiterals 内剥除，说明性注释里的 `return {` 不会被计为产出点。
+    //
+    // 已知取舍（残留绕过面，如实披露，不在本守卫的修复范围内）：本守卫仍可被刻意组合绕过，
+    // 需要四个动作叠加——`type QT = QueryTarget` 类型别名规避文本守卫 + 真实 single 分支改为
+    // 局部变量返回并去掉 brand + 另留一个带 brand 的 `: QueryTarget = {` 中转变量使位置计数
+    // 恰好为 2 + `void _decoy;` 规避 lint。该组合下 tsc 与 eslint 均 exit=0、全部用例通过。
+    // 为什么可以接受（不产生行为风险）：串行化由 `db` 是否为包装器决定，**brand 本身不承担
+    // 运行期职责**；即使 brand 被去掉，只要 `db` 仍是串行化包装器，单连接串行化依然成立，
+    // brand 丢失只损失编译期的那一层保护，不改变运行行为。
+    // 本守卫的定位是**低成本纵深兜底**：它不替代 `pnpm typecheck` 对 brand 缺失的直接报错
+    // （tsc 才是 brand 的权威 gate），也不替代既有行为测试的在飞计数探测对真实串行化的验证。
+    const literals = targetLiterals(bodyOf("createQueryTarget"));
+    expect(literals).toHaveLength(2);
+    for (const literal of literals) expect(literal).toContain("[queryTargetBrand]: true");
+    // 冗余的总数断言，与位置断言同口径（均已剥注释）：类型声明 1 处 + 工厂两个产出点各 1 处。
+    // 注释里出现的 brand 文本不计入总数，否则说明性注释会把总数顶高而与位置断言矛盾。
+    expect(countBrandOccurrences(source)).toBe(3);
+    // 断言只能出现在注释里：非注释行不得出现「把字面量断言成 QueryTarget」的写法。
+    const codeText = lines.filter((line) => !isCommentLine(line)).join("\n");
+    expect(codeText).not.toMatch(/as QueryTarget/);
+  });
+
+  it("brand 位置校验的识别前提成立（否则上面的按位置校验会误报）", () => {
+    const factoryBody = bodyOf("createQueryTarget");
+    // 前提 1：stripComments 只处理 // 注释，工厂体内不得出现 /* ... */ 块注释，
+    // 否则块注释里的 return { ... } / brand 文本会被当成代码计入。
+    expect(
+      factoryBody,
+      "工厂体内出现了 /* */ 块注释，stripComments 的前提已失效；请先扩展 stripComments 再放宽本断言",
+    ).not.toMatch(/\/\*/);
+    // 前提 2：balancedLiteral 做纯括号深度扫描、不识别字符串，故字符串/模板字面量的**内容**里
+    // 不得含 "{" 或 "}"。先按引号配对取出每个字面量的内容再检查，避免正则跨引号误报。
+    // 同时覆盖双引号与反引号，模板字符串不能绕过这条前提。
+    const braceInString = stringLiteralBodies(factoryBody).find((text) => /[{}]/.test(text));
+    expect(
+      braceInString,
+      '工厂体内的字符串/模板字面量含 "{" 或 "}"，balancedLiteral 的括号深度前提已失效；' +
+        "请改用引号感知扫描后再放宽本断言",
+    ).toBeUndefined();
+  });
+
+  it("并发点的函数体内不再出现裸 pool，并发查询都经由 target.db", () => {
+    for (const name of concurrencyHosts.slice(0, 3)) {
+      expect(bodyOf(name)).not.toMatch(/\bpool\b/);
+      expect(bodyOf(name)).toContain("target.db");
+    }
   });
 });
