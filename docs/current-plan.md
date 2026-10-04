@@ -375,8 +375,14 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    **136 passed / 11 skipped / 147**（基线 122 / 11 / 133）；`query-service.ts` 覆盖率 **93.76 / 85.02 / 94.23 /
    94.13**（`pg` 修复前 93.68 / 84.94 / 94.23 / 94.06，三项均未下降）；`pnpm typecheck`（4 个 workspace）/
    `pnpm lint` / `pnpm format:check` / `pnpm build` 退出码 0；回归测试累计 8 个，且**既有 6 个串行化用例一行未改
-   仍通过**（`git diff` 删除行数 0）⇒ 重构行为等价。**进行中、未验证**：真实库 `pnpm verify:gate1:isolated`
-   端到端复验由主 Agent 在合并前执行，**尚未完成**；上述 2026-10-02 / 2026-10-03 的验证与 CI 证据继续有效，但对应
+   仍通过**（`git diff` 删除行数 0）⇒ 重构行为等价。**（2026-10-04 更新：上条「进行中、未验证」已作废，本轮端到端证据已取得）**
+   本机 `pnpm verify:gate1:isolated`（真实 `postgres:18.4` + `--trace-deprecation`）走完全部 18 阶段、**全程零
+   `DeprecationWarning` 零 `already executing a query`**，含激活物化步骤；6 条核心查询计划 `temp_written_blocks` 全 0；
+   快照集成 28/28；Chromium 基础 10 passed / 22 skipped、历史证据 22/22；唯一失败仍是已收口的 `Firefox 核心冒烟`
+   本地环境限制（`0ms` 签名逐字一致），运行后残留进程已清理。**CI 权威证据**：run **`37167407079`**（head = `6a9f72d8`）
+   **全绿**，`Gate 1 deterministic validation`（ubuntu-latest）success 且 `Run isolated Gate 1 validation` 步骤 success
+   ⇒ **Firefox 腿在 ubuntu 上真跑并通过**（本机跑不了该腿）；`Cross-platform checks` 三平台矩阵与 `CodeQL` 全部 success。
+   上述 2026-10-02 / 2026-10-03 的验证与 CI 证据继续有效，但对应
    提交 `7e089efb` 的形态。完整记录见 `docs/pg-concurrency-deprecation.md` §8.2、§8.3、§8.6。
    **维护提示**：不要再去改那三处 `Promise.all`（既无收益，又会摧毁池级并发）。
    **权威证据（2026-10-03）**：改动已提交（`7e089efb` / `6c828dc9` / `94f1caf7`）并推送 `main`（`b3a62b4c..94f1caf7`）。
