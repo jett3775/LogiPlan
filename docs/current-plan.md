@@ -288,6 +288,15 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    建议在 `dependabot.yml` 用 `groups` 把 react 家族编组；**不得**放宽 `strict-peer-dependencies`。
    另附当前 10 个开放 Dependabot PR 的分类（4 个改工作流 action SHA、4 个触碰冻结依赖组合、1 个常规补丁），
    结论是**一个都不应顺手合并**。详见 `docs/neon-vercel-baseline-runbook.md` §10.1.1—§10.1.2。
+   **（2026-10-04 已实施）** `groups` 编组已加入 `.github/dependabot.yml`：把 `react`、`react-dom`、
+   `@types/react`、`@types/react-dom` 四个包编为 `react-family` 一组，`update-types` 取 `minor` 与 `patch`，
+   并在文件内注明该摩擦属预期而非故障、**不得**以放宽 `strict-peer-dependencies` 消除。实测确认该编组
+   仍有必要：当前 react 家族为 `react@19.2.8` / `react-dom@19.2.8` / `@types/react@19.2.18` /
+   `@types/react-dom@19.2.4`，而开放的 **PR #9 只改 `react` 与 `@types/react`**（`apps/web/package.json`
+   仅 +2/−2），单独合并会留下 `react@19.3.0` 配 `react-dom@19.2.8` 的错配，在
+   `strict-peer-dependencies=true` 下直接失败。`.github/` **不在 `executionClosurePaths` 内**，本改动
+   不改变执行闭包、未触碰 `pnpm-lock.yaml`。既有 10 个开放 PR 的合并判断不变（一个都不应顺手合并；其中
+   #2、#3、#6 为 action 主版本跳跃，风险更高）。
 6. **（待验证）macOS / Windows 双环境保障（2026-09-28 轮次）**。需求由你提出：两套系统都要能开发与使用。
    已交付三项：① CI 新增 `cross-platform` job（`ubuntu-latest` / `macos-latest` / `windows-latest`，
    跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的三个测试文件）——**不参与 Gate 1 稳定性判定**，

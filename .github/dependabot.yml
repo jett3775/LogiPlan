@@ -6,6 +6,21 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # react 家族必须整组升降级：`.npmrc` 设了 strict-peer-dependencies=true，
+    # 只升 react 或只升 react-dom 会因 peer 版本错配直接失败。
+    # 该摩擦已真实发生（2026-09-27：Dependabot 升 react-dom 到 19.3.0 时
+    # react 仍为 19.2.8，报 ERR_PNPM_PEER_DEP_ISSUES），属预期摩擦而非故障。
+    # 不得以放宽 strict-peer-dependencies 的方式消除它。
+    groups:
+      react-family:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: github-actions
     directory: /
