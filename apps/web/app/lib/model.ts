@@ -302,7 +302,24 @@ export function historicalEvidenceIntentFromUrl(url: URL): QueryIntentV11 {
   return evidenceLookupIntent(scope.data, evidenceId, snapshotId);
 }
 
-export function bindEvidenceAddress(url: URL, item: EvidenceObject, scope: AnalysisScope): void {
+/**
+ * 证据地址参数只需要 `evidence_id` 与 `evidence_snapshot_id` 两个字段，因此参数类型收窄为
+ * 结构化的最小面，而不是整个 `EvidenceObject`：闸门二切片 1b 的证据白名单条目
+ * （`lib/ai-model.ts` 的 `AiEvidenceEntry`）带的是同一对值加查询范围，不必为此把完整
+ * 证据对象送到浏览器。既有三个调用点传入的都是完整 `EvidenceObject`，行为不变。
+ */
+export type EvidenceAddressBinding = {
+  readonly evidence_id: string;
+  // 仓库根 tsconfig 开启 `exactOptionalPropertyTypes`；`EvidenceObject` 的同名字段由 Zod
+  // 推断为 `?: string | undefined`，故这里必须显式包含 `undefined`，否则既有三个调用点报 TS2379。
+  readonly evidence_snapshot_id?: string | undefined;
+};
+
+export function bindEvidenceAddress(
+  url: URL,
+  item: EvidenceAddressBinding,
+  scope: AnalysisScope,
+): void {
   url.searchParams.set("evidence_id", item.evidence_id);
   url.searchParams.set("evidence_scope", JSON.stringify(scope));
   if (item.evidence_snapshot_id)
