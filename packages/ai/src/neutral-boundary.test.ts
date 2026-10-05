@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -23,7 +23,18 @@ const sourceFiles = (dir: string): string[] =>
     return entry.name.endsWith(".ts") ? [full] : [];
   });
 
-const relative = (file: string): string => file.slice(SRC_DIR.length + 1);
+/**
+ * 相对 `src` 的 POSIX 风格路径。
+ *
+ * `join()` 在 Windows 上产出反斜杠，直接比较会让本文件在 Windows runner 上
+ * 失败（CI run 37251048989 的 `Cross-platform checks (windows-latest)` 曾因此
+ * 红过一次）。故统一归一化为 `/`，使断言与平台无关。
+ */
+const relative = (file: string): string =>
+  file
+    .slice(SRC_DIR.length + 1)
+    .split(sep)
+    .join("/");
 
 const productionSources = sourceFiles(SRC_DIR)
   .filter((file) => !file.endsWith(".test.ts"))
