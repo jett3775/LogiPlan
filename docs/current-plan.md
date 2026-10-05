@@ -16,23 +16,40 @@
 ## 1. 当前状态（已核实）
 
 - **阶段**：**闸门二实施进行中**。闸门一代码侧验收全部通过并持续在 CI 出证；闸门二切片 **1a 已完成**，
-  切片 1b 未开工。稳定性权威证据为 CI `ubuntu-latest`（见 D-188）。
-- **main**：现为 **`80478e9b`**，与 `origin/main` 同步，工作区干净。CI run **`37252266748`**（head `80478e9b`）
-  **全绿**：6 个 job 中 5 个 success（`Gate 1 deterministic validation`、`Cross-platform checks` 的
+  **1b 代码已完成、已推送、CI 全绿，但独立审查的定向复查未做，切片 1 尚未收口**。稳定性权威证据为
+  CI `ubuntu-latest`（见 D-188）。
+- **main**：现为 **`392924e2`**，与 `origin/main` 同步，工作区干净。CI run **`37265108237`**（head `392924e2`）
+  **全绿**：5 个 job 全 success（`Gate 1 deterministic validation`、`Cross-platform checks` 的
   ubuntu/macos/**windows** 三矩阵、`CodeQL`），`Pull request dependency review` 按设计 skipped。
-  本窗口（10-05 前）推送的关键提交：`7e089efb`（`pg` 串行化）、`54dce871`（`QueryTarget` + brand）、
-  `571d9f84`（切片 1a）、`80478e9b`（Windows 分隔符修复）。
+  该 run 的 `Run isolated Gate 1 validation` 步骤在 ubuntu 上 success，**含本机拉不到的 `postgres:18.4` 腿
+  与本机跑不了的 Firefox 腿**——这是 AC1.1 的权威证据（D-188）。
+  本窗口推送的关键提交：`7e089efb`（`pg` 串行化）、`54dce871`（`QueryTarget` + brand）、
+  `571d9f84`（切片 1a）、`80478e9b`（Windows 分隔符修复）、`392924e2`（切片 1b）。
 - **远端部署**：生产域名 `logi-plan-web.vercel.app` 服务 **`136a2d6`**（2026-09-27 E3b Promote 的构建）。
-  ⚠️ **本窗口尚未把切片 1a 的新提交 Promote 到生产**——推送 `main` 只产生 `Staged` 部署，
+  ⚠️ **本窗口尚未把切片 1a、1b 的新提交 Promote 到生产**——推送 `main` 只产生 `Staged` 部署，
   须人工 Promote 才对外服务（见 D-189）。**是否 Promote 待用户决定**：切片 1a 不含页面与路由改动
-  （`apps/**` 零 diff），生产行为与 `136a2d6` 一致，故不 Promote 亦无功能损失。
+  （`apps/**` 零 diff）；切片 1b 新增 `/api/v1/ai/respond` 路由与归因页的 AI 五区块，**生产行为会变**，
+  但该切片的独立审查尚未收口，**在收口前不建议 Promote**。
 - **数据侧**：`LOGIPLAN_2026_DEMO_V2` 已激活（`status = ACTIVE`），固定证据 9 条已物化；
   `db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）。
 - **闸门二进展**：**D-190** 已冻结 `gate2-design.md` §11 的五个待确认点（两级熔断参数、角色配置存放、
   20 题评估形态、会话快照容量、评估集版本对齐）。**切片 1a** 新增 `packages/ai`（14 源码 + 9 测试文件）
-  与 `packages/contracts` 的 AI 输出 Zod 契约（纯追加 90 行）；`pnpm test` 24 文件 / **235 passed / 11 skipped (246)**；
-  经独立审查（首轮 FAIL → 返工 → 复查 PASS → 4 项收口）。详见 `docs/gate2-implementation-plan.md` 与
-  `docs/handoff-2026-10-05.md`。
+  与 `packages/contracts` 的 AI 输出 Zod 契约（纯追加 90 行）；经独立审查（首轮 FAIL → 返工 → 复查 PASS → 4 项收口）。
+  **切片 1b**（提交 `392924e2`）新增 `POST /api/v1/ai/respond` 与归因页 AI 五区块，`answer_type` 恒为
+  `FIXED_EXAMPLE`、不调用任何模型；15 条证据 ID 全部可在英国归因页解析。独立审查判定 **FAIL**，三项问题
+  （1× P0 类型破坏致 typecheck 与 build 双双退出 1、2× P1）已全部处置，但**返工后的定向复查未做**——
+  `pnpm test` 24 文件 / **235 passed / 11 skipped (246)**、`pnpm typecheck` 5 workspace（删缓存后）、
+  `pnpm lint` / `format:check` / `build` 均退出码 0、CI run `37265108237` 全绿。
+  详见 `docs/gate2-implementation-plan.md` §3.1 与 `docs/handoff-2026-10-05.md`。
+- **⚠️ 本机环境限制（2026-10-05 实测，影响一切需真实数据库的本地验证）**：**`registry-1.docker.io`
+  的 TCP 443 从本机不可连**，TLS 握手被重置（`docker pull postgres:18.4` 约 60 秒后 `context deadline
+exceeded` 或 `EOF`）。同网络下 `api.github.com`、`registry.npmjs.org`、`ghcr.io` 均正常，故**不是
+  Docker 未启动、也不是全网问题，而是 Docker Hub 单独不通**。后果：本机镜像库存只有 `postgres:18.6`，
+  而 `compose.yaml:5` 与 `verify:gate1:isolated` 的数据库集成腿 1 都钉 `postgres:18.4`，因此
+  **`pnpm db:up`、`pnpm verify:gate1:isolated`、需真实库的 Playwright 用例在本机一律无法完成**。
+  按 D-188，Gate 1 的权威证据取 CI ubuntu；本机此限制须与 CI 结果**分别记录、不得合并**。
+  恢复方式（任选其一，需用户决定）：开代理/VPN 后按官方源拉取；或用户告知可访问的镜像源；
+  **不得给本机 18.6 打 `postgres:18.4` 标签冒充**。
 - **E 段已收口（2026-09-27）**：E3b 已 Promote；E4 四项由用户在生产域名复验通过
   （`/api/health/ready` = `ready`、首页九块均有数字与证据侧栏、核心 9 题正常、热请求 P95 达标）。
   E5 见 runbook §12。
@@ -453,6 +470,17 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `pnpm verify:gate1:isolated`，**Firefox 核心冒烟腿真跑并通过**——本机 macOS 27.0 跑不了该腿）3m55s success、
    `Cross-platform checks` 三平台矩阵 job 全部 success、`CodeQL` success、PR 依赖审查按设计 skipped。
    按 **D-188**，CI 为稳定性权威证据来源；上条本机记录与之**分别记录、不得合并**。
+9. **（待你决定）本机 Docker Hub 不可达的处理方式（2026-10-05 实测）**。`registry-1.docker.io`
+   的 TCP 443 从本机不可连、TLS 握手被重置（`docker pull postgres:18.4` 约 60 秒后 `context deadline
+exceeded` 或 `EOF`）；同网络下 GitHub / npm / ghcr 均正常，**故不是 Docker 未启动**。本机镜像库存
+   因此只剩 `postgres:18.6`，而 `compose.yaml:5` 与 Gate 1 数据库集成腿 1 都钉 `postgres:18.4`，
+   于是 `pnpm db:up`、`pnpm verify:gate1:isolated`、任何需真实库的 Playwright 用例在本机**一律跑不了**。
+   三个选项：**(a)** 你开代理/VPN 后告知，我按官方源拉取——**唯一零偏差路径，推荐**；
+   **(b)** 用本机 18.6 跑（18.6 是 Gate 1 腿 2 的受测基线、同样全通过，但与 compose 钉的版本有偏差，
+   须记录）；**(c)** 走第三方镜像源——**官方源不通 ⇒ 无法取官方 digest 比对，只能信任该源**，
+   而该库要跑迁移、装演示数据，**不建议**。
+   **你 2026-10-05 的决定是暂缓**：先不解决网络问题、不复查，推进其他事项；切片 1b 因此保持未收口。
+   **明确禁止**给本机 18.6 打 `postgres:18.4` 标签冒充。
 
 ---
 

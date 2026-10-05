@@ -2,7 +2,7 @@
 
 版本：V1.0
 日期：2026-10-04
-状态：**实施计划**。切片 1 已获用户授权开工；切片 2、3 的授权门未开启。
+状态：**实施中**。切片 1a 已完成并收口；切片 1b 代码已完成、已推送、CI 全绿，但**独立审查的定向复查未做，切片 1 未收口**（见 §3.1）。切片 2、3 的授权门未开启。
 依据：`docs/gate2-design.md`（设计 V1.0）、`docs/decisions.md` D-174 / D-181 / D-182 / D-190、`docs/query-contract.md` §10、`docs/ai-evaluation-baseline.md`、`docs/multi-agent-workflow.md`
 
 ---
@@ -117,6 +117,35 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 三处均为**纯装配**：`packages/ai` 自身依赖只有 `@logiplan/contracts` 与 `zod@4.4.3`，两者都已在锁文件内，**不引入任何新外部依赖**。`pnpm-lock.yaml` 属 `executionClosurePaths`，切片 1 已就同类改动开过授权先例。
 
 **不得用深相对路径 import 绕过**（如 `../../../../../../packages/ai/src/index`）：那会绕过 package 边界与依赖声明，违反 `gate2-design.md` §1.1 的单向依赖口径；也不得在 `apps/web` 复刻固定示例正文（会造成与 `packages/ai` 的单一真相源分叉，威胁 AC1.3/AC1.4 的断言）。
+
+### 3.1 切片 1b 实施结果（2026-10-05，提交 `392924e2`）
+
+**状态：代码已完成、已推送、CI 全绿；独立审查的定向复查未做，因此切片 1b 未收口。**
+
+| 交付项                                                                                          | 提交                                                                        |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 新建 `apps/web/app/api/v1/ai/respond/route.ts`、`lib/ai-model.ts`、`lib/ai-server.ts`           | `392924e2`                                                                  |
+| 新建 `apps/web/app/ai-workspace.tsx`（`"use client"` 五区块）、`tests/gate2-ai-respond.spec.ts` | `392924e2`                                                                  |
+| 依赖装配三处（`apps/web/package.json`、`pnpm-lock.yaml`、`next.config.ts`）                     | `392924e2`（锁文件由 `pnpm install --offline` 写入，**仅 3 行** link 条目） |
+
+**独立审查判定 FAIL，三项问题的处置：**
+
+| 级别   | 问题                                                                                                                                                                                                                                   | 处置                                                                                       |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **P0** | `model.ts` 的 `EvidenceAddressBinding` 写成 `evidence_snapshot_id?: string`，与根 `tsconfig.base.json` 的 `exactOptionalPropertyTypes: true` 冲突，`pnpm typecheck` 与 `pnpm build` **双双退出码 1**                                   | 改为 `?: string \| undefined`                                                              |
+| **P1** | `validatePageAddress` 只检查 origin / pathname / `destination`，**查询参数一律不校验**——实测走私 `provider` / `model` / `evidence_id` / `evidence_snapshot_id` / `temperature` / 重复 `destination` 全部返回 200 并给出完整固定示例    | 加参数白名单（归因页合法的 9 个参数）并拒绝重复键                                          |
+| **P1** | 15 条证据分属 `country` / `bridge` / `diagnostics` / `drilldown` **四个不同的** `evidence_snapshot_id`，而 `ManagementAnalysis.evidence_snapshot_id` 是**单值**（`query-contract.md` §10 定义为必填标量），种子载荷只含 `country` 一族 | 在 `ai-model.ts` 注释中如实标注覆盖缺口与处置方向，**未静默扩范围**改 `packages/contracts` |
+
+P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].evidence_snapshot_id` 每条自带，审查实测 15/15 全部 200 命中）；但若后续切片按 `gate2-design.md` §4.2「页面恢复的六项校验」真从本页快照恢复，15 条引用中有 **14 条不可解析**。正确处置需把「本回答引用了哪些快照」提升为一等事实（按族分组携带多份种子载荷），要改 `packages/contracts` 与 `query-contract.md` §10，**超出 1b 写范围**。**该缺口留待后续切片处置；切片 1 未收口前不得声称页面恢复能力成立。**
+
+**踩坑记录（供后续切片避免）**：`apps/web/tsconfig.json` 有 `"incremental": true`，工作区里的陈旧 `apps/web/tsconfig.tsbuildinfo` 会让 `pnpm typecheck`（`tsc -p`）**假绿**，而 `next build` 用 `cacheDir/.tsbuildinfo` 这一**另一条路径**所以一直真红。**凡验证类型或构建，必须先删这两处缓存再跑**，否则一条真实红会被误报成绿。
+
+**五区块条件渲染是刻意取舍**：`apps/web/tests/gate1.spec.ts:405` 用**非精确**正则 `page.getByText(/相关性不等于因果/u)`，若无条件渲染限制标签，同一句中文会出现在两处，Playwright 严格模式将报 `resolved to 2 elements`。审查独立复核确认这是同时满足 AC1.1（既有断言不变）与 `query-contract.md` §10（强制标签不得缺失）的唯一解。
+
+**未验证项（不得表述为通过）**：
+
+- **本地 `pnpm verify:gate1:isolated` 未取得完整通过**——数据库集成腿 1（镜像 `postgres:18.4`）连续两次失败，两个用例各耗时 60.1 秒，撞 `scripts/neon-baseline.test.mjs:143` 的 `runDocker` `timeout: 60_000` 上限。根因是本机镜像库存只有 `postgres:18.6`、`docker pull postgres:18.4` 超时；同一段代码在腿 2（18.6）各 1.1 秒通过。`scripts/`、`database/`、`packages/db/` 改动数为 0。未放宽超时、未改脚本、未跳过腿 1、未用 18.6 冒充 18.4，按 D-188 第 3 条保留现场。
+- **独立审查的定向复查未做**——按 `multi-agent-workflow.md` §7 返工后须由原 `independent_auditor` 复查，而复查需起真实数据库（`compose.yaml:5` 钉 `postgres:18.4`，本机不可得）。**切片 1b 不得标记为通过。**
 
 ## 4. 切片 2｜匿名标识、限流、费用与两级熔断
 
