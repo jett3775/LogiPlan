@@ -511,6 +511,35 @@ describe("保留快照 ID 与索引裁剪", () => {
     expect(indexLength()).toBe(2);
   });
 
+  it("快照 ID 不合格时写入侧即拒绝，且不占用份数配额", () => {
+    // 与恢复侧 `readSnapshotEnvelope` 同一套规则（evidenceSnapshotIdSchema）：
+    // 1—240 字符、非全空白、无首尾空格。docs/query-contract.md §4.2。
+    const { store, storage, clock } = newStore({ maxSnapshots: 2 });
+    clock.advance(1_000);
+    store.write(snapshot("A"));
+    clock.advance(1_000);
+    store.write(snapshot("B"));
+    expect(store.count()).toBe(2);
+    const before = storage.raw().get(SNAPSHOT_LRU_INDEX_KEY);
+    expect(before).toBeDefined();
+
+    for (const badId of [" SNAP1 ", "SNAP1\n", "   ", "", "X".repeat(241)]) {
+      const rejected = store.write(snapshot(badId));
+      expect(rejected, badId).toEqual({ status: "rejected_invalid_id", snapshotId: badId });
+      // 拒绝不得写入任何键，也不得改动索引或占用配额。
+      expect(storage.raw().has(snapshotKey(badId)), badId).toBe(false);
+      expect(store.count(), badId).toBe(2);
+      expect(storage.raw().get(SNAPSHOT_LRU_INDEX_KEY), badId).toBe(before);
+    }
+
+    // 拒绝过的 ID 从未落盘，因此不可恢复。
+    expect(store.restore(" SNAP1 ", VERSIONS)).toEqual({ status: "not_found" });
+    // 既有合法快照不受影响。
+    expect(store.restore("A", VERSIONS).status).toBe("restored");
+    // 恰好 240 字符可通过（上限按契约取 240，不是「小于 240」）。
+    expect(store.write(snapshot("Y".repeat(240))).status).toBe("written");
+  });
+
   it("快照 ID 含首尾空格或全为空白时判为损坏（复用公共契约精化）", () => {
     const { store, storage, clock } = newStore();
     clock.advance(1_000);
@@ -549,18 +578,18 @@ describe("恢复失败时回落固定示例", () => {
       answer_id: "ANSWER_FIXED_GB_2026_08_V1",
       answer_type: "FIXED_EXAMPLE",
       scope_label: "2026 年 8 月｜英国｜Actual vs Budget｜固定示例",
-      conclusion: { text: "固定示例", evidence_ids: ["country_summary|ACTUAL|2026-08|GB"] },
-      evidence: { text: "固定示例", evidence_ids: ["country_summary|ACTUAL|2026-08|GB"] },
-      impact: { text: "固定示例", evidence_ids: ["country_summary|ACTUAL|2026-08|GB"] },
+      conclusion: { text: "固定示例", evidence_ids: ["E01-country"] },
+      evidence: { text: "固定示例", evidence_ids: ["E01-country"] },
+      impact: { text: "固定示例", evidence_ids: ["E01-country"] },
       recommendations: [
         {
           text: "固定示例建议",
-          evidence_ids: ["country_summary|ACTUAL|2026-08|GB"],
+          evidence_ids: ["E01-country"],
           scenario_validation_status: "NOT_RUN",
           feasibility_status: "NOT_VALIDATED",
         },
       ],
-      limitations: { text: "固定示例", evidence_ids: ["country_summary|ACTUAL|2026-08|GB"] },
+      limitations: { text: "固定示例", evidence_ids: ["E01-country"] },
       evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1",
       evaluation_question_ids: ["E01"],
     };

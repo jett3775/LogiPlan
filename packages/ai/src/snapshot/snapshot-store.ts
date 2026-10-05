@@ -48,6 +48,7 @@ export type SnapshotWriteResult =
   | { readonly status: "written"; readonly key: string; readonly evicted: readonly string[] }
   | { readonly status: "rejected_too_large"; readonly evicted: readonly string[] }
   | { readonly status: "rejected_reserved_id"; readonly snapshotId: string }
+  | { readonly status: "rejected_invalid_id"; readonly snapshotId: string }
   | { readonly status: "storage_unavailable" };
 
 export type SnapshotRestoreResult =
@@ -118,11 +119,20 @@ export class EvidenceSnapshotStore {
   /**
    * 写入一份快照。
    *
+   * - 快照 ID 不合格：拒绝写入该份。恢复侧 `readSnapshotEnvelope` 已按同一模式
+   *   拒绝不合格 ID，若写入侧不校验，就会产生「能写入但永远无法恢复」的快照，
+   *   白占一个 D-190 决策四的份数配额槽位。
+   * - 快照 ID 与 LRU 索引键撞名：拒绝写入，既不覆盖索引也不产生不可恢复的快照。
    * - 单份超上限：拒绝写入该份，并按 D-190 决策四淘汰最久未访问的一份。
    * - 份数超上限：写入后按**访问时间**淘汰最久未访问的一份，直至回到上限。
    * - 存储不可用（配额、隐私模式等）：返回 `storage_unavailable`，由调用方回落固定示例。
    */
   write(snapshot: EvidenceSnapshot): SnapshotWriteResult {
+    // 复用公共契约的 `evidenceSnapshotIdSchema`（1—240 字符、非空白、无首尾空格，
+    // docs/query-contract.md §4.2），与恢复侧同一套规则，不在此重复实现。
+    if (!evidenceSnapshotIdSchema.safeParse(snapshot.snapshot_id).success) {
+      return { status: "rejected_invalid_id", snapshotId: snapshot.snapshot_id };
+    }
     const key = snapshotKey(snapshot.snapshot_id);
     // 与 LRU 索引键撞名：拒绝写入，既不覆盖索引也不产生不可恢复的快照。
     if (isReservedSnapshotId(snapshot.snapshot_id)) {
