@@ -383,3 +383,93 @@ export type EvidenceObject = z.infer<typeof evidenceObjectSchema>;
 export type ResultWarning = z.infer<typeof resultWarningSchema>;
 export type QueryError = z.infer<typeof queryErrorSchema>;
 export type InfrastructureError = z.infer<typeof infrastructureErrorSchema>;
+
+/* ---------------------------------------------------------------------------
+ * 闸门二新增 AI 管理分析输出模式（docs/query-contract.md §10）
+ *
+ * 独立版本化：不复用、不改写 V1.0 / V1.1 任何既有模式或字段；既有契约保持冻结
+ * （docs/gate2-design.md §12）。版本标识由 AI_OUTPUT_SCHEMA_VERSION 表达，
+ * 不作为 ManagementAnalysis 的字段写入输出契约。
+ * ------------------------------------------------------------------------- */
+
+/** 闸门二 AI 输出模式的独立版本标识（与 query contract V1.0/V1.1 无关）。 */
+export const AI_OUTPUT_SCHEMA_VERSION = "G2_ANSWER_V1_0";
+
+export const aiOutputSchemaVersionSchema = z.literal(AI_OUTPUT_SCHEMA_VERSION);
+
+export const aiAnswerTypeSchema = z.enum(["FIXED_EXAMPLE", "LIVE_GENERATED"]);
+
+export const aiScenarioValidationStatusSchema = z.enum(["NOT_RUN", "RUN"]);
+
+export const aiFeasibilityStatusSchema = z.enum([
+  "NOT_VALIDATED",
+  "PARTIALLY_VALIDATED",
+  "VALIDATED",
+]);
+
+const aiText = (maxLength: number) =>
+  z
+    .string()
+    .min(1)
+    .max(maxLength)
+    .refine((value) => value.trim().length > 0, "AI 输出文本不得为空白字符串");
+
+const aiEvidenceIdList = (maxItems: number) =>
+  z
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(120)
+        .refine((value) => value.trim().length > 0),
+    )
+    .max(maxItems);
+
+export const aiEvidenceSnapshotIdSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .refine((value) => value.trim().length > 0, "AI 快照 ID 不得为空白字符串");
+
+export const richSectionSchema = z
+  .object({
+    text: aiText(2_000),
+    evidence_ids: aiEvidenceIdList(50),
+    status_labels: z.array(aiText(120)).min(1).max(10).optional(),
+  })
+  .strict();
+
+export const managementRecommendationSchema = z
+  .object({
+    text: aiText(1_000),
+    evidence_ids: aiEvidenceIdList(20),
+    scenario_validation_status: aiScenarioValidationStatusSchema,
+    feasibility_status: aiFeasibilityStatusSchema,
+  })
+  .strict();
+
+export const managementAnalysisSchema = z
+  .object({
+    answer_id: aiText(120),
+    answer_type: aiAnswerTypeSchema,
+    scope_label: aiText(120),
+    conclusion: richSectionSchema,
+    evidence: richSectionSchema,
+    impact: richSectionSchema,
+    recommendations: z.array(managementRecommendationSchema).min(1).max(20),
+    limitations: richSectionSchema,
+    evidence_snapshot_id: aiEvidenceSnapshotIdSchema,
+    evaluation_question_ids: z
+      .array(z.string().regex(/^E(0[1-9]|1[0-9]|20)$/, "评估题 ID 必须形如 E01—E20"))
+      .min(1)
+      .max(20),
+  })
+  .strict();
+
+export type AiOutputSchemaVersion = z.infer<typeof aiOutputSchemaVersionSchema>;
+export type AiAnswerType = z.infer<typeof aiAnswerTypeSchema>;
+export type AiScenarioValidationStatus = z.infer<typeof aiScenarioValidationStatusSchema>;
+export type AiFeasibilityStatus = z.infer<typeof aiFeasibilityStatusSchema>;
+export type RichSection = z.infer<typeof richSectionSchema>;
+export type ManagementRecommendation = z.infer<typeof managementRecommendationSchema>;
+export type ManagementAnalysis = z.infer<typeof managementAnalysisSchema>;

@@ -91,6 +91,15 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  packages/ai:
+    dependencies:
+      '@logiplan/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/contracts:
     dependencies:
       zod:
