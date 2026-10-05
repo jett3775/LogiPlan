@@ -9,6 +9,22 @@
 
 通过门槛：至少 18/20；两道越界题必须全部通过；程序计算数字必须精确一致；出现编造数字、虚假证据或把相关性写成确定因果时整体失败。
 
+> **2026-10-05 注（本文件「证据：」行的定性）**：下方 20 题的「证据：」行是**溯源标签**，不是 `EvidenceObject.evidence_id`。
+> 溯源标签的形态为 `小写名|口径|期间|范围`，取值集合为
+> `country_summary`、`attribution_detail`、`cost_facts`、`driver_facts`、`metadata`、`service_facts`、`monthly_summary`、
+> `scenario_note`、`decision`；其唯一作用是把标准答案回指到文首「审计来源」工作簿的来源位置。
+>
+> 系统的 `evidence_id` 由服务端确定性查询产出（唯一构造点 `packages/db/src/query-result.ts:18` 的 `evidence()`），
+> 形态为 `类型名:parts`（大写 + 冒号），例如 `E01-country`、`E04-total`、`E05-bridge`、`ATTRIBUTION_BRIDGE:<factor>`、
+> `ATTRIBUTION_DRILLDOWN:<row_id>`、`DIAGNOSTIC_METRICS:<metric>:<slot>`、`FIXED_COST_BREAKDOWN:TOTAL`、
+> `MONTHLY_COST_TREND:<month>`、`TOP_ADVERSE_ANOMALIES:<month>:<destination_country_id>`、`E08-<fulfillment_center_id>`；
+> 逐条产出点清单见 `docs/gate2-design.md` §5.1 的 2026-10-05 更正注记。
+>
+> 输出契约（`docs/query-contract.md` §10）的 `evidence_ids` **只能填真实证据 ID**，不得填本文件这些溯源标签，
+> 否则白名单校验必然失败。下方 20 处「证据：」行**原文保留不改**，继续作为溯源标签的历史记录。
+> 真实证据 ID 还受**范围锚定**限制（`EVIDENCE_LOOKUP` 对 `canonicalScope` 不一致返回 `INVALID_FILTER`），
+> 范围映射见 `docs/gate2-design.md` §4.3 的 2026-10-05 注记。
+
 ## 发生了什么
 
 ### E01：2026 年 8 月英国履约变动成本相对 Budget 偏差多少？
@@ -61,11 +77,33 @@
 
 证据：`cost_facts|ACTUAL/BUDGET|2026-08|fulfillment_center`
 
+> **（2026-10-05 注：E08 的 `evidence_ids` 在英国归因页必须为空数组）** 本题**确有**对应真实证据对象——
+> `E08-<fulfillment_center_id>`（如 `E08-DE_FC`、`E08-FR_FC`）与 `E08-company-total`，产出点
+> `packages/db/src/query-service.ts:1874` 与 `:1907`。但它们锚定在 `evidenceWarehouseScope`（同文件 `:237`：
+> 2026-08 / `MONTH` / `ACTUAL_VS_BUDGET`，**无 `destination_country_ids`**），属**公司口径**。
+> 在英国归因范围（`evidenceAttributionScope`，`:244`，含 `destination_country_ids: ["GB"]`）下，
+> `EVIDENCE_LOOKUP` 会在 `query-service.ts:2080` 因 `canonicalScope` 不一致返回 `INVALID_FILTER`，故这些 ID 在归因页**不可引用**。
+>
+> 因此：题面数字（589,251.0927 / 12,299.5128 CNY）与上一行溯源标签原文保留，但未来真实回答**不得**为本题编造任何单一证据引用；
+> 这些数字只能作文字陈述呈现，或写入 `limitations` 说明其来自公司口径。
+> 若产品希望本题在归因页可点开，正解是在 `packages/db` 增加英国归因范围下的发货仓证据对象，**而非改引用**。
+
 ### E09：2026 年 8 月英国哪一类履约变动成本的增量最大？
 
 增量最大的成本类别是基础运费，相对 Budget 增加 432,453.0802 CNY。成本类别比较来自同一组英国线路成本事实。
 
 证据：`cost_facts|ACTUAL/BUDGET|2026-08|GB|cost_component`
+
+> **（2026-10-05 注：E09 在当前证据生产器下没有可引用的单一证据对象，`evidence_ids` 必须为空数组）**
+> 432,453.0802 CNY 是**全英国**按 `cost_category` 汇总的类别合计；而系统只为下钻行
+> `FULFILLMENT_CENTER` / `TRANSPORT_MODE` / `CARRIER` / `COST_COMPONENT` 产出 `EvidenceObject`
+> （下钻维度声明见 `packages/db/src/query-service.ts:2071`，证据产出点见同文件 `:1581`、`:1802`），
+> **不存在「国家 × 成本类别」粒度的证据对象**。上一行溯源标签中的 `cost_component` 对应下钻行的最细层级，
+> 与本题的全英国类别合计不是同一口径，不得互相替代。
+>
+> 因此：题面数字与上一行溯源标签原文保留，但未来真实回答**不得**为本题编造任何单一证据引用；
+> 该数字只能作文字陈述呈现，或写入 `limitations` 说明缺少对应证据粒度。
+> 若产品希望本题可点开，正解是在 `packages/db` 增加「国家 × 成本类别」证据对象，**而非改引用**。
 
 ### E10：2026 年 8 月英国准时履约率是否已经最终成熟？
 

@@ -188,6 +188,24 @@ type GatewayErrorCode =
 
 失败时**不得**裁剪、修补或部分展示模型输出——整体丢弃并回落固定示例。
 
+> **（2026-10-05 注：第 2 检的白名单是范围锚定的，不是全局扁平集合）** 上文三检原文保留不改，此处只补充白名单的范围语义。
+> 服务端 `EVIDENCE_LOOKUP` 对范围不一致直接拒绝：`packages/db/src/query-service.ts:2080` 在
+> `canonicalScope(intent.scope) !== canonicalScope(source.scope)` 时返回 `INVALID_FILTER`
+> （`canonicalScope` 定义于同文件 `:211`，对整个 `AnalysisScope` 做规范化 JSON 比较，含 `destination_country_ids`）。
+> ID → 范围锚点的映射即同文件 `:1940—2076` 的判定链，锚点常量定义于 `:225—251`：
+>
+> | 证据 ID                                                                                                  | 范围锚点                                                                                        | 是否含 `destination_country_ids` |
+> | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------- |
+> | `E04-total`、`FIXED_COST_BREAKDOWN:*`                                                                    | `evidenceDashboardRangeScope`（`:225`：2026-01—2026-12 / `RANGE` / `LATEST_OUTLOOK_VS_BUDGET`） | 否，公司口径                     |
+> | `MONTHLY_COST_TREND:*`、`TOP_ADVERSE_ANOMALIES:*`                                                        | `evidenceDashboardMonthScope`（`:233`：同上但 `MONTH`）                                         | 否，公司口径                     |
+> | `E08-*`（含 `E08-company-total`）                                                                        | `evidenceWarehouseScope`（`:237`：2026-08 / `MONTH` / `ACTUAL_VS_BUDGET`）                      | 否，公司口径                     |
+> | `E01-country`、`E05-bridge` 与 `ATTRIBUTION_BRIDGE:*`、`DIAGNOSTIC_METRICS:*`、`ATTRIBUTION_DRILLDOWN:*` | `evidenceAttributionScope`（`:244`：`destination_country_ids: ["GB"]`）                         | 是，英国归因范围                 |
+>
+> 后果：在英国归因范围下，上表前三行的公司口径证据 `E08-*`、`E04-total`、`FIXED_COST_BREAKDOWN:*`、`MONTHLY_COST_TREND:*`、
+> `TOP_ADVERSE_ANOMALIES:*` **一律不可引用**——失败码是范围不匹配的 `INVALID_FILTER`，不是「未知证据」。
+> 固定示例的 `evidence_ids` 因此只能引用与页面范围一致的锚点；其余相关数字必须降级为文字陈述或写入 `limitations`，
+> 不得为凑引用而填入范围外的证据 ID。
+
 ### 4.4 输出契约（沿用 `query-contract.md` §10）
 
 输出类型为 `ManagementAnalysis`，`answer_type` 取 `FIXED_EXAMPLE` 或 `LIVE_GENERATED`；
@@ -206,8 +224,33 @@ type GatewayErrorCode =
   情景调整后会怎样（E15—E18）、数据不足与越界保护（E19—E20）。
 - **通过门槛**：至少 **18/20**；**两道越界题（E19、E20）必须全部通过**；
   程序计算数字必须**精确一致**；出现编造数字、虚假证据或把相关性写成确定因果，**整体失败**。
-- 评估集绑定数据版本与证据 ID（如 `country_summary|ACTUAL|2026-08|GB`）。
+- 评估集绑定数据版本与**溯源标签**（如 `country_summary|ACTUAL|2026-08|GB`）。
   当前线上活动发布为 `LOGIPLAN_2026_DEMO_V2`，基线文件中的 V1 标注必须在实施时对齐到当前版本并复核。
+
+  > **（2026-10-05 更正措辞 + 补充两套体系的区分）** 上行原写「评估集绑定数据版本与**证据 ID**（如
+  > `country_summary|ACTUAL|2026-08|GB`）」，把一套溯源标签误称为证据 ID，与 §4.3 第 2 检「`evidence_ids` 只能取自服务端注入的白名单」
+  > 直接冲突。该溯源标签**不是** `EvidenceObject.evidence_id`，两套体系零交集。此改动属「更正错误定性表述」而非改写历史结论，
+  > 故就地修正措辞；本文件其余历史文本原文保留不改。补充的已核对事实如下。
+  - **溯源标签 ≠ `EvidenceObject.evidence_id`**：溯源标签（形态 `小写名|口径|期间|范围`）只用于把评估集标准答案回指到审计工作簿来源；
+    `evidence_id` 由服务端确定性查询产出（唯一构造点 `packages/db/src/query-result.ts:18` 的 `evidence()`），
+    形态为 `类型名:parts`（大写 + 冒号）。以下形态均已逐条核对到源码产出点：
+
+    | `evidence_id` 形态                                                                                                                                                                                                             | 产出点                                                                      |
+    | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+    | `E01-country`                                                                                                                                                                                                                  | `packages/db/src/query-service.ts:1349`                                     |
+    | `E04-total`                                                                                                                                                                                                                    | `packages/db/src/query-service.ts:1316`                                     |
+    | `E05-bridge`                                                                                                                                                                                                                   | `packages/db/src/query-service.ts:1404`                                     |
+    | `ATTRIBUTION_BRIDGE:<factor>`（`factor` ∈ `VOLUME` / `MIX` / `EFFICIENCY` / `PRICE` / `FX`，枚举于同文件 `:1382`）                                                                                                             | `packages/db/src/query-service.ts:1412`                                     |
+    | `ATTRIBUTION_DRILLDOWN:<row_id>`，另派生 `:BASELINE`、`:CURRENT`、`:FACTOR:<factor>`                                                                                                                                           | `packages/db/src/query-service.ts:1581`、`:1802`、`:1813`、`:1821`、`:1830` |
+    | `DIAGNOSTIC_METRICS:<metric>:<slot>`（`metric` ∈ `ORDERS` / `AIR_SHARE` / `CARRIER_C_SHARE` / `ON_TIME_RATE` / `SERVICE_MATURITY`；`slot` ∈ `BASELINE` / `CURRENT` / `DELTA` / `DELTA_RATE`，`SERVICE_MATURITY` 仅 `CURRENT`） | `packages/db/src/diagnostic-metrics.ts:274-297`                             |
+    | `FIXED_COST_BREAKDOWN:TOTAL` / `FIXED_COST_BREAKDOWN:<category>` / `FIXED_COST_BREAKDOWN:<category>:<scope>`                                                                                                                   | `packages/db/src/query-service.ts:1146`、`:1130`、`:1110`                   |
+    | `MONTHLY_COST_TREND:<month>`                                                                                                                                                                                                   | `packages/db/src/query-service.ts:790`                                      |
+    | `TOP_ADVERSE_ANOMALIES:<month>:<destination_country_id>`                                                                                                                                                                       | `packages/db/src/query-service.ts:947`                                      |
+    | `E08-<fulfillment_center_id>`（如 `E08-DE_FC`、`E08-FR_FC`） / `E08-company-total`                                                                                                                                             | `packages/db/src/query-service.ts:1874`、`:1907`                            |
+
+  - 因此输出契约的 `evidence_ids` **只能取服务端注入的真实证据 ID 白名单**（见 §4.3），**不得**把溯源标签填入 `evidence_ids`；
+    否则 §4.3 第 2 检必然判定「未知证据」并整体失败，证据面板也无法解析该 ID。
+  - 上述白名单还受**范围锚定**限制，见 §4.3 的 2026-10-05 注记。
 
 ### 5.2 必须重跑的触发条件
 
