@@ -64,7 +64,7 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 
 - `packages/contracts/src/index.ts`（新增 AI 输出模式，独立版本化，不改 V1.0/V1.1 任何现有模式）
 - `packages/ai/`（新建包：`package.json`、`tsconfig.json`、`src/`）
-- `apps/web/app/api/v1/ai/route.ts`（新建）
+- `apps/web/app/api/v1/ai/respond/route.ts`（新建）
 - `apps/web/app/ai-workspace.tsx`、`apps/web/app/lib/ai-model.ts` 等新建文件
 - `pnpm-lock.yaml`（由新增 workspace 包引起，已授权）
 
@@ -103,6 +103,20 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 
 - **1a 负责**：AC1.2、AC1.3、AC1.4、AC1.6、AC1.7、AC1.12、AC1.13；以及 AC1.8 的映射表与测试部分。1a 另需自证：`packages/ai` 无供应商 SDK 痕迹、无任何 `LIVE_GENERATED` 产出路径。
 - **1b 负责**：AC1.1、AC1.5、AC1.9、AC1.10、AC1.11，以及 AC1.8 的页面渲染部分。1b 需实跑 `pnpm verify:gate1:isolated`。
+
+**1b 追加写范围：依赖装配（2026-10-05 授权）**
+
+首次派发时 `slice_owner` 按 R5 停工并报告硬阻塞：`apps/web` **无法 import `@logiplan/ai`**，因为 workspace 依赖边从未建立（`apps/web/node_modules/@logiplan/` 只有 `contracts`/`db`/`domain` 三个软链）。经主 Agent 实测确认，三处装配为必需，已获用户授权：
+
+| 文件                      | 改动                                                | 必要性                                                                                                                                                                               |
+| ------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/web/package.json`   | `dependencies` 增加 `"@logiplan/ai": "workspace:*"` | 不做则 Node/Next 解析 `MODULE_NOT_FOUND`                                                                                                                                             |
+| `pnpm-lock.yaml`          | `apps/web` importer 段增加对应条目                  | 不做则 CI 的 `pnpm install --frozen-lockfile` 失败（`.github/workflows/gate1.yml`）                                                                                                  |
+| `apps/web/next.config.ts` | `transpilePackages` 增加 `"@logiplan/ai"`           | 该列表现只含被**客户端组件** import 的两个包（`contracts`、`domain`）；1b 的 `ai-workspace.tsx` 是 `"use client"` 且需 import 依赖浏览器 `sessionStorage` 的 `EvidenceSnapshotStore` |
+
+三处均为**纯装配**：`packages/ai` 自身依赖只有 `@logiplan/contracts` 与 `zod@4.4.3`，两者都已在锁文件内，**不引入任何新外部依赖**。`pnpm-lock.yaml` 属 `executionClosurePaths`，切片 1 已就同类改动开过授权先例。
+
+**不得用深相对路径 import 绕过**（如 `../../../../../../packages/ai/src/index`）：那会绕过 package 边界与依赖声明，违反 `gate2-design.md` §1.1 的单向依赖口径；也不得在 `apps/web` 复刻固定示例正文（会造成与 `packages/ai` 的单一真相源分叉，威胁 AC1.3/AC1.4 的断言）。
 
 ## 4. 切片 2｜匿名标识、限流、费用与两级熔断
 
