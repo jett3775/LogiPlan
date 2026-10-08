@@ -35,7 +35,10 @@
   `/api/health/ready` = `ready` + `schema_version=0010` + `active_release=LOGIPLAN_2026_DEMO_V2`；
   `POST /api/v1/ai/respond` **200 + `FIXED_EXAMPLE`**（旧构建无此路由 → 证明新构建已上线）；
   归因页「AI 管理分析提问」表单与五区块用户复验通过；首页/归因页数字与证据侧栏正常。
-  **未执行**：生产热请求 P95 未测量；函数区域未在面板核对（`x-vercel-id` 首段为 `fra1`，见 runbook §11.5）。
+  **生产热请求 P95 已测（2026-10-08）**：经 VPN 本地代理对 `POST /api/v1/query` 发 100 次（并发 5、四种查询轮转）
+  → 100/100 返回 200、形状 100/100 符合契约，**`p95 511.312 ms`（预算 1 s → 达标）**，`p50 382.437 / p99 757.561 ms`。
+  **函数区域已核对（2026-10-08，用户查面板：显示 `sin1`）**；`x-vercel-id` 104 次实测首段恒为 `fra1`（入口边缘区域）、
+  第二段恒为 `sin1`（函数区域），据此已更正 E2a 原写的「首段即区域代码」。
   完整实录见 `docs/neon-vercel-baseline-runbook.md` §11.5。推送 `main` 仍只产生 `Staged` 部署，
   须人工 Promote 才对外服务（E2c 已生效，见 D-189）。
 - **数据侧**：`LOGIPLAN_2026_DEMO_V2` 已激活（`status = ACTIVE`），固定证据 9 条已物化；
@@ -158,7 +161,7 @@ exceeded` 或 `EOF`）。同网络下 `api.github.com`、`registry.npmjs.org`、
 **项目默认值**，未必是实际生效值（Vercel 新项目默认 `iad1` 华盛顿）。
 
 - **权威核对方式**：Deployments → 点开任意部署 → **Resources / Deployment Summary**，看实际 default region；
-  或 `curl -I https://<部署地址>/api/health/live` 读响应头 **`x-vercel-id`**（首段即区域代码，形如 `sin1::…`）。
+  或 `curl -I https://<部署地址>/api/health/live` 读响应头 **`x-vercel-id`**（形如 `fra1::sin1::<id>`；**2026-10-08 更正**：原写「首段即区域代码」不准确——**首段是入口边缘区域**，随客户端 / VPN 出口变化，**函数区域在第二段**，与面板部署摘要一致）。
 - **判据**：显示 `sin1` ✓；显示 `iad1` 说明 `vercel.json` 未生效，需排查。
 - Hobby 计划只允许**单一**区域，所以 `sin1` 这一个值本来就合规。
 
