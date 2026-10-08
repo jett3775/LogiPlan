@@ -2,7 +2,7 @@
 
 版本：V1.0
 日期：2026-10-04
-状态：**实施中**。切片 1a 已完成并收口；切片 1b 代码已完成、已推送、CI 全绿，但**独立审查的定向复查未做，切片 1 未收口**（见 §3.1）。切片 2、3 的授权门未开启。
+状态：**实施中**。切片 1a 已完成并收口；**切片 1b 已收口（2026-10-08）**——代码已推送、CI 全绿、独立审查的定向复查 **PASS**（唯一 P2 已补回归测试），且本机真实库验收 `pnpm verify:gate1:isolated` **全绿**（AC1.1 / AC1.11 取得本机证据，见 §3.1）。切片 2、3 的授权门未开启。
 依据：`docs/gate2-design.md`（设计 V1.0）、`docs/decisions.md` D-174 / D-181 / D-182 / D-190、`docs/query-contract.md` §10、`docs/ai-evaluation-baseline.md`、`docs/multi-agent-workflow.md`
 
 ---
@@ -120,7 +120,9 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 
 ### 3.1 切片 1b 实施结果（2026-10-05，提交 `392924e2`）
 
-**状态：代码已完成、已推送、CI 全绿；独立审查的定向复查未做，因此切片 1b 未收口。**
+**状态：已收口（2026-10-08）。** 代码已完成并推送、CI 全绿；独立审查首轮 FAIL → 返工 →
+**2026-10-08 定向复查 PASS**（三项处置全部成立、未发现新 P0/P1；唯一 P2 = AC1.9 缺 `page_address`
+参数的回归测试，已于同日补齐）；**本机真实库验收 `pnpm verify:gate1:isolated` 全绿**（见本节末）。
 
 | 交付项                                                                                          | 提交                                                                        |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -142,10 +144,30 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **五区块条件渲染是刻意取舍**：`apps/web/tests/gate1.spec.ts:405` 用**非精确**正则 `page.getByText(/相关性不等于因果/u)`，若无条件渲染限制标签，同一句中文会出现在两处，Playwright 严格模式将报 `resolved to 2 elements`。审查独立复核确认这是同时满足 AC1.1（既有断言不变）与 `query-contract.md` §10（强制标签不得缺失）的唯一解。
 
-**未验证项（不得表述为通过）**：
+**2026-10-08 收口记录**：
 
-- **本地 `pnpm verify:gate1:isolated` 未取得完整通过**——数据库集成腿 1（镜像 `postgres:18.4`）连续两次失败，两个用例各耗时 60.1 秒，撞 `scripts/neon-baseline.test.mjs:143` 的 `runDocker` `timeout: 60_000` 上限。根因是本机镜像库存只有 `postgres:18.6`、`docker pull postgres:18.4` 超时；同一段代码在腿 2（18.6）各 1.1 秒通过。`scripts/`、`database/`、`packages/db/` 改动数为 0。未放宽超时、未改脚本、未跳过腿 1、未用 18.6 冒充 18.4，按 D-188 第 3 条保留现场。
-- **独立审查的定向复查未做**——按 `multi-agent-workflow.md` §7 返工后须由原 `independent_auditor` 复查，而复查需起真实数据库（`compose.yaml:5` 钉 `postgres:18.4`，本机不可得）。**切片 1b 不得标记为通过。**
+- **定向复查：PASS**（全新上下文的只读 `independent_auditor`，固定点 `3acf291e`）。三项处置全部成立：
+  P0 `model.ts:315` 已为 `?: string | undefined` 且与 `exactOptionalPropertyTypes` 相容；P1 参数白名单
+  （`ai-model.ts:217-227`）的 9 个参数与归因页**实际消费**集合逐一相等、重复键由 `:249-256` 拒绝、
+  拒绝返回 **400 + 受控中文**；P1 覆盖缺口在 `ai-model.ts:522-533` 如实标注、契约未被改动。
+  AC1.3 / AC1.9 / AC1.10 / AC1.13 均成立，**未发现新的 P0/P1**。
+  （口径说明：原 `independent_auditor` 的会话上下文不可跨会话复用，本轮改由**全新上下文的独立只读
+  审查者**承担定向复查，独立性不降；此偏差如实记录。）
+- **P2 已补齐**：`apps/web/tests/gate2-ai-respond.spec.ts` 新增「AC1.9（P2 回归）页面范围地址不得走私
+  越界参数，也不得重复携带参数」——覆盖 `page_address` 内部携带 `provider` / `model` / `evidence_id` /
+  `evidence_snapshot_id` / `temperature` 与重复 `destination` 六种走私（断言 400 + `INPUT_REJECTED` +
+  受控中文），并加反向对照证明白名单内 9 个参数**不被误拒**。
+- **本机真实库验收：全绿（2026-10-08）**。用户在本机终端执行 `pnpm install --frozen-lockfile`
+  （466 包、1m51.9s、锁文件未变）后运行 `pnpm verify:gate1:isolated`，**退出码 0**：数据库集成四条腿
+  `44/44`、`44/44`、`10/10`、`7/7`（零 fail、skipped 与声明一致）；隔离 PostgreSQL 18.4 上
+  `0001—0003` → V1 → `0004—0010` → V2 校验/激活/幂等；`db:verify` / `db:verify-release` /
+  `db:verify-plans`（6 条计划 `temp_written_blocks` 全 0）；生产构建；快照 `28/28`；Chromium 双视口基础
+  `24 passed / 22 skipped`（**含新 P2 用例在 1440 与 1280 两档通过**）；Chromium 历史证据 `22/22`；
+  **Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询 `p50 27.399ms / p95 49.877ms / p99 56.911ms`；
+  隔离容器/卷/网络全部移除。**全程未出现 `3221226505`。**
+- **仍未关闭（如实携带，不得表述为已关闭）**：`packages/ai` 不在 `vitest.config.ts` 的
+  `coverage.include` 内，覆盖率未知（须在有该文件写权限的切片或阶段闸门补齐）；P1 遗留的
+  「15 条证据跨 4 个快照而契约 `evidence_snapshot_id` 为单值」缺口仍在，**页面恢复能力在处置前不成立**。
 
 ## 4. 切片 2｜匿名标识、限流、费用与两级熔断
 

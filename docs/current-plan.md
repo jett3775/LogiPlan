@@ -8,17 +8,20 @@
 > `%TEMP%` 的周计划与日计划。**`%TEMP%` 中的周计划与日计划自本文件起不再单独维护。**
 > 如需恢复原约定，删除本文件即可。
 
-最后更新：2026-10-05（面向 10-05 之后的窗口；本文件内容已实际覆盖 2026-09-27 至 2026-10-05 的事件——
-本轮完成 `pg` 并发修复、闸门二立项（D-190）与切片 1a，见 §1 与 §9）
+最后更新：2026-10-08（面向 10-05 之后的窗口；本文件内容已实际覆盖 2026-09-27 至 2026-10-05 的事件——
+本轮完成 `pg` 并发修复、闸门二立项（D-190）与切片 1a，见 §1 与 §9。2026-10-08 增补：更正机器身份记载
+并恢复 `3221226505` 取证状态为「待执行」，见 §1 与 §6 第 3 项）
 
 ---
 
 ## 1. 当前状态（已核实）
 
-- **阶段**：**闸门二实施进行中**。闸门一代码侧验收全部通过并持续在 CI 出证；闸门二切片 **1a 已完成**，
-  **1b 代码已完成、已推送、CI 全绿，但独立审查的定向复查未做，切片 1 尚未收口**。稳定性权威证据为
+- **阶段**：**闸门二实施进行中**。闸门一代码侧验收全部通过并持续在 CI 出证；闸门二**切片 1a 与 1b 均已收口
+  （2026-10-08）**——1b 的定向复查 PASS、唯一 P2 已补回归测试，且**本机真实库验收 `pnpm verify:gate1:isolated`
+  全绿**（见本节的 2026-10-08 段与 `docs/gate2-implementation-plan.md` §3.1）。稳定性权威证据仍为
   CI `ubuntu-latest`（见 D-188）。
-- **main**：现为 **`392924e2`**，与 `origin/main` 同步，工作区干净。CI run **`37265108237`**（head `392924e2`）
+- **main**：现为 **`3acf291e`**（在 `392924e2` 之上追加一个纯文档提交），与 `origin/main` 同步。
+  **工作区有 8 处未提交改动**（2026-10-08：1 个测试 + 7 份文档）。CI run **`37265108237`**（head `392924e2`）
   **全绿**：5 个 job 全 success（`Gate 1 deterministic validation`、`Cross-platform checks` 的
   ubuntu/macos/**windows** 三矩阵、`CodeQL`），`Pull request dependency review` 按设计 skipped。
   该 run 的 `Run isolated Gate 1 validation` 步骤在 ubuntu 上 success，**含本机拉不到的 `postgres:18.4` 腿
@@ -28,8 +31,9 @@
 - **远端部署**：生产域名 `logi-plan-web.vercel.app` 服务 **`136a2d6`**（2026-09-27 E3b Promote 的构建）。
   ⚠️ **本窗口尚未把切片 1a、1b 的新提交 Promote 到生产**——推送 `main` 只产生 `Staged` 部署，
   须人工 Promote 才对外服务（见 D-189）。**是否 Promote 待用户决定**：切片 1a 不含页面与路由改动
-  （`apps/**` 零 diff）；切片 1b 新增 `/api/v1/ai/respond` 路由与归因页的 AI 五区块，**生产行为会变**，
-  但该切片的独立审查尚未收口，**在收口前不建议 Promote**。
+  （`apps/**` 零 diff）；切片 1b 新增 `/api/v1/ai/respond` 路由与归因页的 AI 五区块，**生产行为会变**。
+  **2026-10-08 更新**：切片 1b 已收口，**「收口前不建议 Promote」这一阻碍已解除**；Promote 与否仍是
+  待用户决定的事项。
 - **数据侧**：`LOGIPLAN_2026_DEMO_V2` 已激活（`status = ACTIVE`），固定证据 9 条已物化；
   `db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）。
 - **闸门二进展**：**D-190** 已冻结 `gate2-design.md` §11 的五个待确认点（两级熔断参数、角色配置存放、
@@ -37,9 +41,19 @@
   与 `packages/contracts` 的 AI 输出 Zod 契约（纯追加 90 行）；经独立审查（首轮 FAIL → 返工 → 复查 PASS → 4 项收口）。
   **切片 1b**（提交 `392924e2`）新增 `POST /api/v1/ai/respond` 与归因页 AI 五区块，`answer_type` 恒为
   `FIXED_EXAMPLE`、不调用任何模型；15 条证据 ID 全部可在英国归因页解析。独立审查判定 **FAIL**，三项问题
-  （1× P0 类型破坏致 typecheck 与 build 双双退出 1、2× P1）已全部处置，但**返工后的定向复查未做**——
-  `pnpm test` 24 文件 / **235 passed / 11 skipped (246)**、`pnpm typecheck` 5 workspace（删缓存后）、
-  `pnpm lint` / `format:check` / `build` 均退出码 0、CI run `37265108237` 全绿。
+  （1× P0 类型破坏致 typecheck 与 build 双双退出 1、2× P1）已全部处置；**2026-10-08 定向复查 PASS**
+  （三项处置全部成立、无新 P0/P1；唯一 P2 = AC1.9 缺 `page_address` 参数回归测试，同日补齐），
+  **切片 1b 据此收口**。此前已执行：`pnpm test` 24 文件 / **235 passed / 11 skipped (246)**、
+  `pnpm typecheck` 5 workspace（删缓存后）、`pnpm lint` / `format:check` / `build` 均退出码 0、
+  CI run `37265108237` 全绿。
+- **2026-10-08 本机验收（切片 1b 的 AC1.1 / AC1.11 取得本机证据）**：用户终端执行
+  `pnpm install --frozen-lockfile`（466 包、1m51.9s、**锁文件未变**）后运行 `pnpm verify:gate1:isolated`，
+  **退出码 0、全阶段通过**——数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7`；隔离 PostgreSQL 18.4 上
+  `0001—0003` → V1 → `0004—0010` → V2 校验/激活/幂等；`db:verify` / `db:verify-release` / `db:verify-plans`
+  （6 条计划 `temp_written_blocks` 全 0）；生产构建；快照 `28/28`；Chromium 双视口基础
+  `24 passed / 22 skipped`（**含新 P2 用例在 1440 与 1280 两档通过**）；Chromium 历史证据 `22/22`；
+  **Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询 `p50 27.399ms / p95 49.877ms / p99 56.911ms`；
+  隔离容器/卷/网络全部移除。**全程未出现 `3221226505`**（本轮未命中，见 §6 第 3 项）。
   详见 `docs/gate2-implementation-plan.md` §3.1 与 `docs/handoff-2026-10-05.md`。
 - **⚠️ 本机环境限制（2026-10-05 实测，影响一切需真实数据库的本地验证）**：**`registry-1.docker.io`
   的 TCP 443 从本机不可连**，TLS 握手被重置（`docker pull postgres:18.4` 约 60 秒后 `context deadline
@@ -50,6 +64,19 @@ exceeded` 或 `EOF`）。同网络下 `api.github.com`、`registry.npmjs.org`、
   按 D-188，Gate 1 的权威证据取 CI ubuntu；本机此限制须与 CI 结果**分别记录、不得合并**。
   恢复方式（任选其一，需用户决定）：开代理/VPN 后按官方源拉取；或用户告知可访问的镜像源；
   **不得给本机 18.6 打 `postgres:18.4` 标签冒充**。
+  **2026-10-08 更正：本条已不成立、不再阻塞。** 实测 `postgres:18.4` 镜像**本机确实存在且可运行**
+  （`docker run --rm postgres:18.4 postgres --version` → `18.4`；镜像 ID `a02db8cac496…`，与 18.6 的
+  `86c951e05bf5…` 是不同镜像、各有自己的 RepoDigest，**不是打标签冒充**），且完整
+  `pnpm verify:gate1:isolated` **已在本机跑通**（见上方 2026-10-08 段）。`registry-1.docker.io` 仍不可达，
+  但已不需要拉取新镜像，故**不构成阻塞**。
+- **本机环境（2026-10-08 用户确认，更正 2026-09-28 起「唯一开发机为 macOS」的记载）**：
+  **当前主力开发机是 Windows**（`DESKTOP-1UIFBM1`，win32 / x64，Windows 10.0.26200，
+  Docker server `linux/amd64`）；**macOS 27.0 / 26A428（arm64）仅在非工作时间段可能用于开发**。
+  因此本机适用的环境限制是 **Windows 的 `3221226505`**（见 §6 第 3 项；取证已于 2026-10-08 执行一轮、
+  **未命中**），
+  macOS 的 `Firefox 核心冒烟` 限制**仅在使用那台 Mac 时**相关。2026-10-08 实测：`postgres:18.4` 与
+  `18.6` 镜像均在且可运行、`logiplan-postgres-1` healthy、Playwright 1.62.1（`chromium-1234` /
+  `firefox-1538`）已安装、4173 空闲、`.env` 存在。
 - **E 段已收口（2026-09-27）**：E3b 已 Promote；E4 四项由用户在生产域名复验通过
   （`/api/health/ready` = `ready`、首页九块均有数字与证据侧栏、核心 9 题正常、热请求 P95 达标）。
   E5 见 runbook §12。
@@ -329,13 +356,18 @@ postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1j
    `data_publisher`）全部轮换；原始值与首次重设值共 7 个凭据经只读探测全部报 `28P01`；最终值由 Neon Console
    的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
    `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
-3. **（已挂起）`3221226505` 根因消除**：取证步骤与 LocalDumps 配置已写入 `docs/windows-crash-evidence.md`
-   （先做只读的事件日志 / WER 报告排查，必要时再启用按映像名的崩溃转储采集）。**需在 Windows 本机执行**；
-   注册表改动属机器级配置，须明确批准。**2026-09-28 挂起**：用户开发机已切换为 macOS 且不再持有 Windows 机器，
-   该流程（WER / LocalDumps）无对应机制，故本轮不执行；**不新增决策、D-188 正文不改**，待重新拥有 Windows
-   机器时按原步骤恢复执行（届时把取证文档状态改回「待执行」）。D-188 的现状（CI 为权威证据 + 本地记录为
-   已接受环境限制）在未取得 Faulting module 结论前**维持不变**；注意其中「本地 Windows」指的是当时的环境，
-   现在已不存在，属历史记录而非当前事实。
+3. **`3221226505` 根因消除：已执行一轮、未命中（2026-10-08）——仍未定性，维持 D-188**。
+   取证步骤见 `docs/windows-crash-evidence.md`（该文件版本已到 V1.4）。**2026-09-28 曾挂起**，理由是
+   「用户开发机已切换为 macOS 且不再持有 Windows 机器」；**2026-10-08 用户确认当前主力开发机就是
+   Windows**（`DESKTOP-1UIFBM1`，win32 / x64，Windows 10.0.26200），macOS 27.0 / 26A428（arm64）
+   **仅在非工作时间段可能用于开发** ⇒ 挂起理由不成立。同日执行：§1 只读取证复跑（**仍无可归因记录**）、
+   §2.1 LocalDumps 配置（映像名按实测更正为 `chrome-headless-shell.exe`，并补上 Firefox 内容进程
+   `plugin-container.exe`）、§2.2 由用户在本机终端跑完整 Gate 1——**全绿且未出现该崩溃，无转储产生**。
+   按判据表落在「仍未定性」一行，**维持 D-188 现状、不新增决策**（CI 仍为权威证据；「本地 Windows」
+   自 2026-10-08 起重新成为当前事实）。
+   **⚠️ 两项未关闭**：① 根因仍未定性；② §2.3 的清理命令在**非提权**终端下**静默失败**，四个 LocalDumps
+   子键**截至 2026-10-08 仍在注册表内**（清理判据必须回读子键列表，不能只看命令是否报错）。
+   是否继续追（下一次运行前重新启用）仍待你决定。
 4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
    并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
    3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，

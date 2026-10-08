@@ -1,11 +1,18 @@
 # Windows 侧 `3221226505` 取证与崩溃转储配置
 
-版本：V1.1
-日期：2026-09-28
-状态：**已挂起（2026-09-28）——当前无可用 Windows 机器**。用户开发机已切换为 macOS，
-本文件的 WER / LocalDumps 步骤在 macOS 上无对应机制，因此本轮**不执行**；
-待重新拥有 Windows 机器时按原步骤执行，届时再恢复"待执行"状态。
-挂起口径已记入 `docs/current-plan.md` §5 第 3 项（**不新增决策**，D-188 正文不改）。
+版本：V1.4
+日期：2026-10-08
+状态：**取证已执行一轮、未命中（2026-10-08）——结论：仍未定性，维持 D-188**。
+本文件曾于 2026-09-28 挂起（理由「当前无可用 Windows 机器」）；**2026-10-08 用户确认当前主力开发机为
+Windows**（`DESKTOP-1UIFBM1`，win32 / x64，Windows 10.0.26200），macOS 27.0 / 26A428（arm64）
+**仅在非工作时间段可能用于开发** ⇒ 挂起理由不再成立。同日经用户指示「执行取证」，推进如下：
+§1 只读取证已复跑（**仍无任何可归因记录**，见 §1 的 2026-10-08 段）；§2.1 的 LocalDumps 已按
+**实测**映像名配置；**§2.2 已由用户在本机终端执行一次完整 Gate 1——全绿、未命中崩溃**（见 §2.2 的
+2026-10-08 段），因此**没有产生任何转储**；按 §3 判据表落在「仍未定性」一行，**维持 D-188 现状、
+不新增决策**。
+**⚠️ 未关闭**：§2.3 的清理命令在**非提权**终端下会**静默失败**，2026-10-08 实测四个子键**仍在注册表内**
+（处置见 §2.3 的陷阱说明）。
+恢复口径已记入 `docs/current-plan.md` §6 第 3 项（**不新增决策**，D-188 正文不改）。
 依据：D-188（稳定性权威证据来源与本地 Windows 环境限制）、`docs/handoff-2026-09-25.md` §T6 的既有分析、
 路线图 §0 遗留项 6。
 
@@ -26,6 +33,22 @@
   Playwright 的 Chromium profile 下**没有** Crashpad 报告；WER 未被禁用。
 - 该机器确有一份浏览器转储（2026-09-21，`firefox.exe`），但其 profile、URL 与模块显示是**用户自己的 Firefox**，
   与 Playwright 捆绑构建（`firefox-1538`）无关，D-188 已明确不得计入本项目证据。
+
+**2026-10-08 复跑（同一台机器，只读）**：本机 `LastBootUpTime` = **2026-09-24 18:41**，即 09-21 / 09-22 /
+09-24 三轮崩溃与本次取证是**同一台机器**（此前文档未记录这一点）。复跑结果与 2026-09-25 一致，
+**仍无任何可归因记录**：
+
+- Application 日志 Id=1000/1001 最近 15 条**全为 1001**（`Windows Error Reporting`），时间集中在
+  2026-10-08 12:02—12:58；以 `0xc0000409|3221226505|0xc0000005|chrome|firefox|node|playwright`
+  过滤最近 60 条，**匹配 0 条**。
+- `ReportArchive` / `ReportQueue` 最近 20 项为 `Kernel_*`（LiveKernelEvent）、`NonCritical_Update`、
+  `AppCrash_ipf_helper.exe`（2026-09-24 19:24）、`AppHang_Microsoft.OneDri`；**没有** node / chrome /
+  firefox / playwright 的任何报告。
+- WER 未被禁用（`Disabled` / `LoggingDisabled` / `DontShowUI` 三项均未设置）。
+- 本机 `LocalDumps` 原有一条**与本项目无关**的既有配置：`WeaselServer.exe`（用户输入法，`DumpType=0`、
+  `DumpCount=10`、目录 `%TEMP%\rime.weasel`）——**不得改动或删除**。
+- 与 §1.1 的精度说明自洽：fail-fast（`0xC0000409`）通常**不**留下 Id=1000 事件，故「无记录」不能
+  反证未发生崩溃。
 
 **因此本节剩下的唯一用途**：在**采集到新的崩溃之后**再查一次同源记录，确认这次是否终于留下现场。
 查询命令与字段提取方式如下（同时覆盖两个致命代码，见 §1.1 的精度说明）：
@@ -78,11 +101,23 @@ pnpm exec playwright install --dry-run
 输出会逐个列出各浏览器的安装位置（形如 `%USERPROFILE%\AppData\Local\ms-playwright\firefox-<rev>\firefox\firefox.exe`）。
 需要覆盖的映像名取决于你要复跑的模式：
 
-| 复跑模式                                                  | 参与的浏览器进程             | 建议配置的映像名                                                                            |
-| --------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `LOGIPLAN_GATE1_TARGET=firefox`（定向重复）               | 仅 Playwright 捆绑的 Firefox | `firefox.exe`                                                                               |
-| `LOGIPLAN_GATE1_TARGET=snapshot`                          | 不启动浏览器                 | 不需要转储                                                                                  |
-| full（不设 TARGET，含 Chromium 双视口冒烟与历史证据验收） | Firefox + Chromium           | `firefox.exe`，以及 Chromium 的 `chrome.exe`；**若为无头模式还需覆盖 `headless_shell.exe`** |
+| 复跑模式                                                  | 参与的浏览器进程             | 建议配置的映像名                                                                                               |
+| --------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `LOGIPLAN_GATE1_TARGET=firefox`（定向重复）               | 仅 Playwright 捆绑的 Firefox | `firefox.exe`、`plugin-container.exe`（Firefox 内容进程）                                                      |
+| `LOGIPLAN_GATE1_TARGET=snapshot`                          | 不启动浏览器                 | 不需要转储                                                                                                     |
+| full（不设 TARGET，含 Chromium 双视口冒烟与历史证据验收） | Firefox + Chromium           | `firefox.exe`、`plugin-container.exe`，以及 Chromium 的 `chrome.exe`；无头模式另需 `chrome-headless-shell.exe` |
+
+**2026-10-08 实测更正（原表格有两处错误，勿再沿用）**：
+
+- 无头 Chromium 的进程名是 **`chrome-headless-shell.exe`**，**不是** `headless_shell.exe`（后者不存在）。
+- Firefox 的内容进程是 **`plugin-container.exe`**：`0ms` 失败、无用例输出这一形态很可能落在内容进程上，
+  只配 `firefox.exe` 会漏掉它。
+- 本机实测路径（`node_modules/@playwright/test/cli.js install --dry-run`）：Firefox 153.0 →
+  `%LOCALAPPDATA%\ms-playwright\firefox-1538\firefox\firefox.exe`；Chromium 151.0.7922.34 →
+  `…\ms-playwright\chromium-1234\chrome-win64\chrome.exe`；无头 shell →
+  `…\ms-playwright\chromium_headless_shell-1234\chrome-headless-shell-win64\chrome-headless-shell.exe`。
+- 本机 `LocalDumps` 下已有一条**与本项目无关**的既有子键 `WeaselServer.exe`（用户输入法），
+  **不要动它**，§2.3 的清理也不得把它删掉。
 
 **先只对你要复跑的那一个模式启用**，以免一次采集把磁盘写满（完整转储通常是数百 MB 级，每次崩溃写一份）。
 
@@ -92,7 +127,8 @@ $root = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
 $dump = "$env:USERPROFILE\Desktop\logiplan-crashdumps"
 New-Item -Path $dump -ItemType Directory -Force | Out-Null
 
-foreach ($image in @('firefox.exe')) {   # full 模式再加上 'chrome.exe'、'headless_shell.exe'
+# 本机 2026-10-08 实际配置的就是这四条
+foreach ($image in @('firefox.exe','plugin-container.exe','chrome.exe','chrome-headless-shell.exe')) {
   New-Item -Path "$root\$image" -Force | Out-Null
   Set-ItemProperty -Path "$root\$image" -Name DumpFolder -Value $dump -Type ExpandString
   Set-ItemProperty -Path "$root\$image" -Name DumpType   -Value 2 -Type DWord
@@ -117,13 +153,39 @@ node scripts/run-gate1.mjs --target firefox --repeat 20 2>&1 | Tee-Object -FileP
 命中率约 20%/次，因此需要重复若干轮；**命中时保留现场，不重跑掩盖**（D-188 的重试政策）。
 命中后先做 §1 的只读取证，再原样重跑，两次都要如实记录。
 
+**2026-10-08 执行记录（未命中）**：用户在本机终端执行 `pnpm install --frozen-lockfile`（466 包、
+1m51.9s，**锁文件未变**）后运行完整 `pnpm verify:gate1:isolated`，**退出码 0、全阶段通过**：
+数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7`（零 fail，skipped 与声明一致）；隔离 PostgreSQL 18.4 上
+`0001—0003` → V1 → `0004—0010` → V2 校验/激活/幂等；`db:verify`、`db:verify-release`、`db:verify-plans`
+（6 条计划 `temp_written_blocks` 全 0）；生产构建；快照集成 `28/28`；Chromium 双视口基础
+`24 passed / 22 skipped`；Chromium 历史证据 `22/22`；**Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询
+`p50 27.399ms / p95 49.877ms / p99 56.911ms`（P95 预算 1 s）；隔离容器、卷、网络全部移除。
+**全程未出现 `3221226505`，转储目录为空**——即**本轮未命中**（历史命中率约 20%/次，一轮未命中
+不构成任何反证）。本次运行同时充当闸门二切片 1b 的 AC1.1 / AC1.11 本机验收证据。
+
 ### 2.3 清理（采集完立刻做）
 
 ```powershell
-foreach ($image in @('firefox.exe','chrome.exe','headless_shell.exe')) {
-  Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$image" -Recurse -Force -ErrorAction SilentlyContinue
+# 必须以**管理员** PowerShell 运行；只删本项目配置的四条，
+# 不得动 WeaselServer.exe（用户输入法，既有配置）
+if (-not ([Security.Principal.WindowsPrincipal]::new(
+      [Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) {
+  throw '需要管理员权限：非提权运行时 Remove-Item 会因 Access Denied 失败'
 }
+foreach ($image in @('firefox.exe','plugin-container.exe','chrome.exe','chrome-headless-shell.exe')) {
+  $path = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$image"
+  if (Test-Path $path) { Remove-Item -Path $path -Recurse -Force }   # 不吞错
+}
+# 回读确认：删干净时应只剩 WeaselServer.exe
+Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps' |
+  Select-Object -ExpandProperty PSChildName
 ```
+
+> **⚠️ 陷阱（2026-10-08 实测）**：本节原命令带 `-ErrorAction SilentlyContinue`，在**非提权**终端下
+> `Remove-Item` 对 `HKLM` 会报 Access Denied 而**被静默吞掉**——命令看起来执行成功，四个子键其实
+> 一个都没删（实测结果：四个子键仍在）。**判据不能看命令有没有报错，只能回读子键列表**
+> （上面最后一条）。清理后必须只剩 `WeaselServer.exe`。
 
 保留转储文件至结论写入文档后再删除；若转储体积过大，先只保留最小必要的一份。
 
@@ -141,6 +203,10 @@ foreach ($image in @('firefox.exe','chrome.exe','headless_shell.exe')) {
 | 仍未定性                                                      | 维持 D-188 现状 | 不新增决策；本地 Windows 仍记为已接受的环境限制                                       |
 
 **结论落盘位置**：路线图 §0 遗留项 6（Faulting module 结论）与 `docs/decisions.md`（若需新增或修订决策）。
+
+**2026-10-08 结论**：按本表落在**「仍未定性」**一行——本轮完整 Gate 1 全绿且未出现 `3221226505`，
+**没有现场可供定性**；因此**维持 D-188 现状、不新增决策**，本地 Windows 仍记为已接受的环境限制
+（CI 为稳定性权威证据）。后续若要继续追，需在**下一次**运行前重新执行 §2.1，并注意 §2.3 的提权要求。
 
 **按 Exception code 分流**：
 
