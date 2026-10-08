@@ -215,6 +215,44 @@ test("AC1.9 服务端拒绝供应商名、模型名、任意证据 ID 与供应�
   expect(body.answer?.analysis.limitations.status_labels).toContain(REQUIRED_LIMITATION_LABEL);
 });
 
+/**
+ * 定向复查 P2 的回归锁定：AC1.9 原本只覆盖顶层键，**未**覆盖 `page_address` 内部携带的
+ * 越界参数（`ai-model.ts` 的 `AI_PAGE_ADDRESS_ALLOWED_PARAMS` 白名单与重复键判定）。
+ * 白名单是一处安全边界，必须由测试锁死，否则日后放宽或漏改都不会被发现。
+ */
+test("AC1.9（P2 回归）页面范围地址不得走私越界参数，也不得重复携带参数", async ({ request }) => {
+  const base = "/attribution?destination=GB&period=2026-08";
+  const rejected: Array<[string, string, RegExp]> = [
+    ["供应商名", `${base}&provider=openai`, /不得携带参数 provider/u],
+    ["模型名", `${base}&model=gpt-5.6-terra`, /不得携带参数 model/u],
+    ["证据 ID", `${base}&evidence_id=E01-country`, /不得携带参数 evidence_id/u],
+    ["证据快照 ID", `${base}&evidence_snapshot_id=ES-any`, /不得携带参数 evidence_snapshot_id/u],
+    ["供应商参数", `${base}&temperature=0.2`, /不得携带参数 temperature/u],
+    ["重复目的地", `${base}&destination=DE`, /不得重复携带参数 destination/u],
+  ];
+  for (const [label, pageAddress, expected] of rejected) {
+    const response = await postAi(request, { question: QUESTION, page_address: pageAddress });
+    expect(response.status(), `${label} 应被拒绝`).toBe(400);
+    const body = (await response.json()) as AiRespondBody;
+    expect(body.ok, `${label} 不得返回回答`).toBe(false);
+    expect(body.status).toBe("INPUT_REJECTED");
+    expect(body.status_label_zh).toBe("输入未被接受");
+    expect(body.message_zh, `${label} 必须给出受控中文原因`).toMatch(expected);
+    expect(body.answer, `${label} 不得返回任何回答`).toBeUndefined();
+  }
+
+  // 反向对照：白名单内的九个参数必须全部受理，证明拒绝的是「越界」而不是「带参数」。
+  const allowed =
+    "/attribution?period=2026-08&comparison=ACTUAL_VS_BUDGET&destination=GB" +
+    "&budget=BUDGET_2026_V1&actual=ACTUAL_2026_08_CLOSE_V1&method=CHAIN" +
+    "&factor=VOLUME&path=DE_FC~FR_FC&guide=3";
+  const ok = await postAi(request, { question: QUESTION, page_address: allowed });
+  expect(ok.status()).toBe(200);
+  const body = (await ok.json()) as AiRespondBody;
+  expect(body.status).toBe("FIXED_EXAMPLE");
+  expect(body.answer?.analysis.answer_type).toBe("FIXED_EXAMPLE");
+});
+
 test("AC1.10 输入超 500 Unicode 字符被拒并返回受控中文状态", async ({ request }) => {
   const overLimit = "分".repeat(501);
   const response = await postAi(request, { question: overLimit, page_address: PAGE_ADDRESS });
