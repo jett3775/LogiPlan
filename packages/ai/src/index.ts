@@ -117,3 +117,121 @@ export {
   type SnapshotStoreOptions,
   type SnapshotWriteResult,
 } from "./snapshot/snapshot-store";
+
+/* ---------------------------------------------------------------------------
+ * 切片 2：成本包围（匿名标识 / 限流 / 费用 / 两级熔断 / 可观测性）
+ * docs/gate2-implementation-plan.md §4、docs/decisions.md D-181、D-190。
+ * 本切片**不发起任何真实模型调用**；`evaluateControlPlane` 只产出「是否允许真实调用」。
+ * ------------------------------------------------------------------------- */
+
+export {
+  ANON_ID_DERIVATION_VERSION,
+  anonymousDayStamp,
+  dailyAnonymousKey,
+  deriveAnonymousId,
+  digestUserAgent,
+  normalizeIp,
+  type AnonymousIdInput,
+} from "./control-plane/anonymous-id";
+export {
+  ControlPlaneUnavailableError,
+  isBudgetReserveOutcome,
+  isBudgetSettleOutcome,
+  isSlidingWindowOutcome,
+  type BudgetReserveOutcome,
+  type BudgetSettleOutcome,
+  type RedisLike,
+  type SlidingWindowOutcome,
+} from "./control-plane/redis-like";
+export {
+  checkRateLimit,
+  rateLimitKey,
+  RATE_LIMIT_MAX_PER_WINDOW,
+  RATE_LIMIT_WINDOW_MS,
+  type RateLimitDecision,
+  type RateLimitInput,
+} from "./control-plane/rate-limit";
+export {
+  deriveBudgetThreshold,
+  estimateCostCny,
+  estimateCostUsd,
+  fxRateFor,
+  FX_VERSION_V1,
+  isThresholdCurrent,
+  MAX_INPUT_TOKENS,
+  MONTHLY_BUDGET_CNY,
+  PRICE_VERSION_V1,
+  priceTableFor,
+  SAFETY_MARGIN,
+  USD_CNY_RATE_V1,
+  usdToCny,
+  type BudgetThreshold,
+  type ModelPrice,
+  type TokenUsage,
+} from "./control-plane/pricing";
+export {
+  budgetLedgerKey,
+  monthStamp,
+  readMonthlyUsage,
+  reserveBudget,
+  reserveFailureErrorCode,
+  settleBudget,
+  type BudgetReserveInput,
+  type BudgetReserveResult,
+  type BudgetSettleInput,
+  type BudgetSettleResult,
+  type MonthlyUsage,
+  type MonthlyUsageInput,
+} from "./control-plane/budget-ledger";
+export {
+  isMonthlyBudgetBreached,
+  isTransientFailure,
+  L1CircuitBreaker,
+  L1_CONSECUTIVE_FAILURE_THRESHOLD,
+  L1_WINDOW_MS,
+  TRANSIENT_FAILURE_CODES,
+  type CircuitBreakerOptions,
+  type CircuitState,
+} from "./control-plane/circuit-breaker";
+export {
+  buildControlPlaneAuditRecord,
+  CONTROL_PLANE_AUDIT_EVENTS,
+  CONTROL_PLANE_AUDIT_FIELD_NAMES,
+  emitControlPlaneAudit,
+  noopAuditSink,
+  type AuditSink,
+  type ControlPlaneAuditEvent,
+  type ControlPlaneAuditFieldName,
+  type ControlPlaneAuditRecord,
+  type ControlPlaneCircuitState,
+} from "./control-plane/audit-log";
+export {
+  CONTROL_PLANE_ENV_KEYS,
+  CONTROL_PLANE_TIMEOUT_MS,
+  controlPlaneUnavailableDecision,
+  DEFAULT_ROLE_COST_PROFILES,
+  evaluateControlPlane,
+  recordProviderAttemptOutcome,
+  type ControlPlaneClock,
+  type ControlPlaneConfig,
+  type ControlPlaneDecision,
+  type ControlPlaneDeps,
+  type ControlPlaneRequest,
+  type ControlPlaneRuntime,
+  type CreateControlPlaneOptions,
+  type RoleCostProfile,
+} from "./control-plane/control-plane";
+// 服务端装配入口（含 Upstash Redis 客户端）**不**从主 barrel 导出：主 barrel 被客户端
+// 组件消费，导出它会把服务端基础设施打进浏览器包（P1-1）。改用子路径 `@logiplan/ai/server`
+// （见 `packages/ai/package.json` 的 `exports` 与 `control-plane/server.ts`）。
+export {
+  defaultRetryHooks,
+  HARD_TIMEOUT_MS,
+  invokeWithRetry,
+  isRetryableError,
+  MAX_ATTEMPTS,
+  runWithHardTimeout,
+  type AttemptOutcome,
+  type RetryHooks,
+  type TimedResult,
+} from "./gateway/retry-policy";

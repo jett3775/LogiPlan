@@ -4,13 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./server": "./src/control-plane/server.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@logiplan/contracts": "workspace:*",
+    "@upstash/redis": "1.39.0",
     "zod": "4.4.3"
   }
 }

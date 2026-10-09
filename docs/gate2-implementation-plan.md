@@ -2,7 +2,7 @@
 
 版本：V1.0
 日期：2026-10-04
-状态：**实施中**。切片 1a 已完成并收口；**切片 1b 已收口（2026-10-08）**——代码已推送、CI 全绿、独立审查的定向复查 **PASS**（唯一 P2 已补回归测试），且本机真实库验收 `pnpm verify:gate1:isolated` **全绿**（AC1.1 / AC1.11 取得本机证据，见 §3.1）。**切片 2 的授权门 A 已于 2026-10-08 开启（用户明示）；切片 3 的授权门 B、C 仍未开启。**
+状态：**实施中**。切片 1a 已完成并收口；**切片 1b 已收口（2026-10-08）**——代码已推送、CI 全绿、独立审查的定向复查 **PASS**（唯一 P2 已补回归测试），且本机真实库验收 `pnpm verify:gate1:isolated` **全绿**（AC1.1 / AC1.11 取得本机证据，见 §3.1）。**切片 2 的授权门 A 已于 2026-10-08 开启（用户明示）；切片 3 的授权门 B、C 仍未开启。** **切片 2 代码已完成（2026-10-08）**：两轮独立审查（首轮 FAIL → 返工 → 定向复查 **PASS**），AC2.1—AC2.10 与 AC2.12 已满足、**AC2.11 部分满足**（展示面按 D-190 口径顺延切片 3）；**浏览器产物已复核通过（2026-10-09）**——详见 §4.1。
 依据：`docs/gate2-design.md`（设计 V1.0）、`docs/decisions.md` D-174 / D-181 / D-182 / D-190、`docs/query-contract.md` §10、`docs/ai-evaluation-baseline.md`、`docs/multi-agent-workflow.md`
 
 ---
@@ -173,7 +173,7 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **目标**：在**仍不调用模型**的前提下把成本包围建成可验收的东西。全部用替身与故障注入验证。**授权门 A 已于 2026-10-08 开启（用户明示），可以开工；开工前须按门 A 的范围只新增 `@upstash/redis`，不得顺带引入其它依赖。**
 
-**写范围**：`packages/ai/src/`（限流、费用、熔断、审计）、`apps/web/app/api/v1/ai/route.ts`（接入失败关闭）、`pnpm-lock.yaml`。
+**写范围**：`packages/ai/src/`（限流、费用、熔断、审计）、`apps/web/app/api/v1/ai/respond/route.ts`（接入失败关闭；**2026-10-08 更正**：本条原写 `apps/web/app/api/v1/ai/route.ts`，是笔误——切片 1b 实际交付的路径是 `.../ai/respond/route.ts`，见 §3 与 `1bab77c0`）、`pnpm-lock.yaml`。
 
 **执行步骤**
 
@@ -201,6 +201,43 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 | AC2.10 | D-138 日志边界：断言日志字段**恰好**是白名单集合（多一个字段即失败）                                                |
 | AC2.11 | 提供**当前月度累计用量的只读展示**（D-190 2026-10-04 补充②），且不改变熔断逻辑                                      |
 | AC2.12 | 本切片结束时**仍无任何真实模型调用路径被激活**——用测试锁定                                                          |
+
+---
+
+### 4.1 切片 2 实施结果（2026-10-08）
+
+**状态：代码完成、**工作区未提交**；两轮独立审查（首轮 FAIL → 返工 → 定向复查 PASS，无新 P0/P1）。**
+**浏览器产物已复核（2026-10-09，用户终端 `pnpm build` + 主 Agent 只读核验）**：`BUILD_ID` = `bq21jUwJM93ySJojS2UF_`；**客户端 `.next/static` 搜 `upstash`（大小写不敏感）零命中**；**正向对照**——服务端产物命中 `server/chunks/1bw4_@upstash_redis_nodejs_mjs_0c-sce4._.js`（被 `server/app/api/v1/ai/respond/route.js.nft.json` 引用），证明依赖仍在服务端正确使用、搜索方法有效；审计首轮实测的泄漏 chunk `1ot1pqlq3-sac.js` 已不存在。
+
+**交付物**（均在授权写范围内）：
+
+- 新增 `packages/ai/src/control-plane/`：`anonymous-id`、`redis-like`、`upstash-redis`、`server`（server-only 装配入口）、`rate-limit`、`pricing`、`budget-ledger`、`circuit-breaker`、`audit-log`、`control-plane`、`test-doubles` + 对应 9 个测试文件。
+- 新增 `packages/ai/src/gateway/retry-policy.ts`（+测试）、`packages/ai/src/no-live-call.test.ts`。
+- 修改 `packages/ai/src/index.ts`（导出）、`packages/ai/src/neutral-boundary.test.ts`（门 A 合规加固）、`packages/ai/package.json`（新增 `@upstash/redis@1.39.0` + `exports["./server"]`）、`apps/web/app/api/v1/ai/respond/route.ts`（惰性门控接缝，既有输出逐字不变）、`pnpm-lock.yaml`。
+
+**门 A 合规**：唯一新增依赖 `@upstash/redis@1.39.0`，唯一传递依赖 `uncrypto@0.1.3`，无 D-182 排除项；未引入任何供应商 SDK。
+
+**独立审查**：首轮 **FAIL**，两项 P1——① `@upstash/redis` 经 barrel 再导出被真实打进**浏览器包**（实测 `.next/static` 客户端 chunk 含 `UpstashError`），与「动态导入不进浏览器包」的自述矛盾；② L1 熔断每请求 `new L1CircuitBreaker()` 且 `recordTransientFailure`/`recordSuccess` **零调用点** → AC2.7 在装配路径上恒不生效。返工后**定向复查 PASS**：改用 server-only 入口 `@logiplan/ai/server` + 静态可达性回归断言；控制面改为进程级单例并新增装配级 AC2.7 测试。另修 P2 两条（时钟移入 `try`、不落盘如实注明）。
+
+**AC 逐条**：AC2.1—AC2.10、AC2.12 **已满足**（各有测试）；**AC2.11 部分满足**——只读访问器 `readMonthlyUsage` 已交付并有测试，**展示面按 D-190 的 2026-10-04 补充② 「实施期须提供…手段」口径顺延到切片 3**（用户 2026-10-08 决定），切片 3 补时建议用只读 CLI 而非公开路由（避免在公开演示站暴露花费）。
+
+**未执行（不得表述为通过）**：
+
+- ~~浏览器产物复核~~ **已于 2026-10-09 完成**：用户终端 `pnpm build` 成功，主 Agent 只读核验——客户端 `.next/static` 搜 `upstash` **零命中**，服务端产物**有命中**（正向对照，证明搜索有效），旧泄漏 chunk 已不存在。本会话内 `pnpm build` 仍会被 `node-safe-delete-shim` 拦截，项目禁止用 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 绕过（未使用）。
+- 真实 Upstash 的 Lua 原子性与 `eval` 运行时行为（无凭据/实例，替身只验接口形态）。
+- `packages/ai` 覆盖率（该包**不在** `vitest.config.ts` 的 `coverage.include` 内，且该文件不在本切片写范围）。
+- Playwright / axe 浏览器验收；`verify:gate1:isolated`、`test:db-integration`（会话内 `spawnSync`/`execSync` 恒 `EBUSY`）。
+
+**遗留 P2（记录为后续任务，未在本轮修复）**：
+
+1. **单例缓存键未含 secret**（`control-plane/server.ts:99-102`）：同 Redis 不同 secret 会复用首个运行时 → 同进程内密钥轮换后可能用到旧 secret。今日生产为单密钥单环境，无实际影响；切片 3 或密钥轮换前应把 `secret` 并入键。
+2. **进程级缓存无上限/不淘汰**（`server.ts:40,42`）。
+3. **可达性断言不跟随动态相对 `import()`**（`no-live-call.test.ts:121`）——当前无此边，断言标题已限定「静态可达性」，属如实。
+4. `audit-log.ts` 在切片 2 的 sink 为 `noopAuditSink`（**不落盘**），真实 sink 由切片 3 注入。
+5. 路由取 `x-forwarded-for` 的**首个**值（`respond/route.ts:62`）；Vercel 的 XFF 语义本机不可验证，待切片 3 前确认。
+6. **测试计数**：owner 自报新增 72 条，auditor 实测约 **70** 条（新文件 69 + `neutral-boundary.test.ts` 净增 1）——以实测为准。全量 `305 passed / 11 skipped (316)`。
+
+**L1 状态的存放形态（已知局限，如实记录）**：目前为**进程级单例**，`control-plane/server.ts:32-36` 已注明——在 Vercel serverless 下仅单热实例内有效、跨实例不共享；切片 3 迁至 Redis。
 
 ---
 

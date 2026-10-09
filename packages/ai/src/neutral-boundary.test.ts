@@ -67,8 +67,10 @@ describe("无 LIVE_GENERATED 产出路径", () => {
 });
 
 describe("供应商中立", () => {
-  it("只导入相对路径、@logiplan/contracts 与 zod", () => {
-    const allowed = new Set(["./", "../", "@logiplan/contracts", "zod"]);
+  it("只导入相对路径、@logiplan/contracts、zod 与中立的 Upstash Redis 客户端", () => {
+    // 切片 2 经门 A（2026-10-08）授权新增 `@upstash/redis`——它是 D-182/§10 明确允许的
+    // **中立层**依赖（限流与费用存储），不是供应商 SDK。除它之外不得新增任何外部依赖。
+    const allowed = new Set(["./", "../", "@logiplan/contracts", "zod", "@upstash/redis"]);
     const imports: string[] = [];
     for (const source of productionSources) {
       for (const match of source.text.matchAll(IMPORT_SPECIFIER)) {
@@ -82,18 +84,32 @@ describe("供应商中立", () => {
 
   it("不出现供应商 SDK 或专有标识", () => {
     const forbidden =
-      /@upstash|\bopenai\b|azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
+      /\bopenai\b|azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
     const offenders = productionSources
       .filter((source) => forbidden.test(source.text))
       .map((source) => source.file);
     expect(offenders).toEqual([]);
   });
 
-  it("依赖只有 workspace 契约包与锁文件内的通用库", () => {
+  it("Upstash Redis 客户端只出现在指定的中立适配器文件", () => {
+    const offenders = productionSources
+      .filter(
+        (source) =>
+          source.text.includes("@upstash") && source.file !== "control-plane/upstash-redis.ts",
+      )
+      .map((source) => source.file);
+    expect(offenders).toEqual([]);
+  });
+
+  it("依赖只有 workspace 契约包、zod 与中立的 Upstash Redis 客户端", () => {
     const manifest: unknown = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8"));
     expect(manifest).toMatchObject({
       name: "@logiplan/ai",
-      dependencies: { "@logiplan/contracts": "workspace:*", zod: "4.4.3" },
+      dependencies: {
+        "@logiplan/contracts": "workspace:*",
+        "@upstash/redis": "1.39.0",
+        zod: "4.4.3",
+      },
     });
   });
 });
