@@ -219,6 +219,8 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **独立审查**：首轮 **FAIL**，两项 P1——① `@upstash/redis` 经 barrel 再导出被真实打进**浏览器包**（实测 `.next/static` 客户端 chunk 含 `UpstashError`），与「动态导入不进浏览器包」的自述矛盾；② L1 熔断每请求 `new L1CircuitBreaker()` 且 `recordTransientFailure`/`recordSuccess` **零调用点** → AC2.7 在装配路径上恒不生效。返工后**定向复查 PASS**：改用 server-only 入口 `@logiplan/ai/server` + 静态可达性回归断言；控制面改为进程级单例并新增装配级 AC2.7 测试。另修 P2 两条（时钟移入 `try`、不落盘如实注明）。
 
+**CI（2026-10-09）**：run `37867164623`（`21cef684`，push）**全绿**——`Gate 1 deterministic validation`（含 ubuntu 上的 isolated Gate 1 validation，含 `postgres:18.4` 腿与 Firefox 腿）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。这是切片 2 提交后的权威 CI 证据。
+
 **AC 逐条**：AC2.1—AC2.10、AC2.12 **已满足**（各有测试）；**AC2.11 部分满足**——只读访问器 `readMonthlyUsage` 已交付并有测试，**展示面按 D-190 的 2026-10-04 补充② 「实施期须提供…手段」口径顺延到切片 3**（用户 2026-10-08 决定），切片 3 补时建议用只读 CLI 而非公开路由（避免在公开演示站暴露花费）。
 
 **未执行（不得表述为通过）**：
