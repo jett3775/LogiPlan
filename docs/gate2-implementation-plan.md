@@ -238,8 +238,12 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
   `pnpm test:coverage` 跑在**单一 `ubuntu-latest` job**（`.github/workflows/gate1.yml:50`，非跨平台矩阵）。
   **主要拖累项（如实记录）**：`upstash-redis.ts` 仅 **20% statements / 0% branches / 5% functions**
   ——它的 Lua/`eval` 路径需要真实 Upstash 实例才能执行；**门 C（首次真实付费调用）前补做真实原子性
-  验证后应上调该阈值**。`vitest.config.ts` **不在** `scripts/neon-baseline.mjs` 的
+  验证后应上调该阈值**。 `vitest.config.ts` **不在** `scripts/neon-baseline.mjs` 的
   `executionClosurePaths` 内，故本次改动**不触发工具 SHA 重锚定**。
+  **CI 证据**：run `37910980424`（`c837ac6e`）**全绿**——`Gate 1 deterministic validation`
+  （含 `Test with coverage` 步骤）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、
+  `CodeQL` 全 success；该步骤实测 `upstash-redis.ts` = `20 / 0 / 5 / 23.91`、`All files` =
+  `92.11 / 85.87 / 88.44 / 93.57`，**与本机实测逐项一致** ⇒ 阈值在本机与 CI 均稳定通过。
 - Playwright / axe 浏览器验收；`verify:gate1:isolated`、`test:db-integration`（会话内 `spawnSync`/`execSync` 恒 `EBUSY`）。
 
 **遗留 P2（记录为后续任务，未在本轮修复）**：
