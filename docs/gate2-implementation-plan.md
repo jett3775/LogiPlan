@@ -221,7 +221,7 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **独立审查**：首轮 **FAIL**，两项 P1——① `@upstash/redis` 经 barrel 再导出被真实打进**浏览器包**（实测 `.next/static` 客户端 chunk 含 `UpstashError`），与「动态导入不进浏览器包」的自述矛盾；② L1 熔断每请求 `new L1CircuitBreaker()` 且 `recordTransientFailure`/`recordSuccess` **零调用点** → AC2.7 在装配路径上恒不生效。返工后**定向复查 PASS**：改用 server-only 入口 `@logiplan/ai/server` + 静态可达性回归断言；控制面改为进程级单例并新增装配级 AC2.7 测试。另修 P2 两条（时钟移入 `try`、不落盘如实注明）。
 
-**CI（2026-10-09）**：run `37867164623`（`21cef684`，push）**全绿**——`Gate 1 deterministic validation`（含 ubuntu 上的 isolated Gate 1 validation，含 `postgres:18.4` 腿与 Firefox 腿）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。这是切片 2 提交后的权威 CI 证据。
+**CI（2026-10-09）**：run `37867164623`（`21cef684`，push）**全绿**——`Gate 1 deterministic validation`（含 ubuntu 上的 isolated Gate 1 validation，含 `postgres:18.4` 腿与 Firefox 腿）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。这是切片 2 提交后的权威 CI 证据。**AC2.11 追加提交 `675290a8` 的 CI run `37868916338` 同样全绿**（同 5 个 job，`Pull request dependency review` 按设计 skipped）。
 
 **AC 逐条**：**AC2.1—AC2.12 全部满足**（各有测试）。其中 **AC2.11 于 2026-10-09 补齐**——展示面 = **只读 CLI**（`packages/ai/src/read-monthly-usage.ts`）：只读性由替身的**调用序列断言**锁死（`budgetRead` +1，`budgetReserve` / `budgetSettle` / `slidingWindow` 均 0），输出恰为 `MonthlyUsage` 的五个字段（`month` / `used_cny` / `cap_cny` / `price_version` / `fx_version`），**未**新增公开 HTTP 路由（避免在公开演示站暴露花费），**未**改动熔断逻辑。用户 2026-10-08 曾决定顺延到切片 3，2026-10-09 改为现在补齐。
 
