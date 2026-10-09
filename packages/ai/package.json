@@ -8,7 +8,8 @@
     "./server": "./src/control-plane/server.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "usage": "node --env-file-if-exists=../../.env --import tsx src/read-monthly-usage.ts"
   },
   "dependencies": {
     "@logiplan/contracts": "workspace:*",
