@@ -165,9 +165,9 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
   `24 passed / 22 skipped`（**含新 P2 用例在 1440 与 1280 两档通过**）；Chromium 历史证据 `22/22`；
   **Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询 `p50 27.399ms / p95 49.877ms / p99 56.911ms`；
   隔离容器/卷/网络全部移除。**全程未出现 `3221226505`。**
-- **仍未关闭（如实携带，不得表述为已关闭）**：`packages/ai` 不在 `vitest.config.ts` 的
-  `coverage.include` 内，覆盖率未知（须在有该文件写权限的切片或阶段闸门补齐）；P1 遗留的
-  「15 条证据跨 4 个快照而契约 `evidence_snapshot_id` 为单值」缺口仍在，**页面恢复能力在处置前不成立**。
+- **仍未关闭（如实携带，不得表述为已关闭）**：P1 遗留的「15 条证据跨 4 个快照而契约
+  `evidence_snapshot_id` 为单值」缺口仍在，**页面恢复能力在处置前不成立**。
+  （~~`packages/ai` 覆盖率未知~~ **已于 2026-10-09 关闭**，见 §4.1 的覆盖率条目。）
 
 ## 4. 切片 2｜匿名标识、限流、费用与两级熔断
 
@@ -229,7 +229,17 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 - ~~浏览器产物复核~~ **已于 2026-10-09 完成**：用户终端 `pnpm build` 成功，主 Agent 只读核验——客户端 `.next/static` 搜 `upstash` **零命中**，服务端产物**有命中**（正向对照，证明搜索有效），旧泄漏 chunk 已不存在。本会话内 `pnpm build` 仍会被 `node-safe-delete-shim` 拦截，项目禁止用 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 绕过（未使用）。
 - 真实 Upstash 的 Lua 原子性与 `eval` 运行时行为（无凭据/实例，替身只验接口形态）；**AC2.11 只读 CLI 的「真实 Redis 成功路径」同样未实跑**（本机无 Upstash 凭据）——已验证的是无凭据时的**受控失败路径**（退出码 1、固定中文文案、**无凭据回显**，另以伪造 token/url/密钥实测确认不泄漏）。
-- `packages/ai` 覆盖率（该包**不在** `vitest.config.ts` 的 `coverage.include` 内，且该文件不在本切片写范围）。
+- ~~`packages/ai` 覆盖率~~ **已于 2026-10-09 关闭**（经用户批准扩大写范围）：`vitest.config.ts` 的
+  `coverage.include` 新增 `packages/ai/src/**/*.ts`，并新增阈值组（`lines 85` / `statements 83` /
+  `functions 75` / `branches 78`）。实测全包 **89.87% lines / 86.81% statements / 78.49% functions /
+  81.49% branches**（568/632、625/720、146/186、273/335），`pnpm test:coverage` 退出码 0。
+  **阈值确定性依据**：`packages/ai` 内**无环境门控跳过**（全仓 11 条 skip 全在
+  `packages/db/src/evidence-snapshot.test.ts`，由 `SNAPSHOT_TEST_*` 门控），且 CI 的
+  `pnpm test:coverage` 跑在**单一 `ubuntu-latest` job**（`.github/workflows/gate1.yml:50`，非跨平台矩阵）。
+  **主要拖累项（如实记录）**：`upstash-redis.ts` 仅 **20% statements / 0% branches / 5% functions**
+  ——它的 Lua/`eval` 路径需要真实 Upstash 实例才能执行；**门 C（首次真实付费调用）前补做真实原子性
+  验证后应上调该阈值**。`vitest.config.ts` **不在** `scripts/neon-baseline.mjs` 的
+  `executionClosurePaths` 内，故本次改动**不触发工具 SHA 重锚定**。
 - Playwright / axe 浏览器验收；`verify:gate1:isolated`、`test:db-integration`（会话内 `spawnSync`/`execSync` 恒 `EBUSY`）。
 
 **遗留 P2（记录为后续任务，未在本轮修复）**：
