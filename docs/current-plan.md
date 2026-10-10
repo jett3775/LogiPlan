@@ -1,556 +1,229 @@
 # LogiPlan 当前工作计划（滚动文档）
 
-> **本文件是滚动文档**：每轮**覆盖更新**，只反映**当前**要做的计划，**不累积历史**。
-> 历史脉络见 `docs/handoff-*.md` 与 `docs/development-roadmap.md` §0。
->
-> **与 `AGENTS.md` 的偏差（已由用户明确指示）**：`AGENTS.md` 要求「不在仓库中保存逐次聊天记录或临时工作日志」。
-> 用户于 2026-09-25 明确选择把计划类文档以**单一滚动文档**的形式入库（形式「乙」），取代此前散落在
-> `%TEMP%` 的周计划与日计划。**`%TEMP%` 中的周计划与日计划自本文件起不再单独维护。**
-> 如需恢复原约定，删除本文件即可。
+最后更新：2026-10-09。适用窗口：从计划执行日起一个工作日，净工作预算 **8 小时（480 分钟）**，不指定日历起止时刻。
 
-最后更新：2026-10-08（面向 10-05 之后的窗口；本文件内容已实际覆盖 2026-09-27 至 2026-10-05 的事件——
-本轮完成 `pg` 并发修复、闸门二立项（D-190）与切片 1a，见 §1 与 §9。2026-10-08 增补：更正机器身份记载
-并恢复 `3221226505` 取证状态为「待执行」，见 §1 与 §6 第 3 项）
+本文件每轮覆盖更新，只保留当前状态、当天任务和顺延项。用户已指定将滚动计划与项目交接保存在仓库；历史交接保留原文件。最新接续入口为 [handoff-2026-10-09.md](handoff-2026-10-09.md)。**本次仅更新文档；下列阶段全部待执行，估时不代表完成承诺。**
 
----
+> **2026-10-09 晚些时候的增补（本文件写入之后发生，由主 Agent 追加）**：本文件写入后，同一窗口又完成一件事，**其余内容不受影响**。
+> ① 本地 `main` 由 `402cff65` → **`3bd6f338`**（新增 `c837ac6e`：`packages/ai` 纳入覆盖率门；`3bd6f338`：该 CI 证据回填），与 `origin/main` 同步。
+> ② **阶段 3 的前提已变**：经用户批准扩大写范围，`vitest.config.ts` 的 `coverage.include` 新增 `packages/ai/src/**/*.ts`，并新增阈值组（lines 85 / statements 83 / functions 75 / branches 78）。实测 **89.87% lines / 86.81% statements / 78.49% functions / 81.49% branches**，`pnpm test:coverage` 退出码 0，CI run `37910980424` 全绿且实测与本机**逐项一致**。故「AI 包覆盖率未知、只测不达标、不改配置与阈值」**不再成立**——**阶段 3 视为已完成**，AI 专项测量已并入默认 `coverage.include`（原先的 `--coverage.include` 覆盖式测量不再需要）。
+> ③ **阶段 1（A：运行时密钥隔离）与阶段 2（B：只读用量受控失败）未受影响，仍然有效**；阶段 4 / 5 / 6 照旧。唯一新增的写范围偏差是 `vitest.config.ts`（见 §2「禁止扩写」行）。`vitest.config.ts` 不在 `scripts/neon-baseline.mjs` 的 `executionClosurePaths` 内，**不触发工具 SHA 重锚定**。
 
-## 1. 当前状态（已核实）
+## 1. 总体目标与当前位置
 
-- **阶段**：**闸门二实施进行中**。闸门一代码侧验收全部通过并持续在 CI 出证；闸门二**切片 1a 与 1b 均已收口
-  （2026-10-08）**——1b 的定向复查 PASS、唯一 P2 已补回归测试，且**本机真实库验收 `pnpm verify:gate1:isolated`
-  全绿**（见本节的 2026-10-08 段与 `docs/gate2-implementation-plan.md` §3.1）。稳定性权威证据仍为
-  CI `ubuntu-latest`（见 D-188）。
-- **main**：现为 **`3acf291e`**（在 `392924e2` 之上追加一个纯文档提交），与 `origin/main` 同步。
-  **工作区有 8 处未提交改动**（2026-10-08：1 个测试 + 7 份文档）。CI run **`37265108237`**（head `392924e2`）
-  **全绿**：5 个 job 全 success（`Gate 1 deterministic validation`、`Cross-platform checks` 的
-  ubuntu/macos/**windows** 三矩阵、`CodeQL`），`Pull request dependency review` 按设计 skipped。
-  该 run 的 `Run isolated Gate 1 validation` 步骤在 ubuntu 上 success，**含本机拉不到的 `postgres:18.4` 腿
-  与本机跑不了的 Firefox 腿**——这是 AC1.1 的权威证据（D-188）。
-  本窗口推送的关键提交：`7e089efb`（`pg` 串行化）、`54dce871`（`QueryTarget` + brand）、
-  `571d9f84`（切片 1a）、`80478e9b`（Windows 分隔符修复）、`392924e2`（切片 1b）。
-- **远端部署**：**2026-10-08 已由用户 Promote `3308ced5` 到生产**（应用产物与 `392924e2` 相同，
-  含切片 1a/1b）——生产域名 `logi-plan-web.vercel.app` 现服务该构建；切换前服务的是
-  `136a2d6`（2026-09-27 E3b Promote）。Promote 前 CI run `37736410798`（`3308ced5`，push）全绿。
-  **复验结果**（用户在本机执行，沙箱到 `vercel.app` 不通）：`/api/health/live` **200**；
-  `/api/health/ready` = `ready` + `schema_version=0010` + `active_release=LOGIPLAN_2026_DEMO_V2`；
-  `POST /api/v1/ai/respond` **200 + `FIXED_EXAMPLE`**（旧构建无此路由 → 证明新构建已上线）；
-  归因页「AI 管理分析提问」表单与五区块用户复验通过；首页/归因页数字与证据侧栏正常。
-  **生产热请求 P95 已测（2026-10-08）**：经 VPN 本地代理对 `POST /api/v1/query` 发 100 次（并发 5、四种查询轮转）
-  → 100/100 返回 200、形状 100/100 符合契约，**`p95 511.312 ms`（预算 1 s → 达标）**，`p50 382.437 / p99 757.561 ms`。
-  **函数区域已核对（2026-10-08，用户查面板：显示 `sin1`）**；`x-vercel-id` 104 次实测首段恒为 `fra1`（入口边缘区域）、
-  第二段恒为 `sin1`（函数区域），据此已更正 E2a 原写的「首段即区域代码」。
-  完整实录见 `docs/neon-vercel-baseline-runbook.md` §11.5。推送 `main` 仍只产生 `Staged` 部署，
-  须人工 Promote 才对外服务（E2c 已生效，见 D-189）。
-- **数据侧**：`LOGIPLAN_2026_DEMO_V2` 已激活（`status = ACTIVE`），固定证据 9 条已物化；
-  `db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）。
-- **闸门二进展**：**D-190** 已冻结 `gate2-design.md` §11 的五个待确认点（两级熔断参数、角色配置存放、
-  20 题评估形态、会话快照容量、评估集版本对齐）。**切片 1a** 新增 `packages/ai`（14 源码 + 9 测试文件）
-  与 `packages/contracts` 的 AI 输出 Zod 契约（纯追加 90 行）；经独立审查（首轮 FAIL → 返工 → 复查 PASS → 4 项收口）。
-  **切片 1b**（提交 `392924e2`）新增 `POST /api/v1/ai/respond` 与归因页 AI 五区块，`answer_type` 恒为
-  `FIXED_EXAMPLE`、不调用任何模型；15 条证据 ID 全部可在英国归因页解析。独立审查判定 **FAIL**，三项问题
-  （1× P0 类型破坏致 typecheck 与 build 双双退出 1、2× P1）已全部处置；**2026-10-08 定向复查 PASS**
-  （三项处置全部成立、无新 P0/P1；唯一 P2 = AC1.9 缺 `page_address` 参数回归测试，同日补齐），
-  **切片 1b 据此收口**。此前已执行：`pnpm test` 24 文件 / **235 passed / 11 skipped (246)**、
-  `pnpm typecheck` 5 workspace（删缓存后）、`pnpm lint` / `format:check` / `build` 均退出码 0、
-  CI run `37265108237` 全绿。
-- **2026-10-08 本机验收（切片 1b 的 AC1.1 / AC1.11 取得本机证据）**：用户终端执行
-  `pnpm install --frozen-lockfile`（466 包、1m51.9s、**锁文件未变**）后运行 `pnpm verify:gate1:isolated`，
-  **退出码 0、全阶段通过**——数据库集成四条腿 `44/44`、`44/44`、`10/10`、`7/7`；隔离 PostgreSQL 18.4 上
-  `0001—0003` → V1 → `0004—0010` → V2 校验/激活/幂等；`db:verify` / `db:verify-release` / `db:verify-plans`
-  （6 条计划 `temp_written_blocks` 全 0）；生产构建；快照 `28/28`；Chromium 双视口基础
-  `24 passed / 22 skipped`（**含新 P2 用例在 1440 与 1280 两档通过**）；Chromium 历史证据 `22/22`；
-  **Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询 `p50 27.399ms / p95 49.877ms / p99 56.911ms`；
-  隔离容器/卷/网络全部移除。**全程未出现 `3221226505`**（本轮未命中，见 §6 第 3 项）。
-  详见 `docs/gate2-implementation-plan.md` §3.1 与 `docs/handoff-2026-10-05.md`。
-- **⚠️ 本机环境限制（2026-10-05 实测，影响一切需真实数据库的本地验证）**：**`registry-1.docker.io`
-  的 TCP 443 从本机不可连**，TLS 握手被重置（`docker pull postgres:18.4` 约 60 秒后 `context deadline
-exceeded` 或 `EOF`）。同网络下 `api.github.com`、`registry.npmjs.org`、`ghcr.io` 均正常，故**不是
-  Docker 未启动、也不是全网问题，而是 Docker Hub 单独不通**。后果：本机镜像库存只有 `postgres:18.6`，
-  而 `compose.yaml:5` 与 `verify:gate1:isolated` 的数据库集成腿 1 都钉 `postgres:18.4`，因此
-  **`pnpm db:up`、`pnpm verify:gate1:isolated`、需真实库的 Playwright 用例在本机一律无法完成**。
-  按 D-188，Gate 1 的权威证据取 CI ubuntu；本机此限制须与 CI 结果**分别记录、不得合并**。
-  恢复方式（任选其一，需用户决定）：开代理/VPN 后按官方源拉取；或用户告知可访问的镜像源；
-  **不得给本机 18.6 打 `postgres:18.4` 标签冒充**。
-  **2026-10-08 更正：本条已不成立、不再阻塞。** 实测 `postgres:18.4` 镜像**本机确实存在且可运行**
-  （`docker run --rm postgres:18.4 postgres --version` → `18.4`；镜像 ID `a02db8cac496…`，与 18.6 的
-  `86c951e05bf5…` 是不同镜像、各有自己的 RepoDigest，**不是打标签冒充**），且完整
-  `pnpm verify:gate1:isolated` **已在本机跑通**（见上方 2026-10-08 段）。`registry-1.docker.io` 仍不可达，
-  但已不需要拉取新镜像，故**不构成阻塞**。
-- **本机环境（2026-10-08 用户确认，更正 2026-09-28 起「唯一开发机为 macOS」的记载）**：
-  **当前主力开发机是 Windows**（`DESKTOP-1UIFBM1`，win32 / x64，Windows 10.0.26200，
-  Docker server `linux/amd64`）；**macOS 27.0 / 26A428（arm64）仅在非工作时间段可能用于开发**。
-  因此本机适用的环境限制是 **Windows 的 `3221226505`**（见 §6 第 3 项；取证已于 2026-10-08 执行一轮、
-  **未命中**），
-  macOS 的 `Firefox 核心冒烟` 限制**仅在使用那台 Mac 时**相关。2026-10-08 实测：`postgres:18.4` 与
-  `18.6` 镜像均在且可运行、`logiplan-postgres-1` healthy、Playwright 1.62.1（`chromium-1234` /
-  `firefox-1538`）已安装、4173 空闲、`.env` 存在。
-- **E 段已收口（2026-09-27）**：E3b 已 Promote；E4 四项由用户在生产域名复验通过
-  （`/api/health/ready` = `ready`、首页与归因页数字与证据侧栏正常、核心 9 题正常、热请求 P95 达标）。
-  E5 见 runbook §12。
+项目主线是：**确定性异常识别 → 英国下钻与五因素归因 → 数字级证据 → 受控真实 AI 管理分析 → 20 题验收**。业务口径见 [CONTEXT.md](../CONTEXT.md)，阶段与冻结规则分别见 [开发路线](development-roadmap.md)、[决策](decisions.md) 和 [查询契约](query-contract.md)。
 
----
+| 层次                | 当前状态或完成条件                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 确定性页面与证据    | 闸门一已有代码、CI 与生产验收记录；稳定性权威证据仍按 D-188 取 CI ubuntu，本地证据单列                            |
+| 闸门二切片 1a / 1b  | 已收口；2026-10-08 的生产 Promote 记录为 `3308ced5`                                                               |
+| 闸门二切片 2        | 主体 `21cef684`、AC2.11 CLI `675290a8` 已完成代码、审查和 CI 收口；没有该切片独立生产发布记录                     |
+| 当天目标            | 加固切片 2 的运行时密钥隔离与只读用量入口，形成可复验的本地交付包                                                 |
+| 后续切片 3          | 门 B、C 均开启后才能开工：供应商适配器、网关及首次真实调用                                                        |
+| 后续切片 4 / 闸门二 | 20 题均须真实生成，至少 18/20，E19、E20 全通过；数字按 4 位小数精确一致，语义由人工复核；固定示例不能充当通过证据 |
 
-## 2. 当前计划：E 段（公开测试环境发布）
+截至编写时，本地 `main` 的 HEAD 为 `402cff65`，文档写入前工作区干净；未 fetch，不能据此声称远端最新状态。**2026-10-09 晚些时候更新**：HEAD 已推进至 **`3bd6f338`**（见文首增补），与 `origin/main` 同步。CI 历史记录为 run `37867164623`（`21cef684`）与 `37868916338`（`675290a8`）全绿；历史全量测试为 **309 passed / 11 skipped（320）**，不是本次实跑。
 
-> **状态：已完成（2026-09-27）。** E2a / E2b / E2c、E3、E1、E3b、E4、E5 全部收口：生产域名已服务新构建，
-> 站点四项复验通过。执行实录见 `docs/neon-vercel-baseline-runbook.md` §11.4，回切路径见同文件 §12。
-> 下表保留为执行顺序的权威记录（已修正原 E1—E5 的编号与依赖错位——激活的前置是「部署已取得部署标识」，
-> 因此**部署必须先于激活**）。
+生产历史 P95 **511.312 ms** 来自 2026-10-08 的 100 请求、并发 5 测量，不是当前 HEAD 的新性能结论。生产状态、回切及部署细节只查 [runbook §11.5、§12](neon-vercel-baseline-runbook.md)，本计划不重复发布步骤。
 
-| 步      | 内容                                                                                                                                                | 谁做                                                  | 验收标准                                                                                                                                                           | 难度 | 思考强度 |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | -------- |
-| **E2a** | Vercel 六项核对：Team `logi-plan` / Project `logi-plan-web` / Root Directory `apps/web` / Framework Next.js / Node.js 24.x / Function Region `sin1` | 你（Vercel UI）                                       | 六项逐项确认；**区域必须看部署摘要或 `x-vercel-id`，不能只看设置页**（`vercel.json` 已写 `regions: ["sin1"]`，设置页显示的是项目默认值；若显示 `iad1` 说明未生效） | 低   | `medium` |
-| **E2b** | 环境变量**配置**（**实测当前为空，需从零创建**）：Production **只**加池化 `DATABASE_URL`，角色必须 `app_reader`；Preview / Development **不**加     | 你（Vercel UI）                                       | Production 下只有一个数据库变量；**构建成功即自证角色正确**（角色不对会直接构建失败）；池化端点需人工看值                                                          | 中   | `medium` |
-| **E2c** | 关闭 **Settings → Environments → Production → Branch Tracking → 「Auto-assign Custom Production Domains」**                                         | 你（Vercel UI）                                       | 开关已关闭；此后推送 `main` 只产生 `Staged` 部署、不对外服务（见 D-189）                                                                                           | 低   | `medium` |
-| **E3**  | 部署：合并 PR（或推送 `main`）→ 产生 **`Staged`** 生产部署                                                                                          | 你 / 我                                               | 出现 `Staged` 状态的生产部署，`ref` = 已通过检查的提交 SHA                                                                                                         | 中   | `medium` |
-| **E3b** | **人工 Promote** 该 `Staged` 部署 → `Current`                                                                                                       | 你（Vercel UI）                                       | 部署变为 `Current` 并服务生产域名；**promote 不重建**，验证过的构建即上线构建                                                                                      | 低   | `medium` |
-| **E1**  | 原子激活：`pnpm db:activate-release LOGIPLAN_2026_DEMO_V2`（**不带 `--`**，pnpm 10.x 会把它当参数传下去）                                           | 你（终端，需 `PUBLISHER_DATABASE_URL`，**直连**端点） | 活动发布切换为 `LOGIPLAN_2026_DEMO_V2`；`db:verify-plans` 通过                                                                                                     | 高   | `high`   |
-| **E4**  | 激活后复验：`pnpm db:verify-plans`、`/api/health/ready`、核心 9 题、页面冒烟、性能                                                                  | 你 / 我                                               | 核心 9 题通过；热请求 **P95 ≤ 1 s**；`temp_written_blocks` 全 0                                                                                                    | 中   | `high`   |
-| **E5**  | 回切路径确认（D-155）                                                                                                                               | 我                                                    | 回切路径已确认并写入文档；首次无旧发布时复验失败必须停止公开流量并修复，**不得伪造可回切版本**                                                                     | 中   | `medium` |
+## 2. 当天工作流边界
 
-**前置已就绪**：迁移 `0001`—`0010` 与 V2 候选校验已于 2026-09-22 完成，且候选资产自 `0229755`
-以来逐字节未变、四项校验和一致（见 runbook §1.1）。**本次预计只需部署应用。**
+**objective**：修复同一 Redis 下主密钥变化仍复用旧运行时的问题；使 `runReadMonthlyUsage` 的读取异常返回受控失败，并用行为断言证明读操作不触发计费、限流或熔断状态改变。
 
-**关键提醒**：`readWebRuntimeDatabaseUrl()` 会校验 `DATABASE_URL` 的角色必须是 `app_reader`——
-**角色不对时 Production 构建会直接失败**（以前是静默通过）。反过来，**构建成功即证明角色正确**。
+**level**：未来代码实施为 **L2**，涉及匿名身份与费用控制面。由同一个 `slice_owner` 连续实现、自测、返工，再由独立 `independent_auditor` 审查。本次两份文档的事实同步为 L1，不等于已执行 L2 工作。
 
-**执行进度（2026-09-27）**
+**acceptance**：阶段 1、2 的行为验收均通过；取得 AI 包完整测试范围的覆盖率测量；阶段 4 完整 L2 矩阵通过；独立审查通过；证据区分通过、失败、跳过、未执行。任一必需检查未完成，交付状态只能是“未完成 / 待验证”。
 
-| 步      | 状态            | 依据                                                                                                             |
-| ------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **E2a** | ✅ 完成         | 用户在 Vercel UI 核对                                                                                            |
-| **E2b** | ✅ 完成         | 反证：新构建 `/api/health/ready` 返回「数据库或活动正式版本不可用」，走到该分支即证明变量存在且角色校验通过      |
-| **E2c** | ✅ 完成且已生效 | 生产域名仍服务旧构建 `a63a43c`，`16b1df8` 的生产部署停留在 `Staged`                                              |
-| **E3**  | ✅ 完成         | main 快进到 `16b1df8`，PR #1 自动 MERGED，5 项检查全绿；随后追加纯文档提交 `136a2d6`                             |
-| **E3b** | ✅ 完成         | 你已 Promote `136a2d6`（该 SHA 应用产物与 `16b1df8` 相同），且经 §2.1 E2c 的可靠判据确认域名内容已切换           |
-| **E1**  | ✅ 完成并核实   | 活动发布 = `LOGIPLAN_2026_DEMO_V2`（`status = ACTIVE`），9 条固定证据物化                                        |
-| **E4**  | ✅ 完成         | `db:verify-plans` 通过（6 条计划 `temp_written_blocks` 全 0）；`ready`、核心 9 题、页面与 P95 四项由用户复验通过 |
-| **E5**  | ✅ 完成         | runbook §12                                                                                                      |
+**relevant_files / write_scope**：
 
-**重要更正（2026-09-27）**：曾因把 **Staged 部署专属 URL** 上的内容当作生产域名内容，误判 E2c 失效。
-**唯一判据是生产域名本身服务的内容，或面板上的 `Staged` / `Current` 标签**——Staged 部署的详情页也会列出生产域名。
-详见 runbook §11.4 的陷阱 1。
+| 用途            | 文件与权限                                                                                                                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A：运行时隔离   | 仅改 `packages/ai/src/control-plane/server.ts`、`server.test.ts`（同目录）                                                                                                                                  |
+| B：只读用量入口 | 仅改 `packages/ai/src/read-monthly-usage.ts`、`read-monthly-usage.test.ts`（同目录）                                                                                                                        |
+| 最终有效结论    | 阶段 6 仅更新本文件与 `docs/handoff-2026-10-09.md`                                                                                                                                                          |
+| 只读参照        | `control-plane.ts`、`anonymous-id.ts`、`circuit-breaker.ts`、`budget-ledger.ts`、`redis-like.ts`、`test-doubles.ts`（均在 `packages/ai/src/control-plane/`）；`vitest.config.ts`、根与 AI 包 `package.json` |
+| 禁止扩写        | 其他源码、测试、配置、依赖、锁文件、AGENTS、冻结决策、查询契约、闸门设计、路线图、历史交接（**唯一例外**：`vitest.config.ts` 的 `coverage.include` 与阈值，经用户批准于 2026-10-09 单独修改，见文首增补）   |
 
----
+**invariants**：
 
-### 2.1 E2 操作指引（Vercel UI，逐项）
+- AI 输出继续为 `FIXED_EXAMPLE`；不新增 provider 包，不改变产品供应商或模型路由。
+- 门 A 仅授权既有 `@upstash/redis` 依赖；门 B（`openai` 依赖）、门 C（真实付费调用）未开。[切片实施计划 §5](gate2-implementation-plan.md) 明确二门均开前切片 3 不得开工。
+- 不改匿名派生算法、冻结限流/熔断参数、月度 30 元同池预算、价格与汇率版本；不改精确数值、证据原子性、失败关闭和服务端基础设施隔离。
+- 密钥、token、连接串及底层异常不进入输出或报告；只记录配置是否存在及受控结果。
+- 不使用真实 Redis、真实密钥、付费 API 或外部账户；不提交、暂存、创建分支、远程写入或部署。已有未提交改动视为用户资产。
 
-**入口**：`https://vercel.com/logi-plan/logi-plan-web/settings`
+**verification**：各阶段定向命令 + `pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm build` + 既有覆盖率检查、AI 专项测量、独立审查。数据库和页面没有改动时不追加其专项验收；若影响扩展到这些层，先由主 Agent 重评范围。
 
-先用左侧边栏顶部的 **scope 切换器**确认当前 scope 是 **`logi-plan`**；页面包屑应显示 `logi-plan / logi-plan-web`。
-三处设置都在同一个 Settings 里，**一次进去可全部过掉**。
+**risks**：8 小时包括审查返工，可能不足；覆盖率测值未知；运行时缓存修改不能破坏同配置下跨请求 L1 累计；替身不能证明真实 Upstash 原子性。遇到范围扩大、冻结口径不清或外部操作，停止相关写入并交主 Agent。
 
-#### E2a 六项核对
+## 3. 面向 DeepSeek v4.1 Flash 的执行方式
 
-| #   | 项               | 页面                                            | 期望值                         |
-| --- | ---------------- | ----------------------------------------------- | ------------------------------ |
-| 1   | Team             | 侧栏 scope 切换器 / 页面包屑                    | `logi-plan`                    |
-| 2   | Project          | 页面包屑第二段                                  | `logi-plan-web`                |
-| 3   | Root Directory   | Settings → **General**                          | `apps/web`（不是空、不是 `/`） |
-| 4   | Framework Preset | Settings → **General**                          | `Next.js`                      |
-| 5   | Node.js Version  | Settings → **General**                          | **`24.x`**                     |
-| 6   | Function Region  | Settings → **Functions** → **Function Regions** | `sin1`                         |
+用户指定 **DeepSeek v4.1 Flash 作为开发执行模型**；[DeepSeek 官方更新记录](https://api-docs.deepseek.com/updates/)已列出该系列发布。下列小步组织方式是工程规划假设，不使用未经验证的能力分数，也不表示将产品 LLM 供应商切换为 DeepSeek。
 
-> 部分 UI 版本把第 3—5 项放在独立的 **Build and Deployment** 页；若 General 里找不到，去那里看。
+1. 主 Agent 每次只交一个阶段；执行者先复述目标、允许文件、不变量与验收，再读取该阶段入口。阶段内按编号顺序做最小改动。
+2. 每个实现阶段完成后立即跑定向测试；失败先定位原因，不删用例、不放宽断言、不改冻结数字来制造通过。
+3. 可从代码或文档回答的问题先查证；不得猜测业务、权限或接口。超出四个源码/测试文件的修改，先返回主 Agent 重评。
+4. 每阶段只交付：改动文件、命令与退出码、关键结果、未执行项及原因、下一步。保存最终有效结论，不保存逐次 Agent 对话和原始日志。
+5. 项目仍遵守 [多 Agent 工作流](multi-agent-workflow.md)：单点写入、独立审查、问题回原 owner 修复及原 auditor 复查；两轮修复—复查仍失败即停止并由主 Agent 提一个决策问题。
+6. 不自动修改 AGENTS 或协作配置。未来运行者如使用 DeepSeek，应记录与仓库首选配置的偏差及实际可知模型；若平台无法路由该模型，如实交回主 Agent，不声称已使用。模型选择不降低 L2 验证与独立审查。
 
-**Node.js Version 是自校验的**：根 `package.json` 冻结 `engines.node = ">=24.15.0 <25"`，且 `.npmrc` 有
-**`engine-strict=true`**。若生效版本低于 24.15.0，**`pnpm install` 会直接失败**——所以**构建成功即证明版本合格**，
-不需要额外比对。
+本次**文档实现**的配置偏差：L1 首选 `gpt-5.6-terra / medium` 未出现在运行环境可用列表，按工作流 §2.6 使用环境默认模型；实际精确模型 ID 与推理强度未暴露，记为未知。此记录不代表未来代码阶段已经由 DeepSeek 执行。
 
-**Function Region 不要只看设置页（重要）**：`apps/web/vercel.json` 已写 `regions: ["sin1"]`，因此设置页显示的是
-**项目默认值**，未必是实际生效值（Vercel 新项目默认 `iad1` 华盛顿）。
+## 4. 一个工作日排期
 
-- **权威核对方式**：Deployments → 点开任意部署 → **Resources / Deployment Summary**，看实际 default region；
-  或 `curl -I https://<部署地址>/api/health/live` 读响应头 **`x-vercel-id`**（形如 `fra1::sin1::<id>`；**2026-10-08 更正**：原写「首段即区域代码」不准确——**首段是入口边缘区域**，随客户端 / VPN 出口变化，**函数区域在第二段**，与面板部署摘要一致）。
-- **判据**：显示 `sin1` ✓；显示 `iad1` 说明 `vercel.json` 未生效，需排查。
-- Hobby 计划只允许**单一**区域，所以 `sin1` 这一个值本来就合规。
+| 阶段     | 任务                                                                       |                净预算 | 初始状态 |
+| -------- | -------------------------------------------------------------------------- | --------------------: | -------- |
+| 0        | 复核基线、范围与执行环境                                                   |               30 分钟 | 待执行   |
+| 1        | A：运行时密钥隔离与回归                                                    |               90 分钟 | 待执行   |
+| 2        | B：只读用量受控失败与副作用断言                                            |               90 分钟 | 待执行   |
+| 3        | ~~既有覆盖率检查、AI 包覆盖率测量~~ **已于 2026-10-09 完成（见文首增补）** |               60 分钟 | 已完成   |
+| 4        | 完整 L2 回归与差异检查                                                     |               90 分钟 | 待执行   |
+| 5        | 独立审查与必要返工                                                         |               90 分钟 | 待执行   |
+| 6        | 最终证据与交接                                                             |               30 分钟 | 待执行   |
+| **合计** |                                                                            | **480 分钟 / 8 小时** |          |
 
-#### E2b 环境变量**配置**（不是核对——实测当前为空）
+所有命令均从仓库根目录、PowerShell 执行，使用现有依赖。每条命令单独运行并记录退出码；上一条失败不得被下一条成功覆盖。
 
-**页面**：Settings → **Environment Variables**。**2026-09-25 实测该页为「No Environment Variables Added」**，
-即这些变量**从未被创建过**，因此本步是**从零创建**，不是核对既有配置。
+### 阶段 0：基线与最小交接（30 分钟）
 
-> 先确认 **「Shared」标签页**也是空的——团队级共享变量不会显示在默认的「Project」标签下。
+**前置 / 只读入口 / 写范围**：先读 [AGENTS](../AGENTS.md)、工作流 §5 / §8 / §10、[切片实施结果 §4.1](gate2-implementation-plan.md) 及上表列出的代码；本阶段不写文件。
 
-**要做的**：只加**一个**变量。
+1. 运行基线命令，记录实际 HEAD、已有改动、Node / pnpm 版本；若已偏离 `402cff65`，只读核对受影响差异，不能回退。
+2. 阅读四个目标文件和既有测试，确认 `runtimeByRedis` 与 `runReadMonthlyUsage` 仍为问题入口。
+3. 确认测试只注入替身；检查拟用命令的配置加载方式，不打印 `.env`。构建若需要数据库，只能使用已确认的本地隔离环境，不能默用真实连接。
+4. 主 Agent 将 §2 的八项整理为最小交接包，记录执行模型、验证环境及偏差，再进入阶段 1。
 
-| 变量名         | 环境                  | 值                                     |
-| -------------- | --------------------- | -------------------------------------- |
-| `DATABASE_URL` | **仅勾选 Production** | Neon **池化**连接串，角色 `app_reader` |
-
-值的形态：`postgresql://app_reader:<密码>@<endpoint-id>-pooler.<region>.aws.neon.tech/<库名>?sslmode=require`
-—— 在 **Neon 控制台**该分支的 Connection Details 里，打开 **Pooled connection** 开关、角色选 `app_reader` 后复制。
-
-**Type 选 `Secret`**（不要选 `Config`）：这个值里含 `app_reader` 的密码，官方文档对 Secret 的说明就是
-「write-only after saving. **Use them for passwords, API keys, and tokens.**」，而 Config 是
-「for non-sensitive configuration」。因此**必须在保存前**在 Value 框里逐项核对（对话框本身是明文显示）。
-
-`Secret` 的三条后果（均已查证官方文档）：
-
-1. **保存后值不可读回**；「You cannot convert a saved Secret to Config in place」——若日后想改成可读，
-   必须**删除后重建**，不能原地转换。
-2. **值可以编辑（轮换），但键名不可编辑**：「You cannot edit the key of a Secret after it is saved.」
-3. **构建时仍然可用**：文档的「Build log redaction」一节写明「During builds, if a Secret environment
-   variable value is 32 characters or longer and appears in build logs, Vercel replaces the value with
-   `[REDACTED]`」——即 Secret 在构建阶段是存在的（否则无从脱敏）。**因此
-   「Production 构建成功即自证角色正确」这一判据成立**，构建时会真的执行
-   `readWebRuntimeDatabaseUrl()` 的角色校验。
-
-（另：若团队启用了可选的「Separate Production Secret Values」策略，同一个 Secret 键在 Production 与
-其他环境必须用不同值。本项目只在 Production 设该变量、Preview/Development 留空，**不冲突**。）
-
-**已核实的取值**（`docs/neon-permission-baseline-plan.md:90` 与 runbook §0.2/§2 记录，2026-09-22 只读核对
-**对着远端确认过**，非猜测）：
-
-| 片段           | 值                                                                |
-| -------------- | ----------------------------------------------------------------- |
-| 角色（用户名） | `app_reader`                                                      |
-| 库名           | **`neondb`**                                                      |
-| endpoint ID    | `ep-empty-shape-b35qu1jv`                                         |
-| 计算段         | `c-4`（**2026-09-27 实测补充**；缺它会认证失败）                  |
-| 区域           | `aws-ap-southeast-1`                                              |
-| 主机名         | `ep-empty-shape-b35qu1jv-pooler.c-4.ap-southeast-1.aws.neon.tech` |
-| 密码           | `NEON_APP_READER_PASSWORD`（你 09-22 设的值）                     |
-| 查询串         | `?sslmode=require`                                                |
-
-**主机名的推导（四步；前三步有仓库证据，第四步为 2026-09-27 只读实测）**：
-
-1. endpoint ID = `ep-empty-shape-b35qu1jv`（runbook §2、`docs/neon-permission-baseline-plan.md:90`）。
-2. **主机名里的区域标签是 `ap-southeast-1`，不是 Neon 的区域标识符 `aws-ap-southeast-1`** ——
-   `scripts/neon-permission-audit.test.mjs:45` 的夹具直接用了我们这台的 endpoint ID。
-3. 池化主机 = `<endpoint-id>-pooler.<后缀>` —— `scripts/neon-baseline.mjs` 的 `roleHostFromAdmin`
-   取 endpoint ID **之后的整段后缀**，因此**只要管理连接串正确，它会自动导出正确的池化主机**；
-   `scripts/neon-baseline.test.mjs:763` 的夹具印证。
-4. **endpoint ID 与区域段之间还有一段计算标识，本机为 `c-4`。** 2026-09-27 实测：管理连接串的主机是
-   `ep-empty-shape-b35qu1jv.c-4.ap-southeast-1.aws.neon.tech`，其 TLS 证书 altname 为
-   `*.c-4.ap-southeast-1.aws.neon.tech`；**漏掉 `c-4` 的两个主机（直连与池化）均以 `28P01`
-   认证失败**，说明它们不是同一计算实例。故早期文档中不带 `c-4` 的写法是错的。
-   证据见 `docs/neon-vercel-baseline-runbook.md` 第 1.2 节。
-
-**完整值**（唯一需要你填的是密码；仓库与磁盘上**都没有**这个值，且**不应**写进任何文档或聊天）：
-
-```
-postgresql://app_reader:<你的 NEON_APP_READER_PASSWORD>@ep-empty-shape-b35qu1jv-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+```powershell
+git status --short --branch
+git rev-parse HEAD
+node --version
+pnpm --version
+pnpm exec vitest run packages/ai/src/control-plane/server.test.ts packages/ai/src/read-monthly-usage.test.ts
 ```
 
-> **保存前在 Value 框里核对五点**：用户名 `app_reader`、主机含 `-pooler`、主机含计算段 `c-4`、
-> 库名 `neondb`、后缀 `c-4.ap-southeast-1.aws.neon.tech`。**若 Neon 控制台给出的字符串与上式
-> 任何一处不同，以控制台为准**——控制台是权威来源，上式已由 2026-09-27 只读实测确认可连通。
->
-> **保存后若发现填错**：`Secret` 不能读回，但可以**覆盖**该变量的值重新保存。
-> 密码即 `NEON_APP_READER_PASSWORD`，**直接填进 Vercel，不要发给我**。
+**验收**：基线差异归属清楚，四文件边界成立，既有定向测试退出 0。**失败处理**：环境失败与代码失败分别记录；依赖缺失先交主 Agent，不改清单或锁文件。基线异常未澄清，不进入修复。
 
-**不要添加**（任何环境下）：`MIGRATION_DATABASE_URL`、`PUBLISHER_DATABASE_URL`、
-`NEON_SCHEMA_MIGRATOR_PASSWORD`、`NEON_DATA_PUBLISHER_PASSWORD`、`NEON_APP_READER_PASSWORD`、
-`LOGIPLAN_SCHEMA_MIGRATOR_PASSWORD`、`LOGIPLAN_DATA_PUBLISHER_PASSWORD`、
-`LOGIPLAN_APP_READER_PASSWORD`、`POSTGRES_SUPERUSER_PASSWORD`。
+### 阶段 1：运行时密钥隔离（90 分钟）
 
-**Preview / Development 保持不勾选**——这正好满足冻结要求里「隔离环境缺失时关闭预览数据访问、不得回退到
-公开测试库」的 fail-closed 行为。
+**前置**：阶段 0 通过。**只读入口**：`server.ts` 的 `productionRedisByCredentials`、`runtimeByRedis`、`createControlPlaneFromEnvironment`，及匿名派生、L1 既有测试。**写范围**：仅 A 两文件。
 
-**自证与不自证**：
+1. 补能暴露旧行为的测试：同 Redis + 同 secret 复用；同 Redis + 不同 secret 不复用旧身份配置；不同 Redis 隔离。固定时钟与请求输入，用 `deriveAnonymousId` 验证主密钥变化后的匿名派生值变化。
+2. 修改 `runtimeByRedis` 的配置身份；推荐每个 Redis 仅保存“当前 secret 的不可逆摘要 + runtime”，摘要相同复用、变化替换，避免另建按每个历史 secret 无限增长的嵌套缓存。先按源码确认实现；不能只改生产 Redis 的 url/token 缓存。
+3. 保留同配置跨请求累计 L1 的测试，并覆盖再次使用新 secret 时的复用；检查密钥缺失仍返回 `null`。摘要只在服务端内存使用，不输出原值或摘要。
+4. 运行定向测试、AI 类型检查及两文件格式检查；检查 diff，禁止顺带迁移 L1 到 Redis 或重构其他缓存。
 
-- **角色是自证的**：角色不对时 `readWebRuntimeDatabaseUrl()` 会让 **Production 构建直接失败**，
-  错误信息含「用户名必须是 app_reader」。**构建成功 ⇒ 角色正确**，不必抠掩码值。
-- **池化不自证**（未做该校验，因为本地与 CI 用非池化的本地 PostgreSQL），需人工看值或去 Neon 控制台确认。
+```powershell
+pnpm exec vitest run packages/ai/src/control-plane/server.test.ts
+pnpm --filter @logiplan/ai typecheck
+pnpm exec prettier --check packages/ai/src/control-plane/server.ts packages/ai/src/control-plane/server.test.ts
+git diff -- packages/ai/src/control-plane/server.ts packages/ai/src/control-plane/server.test.ts
+```
 
-**期望管理（重要）**：**只加 `DATABASE_URL` 不会让应用显示出数据。** 当前活动发布仍为 `null`
-（V2 只到 `VALIDATED`），在 **E1 激活**之前，`/api/health/ready` 会返回 503「数据库或活动正式版本不可用」。
-这是**预期且正确**的，不是故障。
+**验收**：同配置复用、轮换后用新身份、再次同配置复用、不同 Redis 隔离均有断言；第 4 次不熔断、第 5 次熔断的既有行为继续通过；无新增外部调用或输出泄漏。
 
-**页底部**：「Enable access to System Environment Variables」**无需为我们的代码开启**——`apps/web` 的
-`app/` 与 `next.config.ts` 都不引用任何 `VERCEL_*` 变量。
+**失败处理**：若修改改变冻结熔断语义或需要改其他模块，停止写入并交主 Agent。既有 url/token 缓存容量问题不在本阶段修复。
 
-#### E2c 关闭自动发布
+### 阶段 2：只读用量入口（90 分钟）
 
-**页面**：Settings → **Environments** → 选中 **Production** → **Branch Tracking** →
-关闭 **「Auto-assign Custom Production Domains」**
+**前置**：阶段 1 通过。**只读入口**：`runReadMonthlyUsage`、`USAGE_UNAVAILABLE_MESSAGE_ZH`、`readMonthlyUsage`、`FailingRedisLike`、L1 方法。**写范围**：仅 B 两文件。
 
-**期望结果**：此后推送到 `main` 只产生 **`Staged`** 状态的 Production 部署——**不绑定域名、不对外服务**，
-须**人工 Promote** 才变 `Current`（见 D-189）。官方 staging 指南原文：
-「When you push to your production branch, Vercel creates a production deployment but does not assign it to your domains.」
+1. 明确现状：CLI 顶层 `.catch` 已受控，程序化调用 `runReadMonthlyUsage` 遇 `budgetRead` rejection 仍会抛出。将异常统一收敛为既有 `ok: false` 结果，沿用固定中文文案，不暴露底层异常。
+2. 优先复用既有失败替身，并在测试文件内用 spy 或局部替身统计调用；模拟错误文本含伪造 URL、token、secret，断言输出只含固定文案。不得使用真实凭据。
+3. 对成功和读取失败两条路径断言：`budgetRead` 恰调用一次；`budgetReserve`、`budgetSettle`、`slidingWindow` 调用增量均为 0；同时探测 `recordSuccess`、`recordTransientFailure` 等写状态入口，防止仅凭“open 仍 open”漏检。
+4. 保留未配置路径和五字段报告契约；覆盖只读入口不会经 `evaluateControlPlane` / `recordProviderAttemptOutcome` 间接改状态。用现有测试边界选最小观测方式，不改公共接口。
+5. 运行两阶段合并定向测试、类型检查、格式检查。若现有替身不能在测试文件内完成观测，返回主 Agent 申请最小扩范围，不默改 `test-doubles.ts`。
 
-**状态：已完成并已实测生效（2026-09-27）**——推送 main 后 `16b1df8` 的生产部署停在 `Staged`，
-生产域名仍服务旧构建 `a63a43c`。
+```powershell
+pnpm exec vitest run packages/ai/src/control-plane/server.test.ts packages/ai/src/read-monthly-usage.test.ts
+pnpm --filter @logiplan/ai typecheck
+pnpm exec prettier --check packages/ai/src/read-monthly-usage.ts packages/ai/src/read-monthly-usage.test.ts
+```
 
-**判据（下次合并后验证，务必按此处判定）**：只有两条可靠判据——
+**验收**：读取异常不向调用方泄露 rejection 或底层消息；成功报告恰含 `month / used_cny / cap_cny / price_version / fx_version`；成功、失败读取均不计费、不限流、不改熔断。缺配置路径继续受控。
 
-1. **生产域名本身服务的内容**：旧构建首页为「LogiPlan 正式工程 / 兼容性骨架状态：已就绪 / 0.1 + 0.2 = 0.3」；
-   新构建为仪表盘工作台。域名内容变了才是没生效。
-2. Vercel 面板上的 **`Staged`** / **`Current`** 标签。
+**失败处理**：不扩大失败文案或公开接口，不用真实 Redis 排错。`pnpm --filter @logiplan/ai run usage` 会自动加载根 `.env`，**本日不直接执行该入口**；使用 Vitest 注入替身验证。
 
-**⚠️ 两个伪判据（2026-09-27 曾因此误判，不要再犯）**：
+### 阶段 3：覆盖率检查与测量（60 分钟）——**已于 2026-10-09 完成**
 
-- **「详情页 Domains 里列了 `logi-plan-web.vercel.app`」不算已绑域名**——Staged 部署的详情页同样会列出生产域名。
-- **Staged 部署有自己的专属 URL**（形如 `https://logi-plan-<hash>-logi-plan.vercel.app`），在它上面看到的内容
-  **不是**生产域名的内容；把两者混同会得出相反结论。
+> **2026-10-09 晚些时候：本阶段已完成，见文首增补**——`packages/ai` 已进 `coverage.include` 并有专属阈值，故下列「不改配置、阈值」与「只能称已测量」的表述**不再适用**，原文保留作历史记录。
 
-**注意**：官方文档未记载该开关是否有 plan 限制，请在 UI 确认 Hobby 下可用。若找不到该开关，退路是给
-`apps/web/vercel.json` 加 `github.autoAlias: false`（需单独批准代码改动），代价是 promote 时**会重建**。
+**前置**：阶段 2 通过。**只读入口**：`vitest.config.ts` 与 AI 全量测试。**写范围**：仅可生成已忽略的 `coverage/` 产物，本阶段不改配置、阈值或源码。
 
----
+1. 先跑既有 `pnpm test:coverage`，保留其对 contracts / domain / db 的既定门槛。
+2. 再跑 AI 包全部测试并用 CLI 指定 AI 源码范围，测量当前基线；核对报告确实包含 `packages/ai/src/**/*.ts` 且排除测试文件，不能把只跑两文件的结果称为包覆盖率。
+3. 分别记录 lines / statements / functions / branches、关键未覆盖分支、实际包含范围及命令退出码。读取两份独立摘要，不覆盖或混同结果。
 
-## 3. 闸门二当前计划（实施阶段）
+```powershell
+pnpm test:coverage
+pnpm exec vitest run packages/ai/src --coverage --coverage.include='packages/ai/src/**/*.ts' --coverage.reporter=text --coverage.reporter=json-summary --coverage.reportsDirectory=coverage/ai-baseline
+```
 
-**权威依据**：`docs/gate2-implementation-plan.md`（切片划分、执行步骤、验收标准）。
-参数已由 **D-190** 冻结，`docs/gate2-design.md` §11 的五个待确认点全部关闭。
+**验收**：既有覆盖率检查退出 0；AI 测量有可核对的范围、四项数值和缺口。当前没有 `packages/ai` 专属覆盖率门槛，因此结果只能称“已测量”，不能称“AI 覆盖率达标”。报告分别为 `coverage/coverage-summary.json`、`coverage/ai-baseline/coverage-summary.json`。
 
-| 切片   | 内容                                                                                                 | 状态                                                                                                                             | 授权门                           |
-| ------ | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| **1a** | `packages/contracts` AI 输出契约；`packages/ai` 中立类型、固定示例出口、证据快照与六项校验、LRU/容量 | ✅ **已完成并推送**（`571d9f84` + `3744ef06` + `8754165f` + `80478e9b`），两轮独立审查 PASS                                      | 已获授权                         |
-| **1b** | `POST /api/v1/ai/respond` 路由、服务端越界拒绝、五区块 UI、中文映射与可访问性                        | ✅ **已收口（2026-10-08）**：定向复查 PASS + 本机 `verify:gate1:isolated` 全绿                                                   | 沿用 1a                          |
-| 2      | 匿名标识、限流、费用与两级熔断（仍零真实调用）                                                       | ✅ **已收口（2026-10-09）**：**AC2.1—AC2.12 全部满足**（AC2.11 展示面 = 只读 CLI）；两轮独立审查 PASS；浏览器产物已复核；CI 全绿 | ✅ **门 A 已授权（2026-10-08）** |
-| 3      | 供应商适配器 + 网关 + 输出三检（**首次真实付费调用**）                                               | ⏳ 未开工                                                                                                                        | **门 B、C 未开启**               |
-| 4      | 20 题评估脚本 + 人工归档                                                                             | ⏳ 未开工                                                                                                                        | 依赖切片 3                       |
-| 闸门   | 阶段闸门（覆盖率、完整 Playwright、性能与可访问性、三平台 CI）                                       | ⏳ 未开始                                                                                                                        | 主 Agent 活动                    |
+**失败处理**：CLI include 行为不符时先查本机 Vitest help；不修改 `vitest.config.ts`、不新增依赖、不设置 `thresholds.autoUpdate`、不降低既有阈值。与 A / B 无关的覆盖缺口顺延。
 
-**排序原则**：先建安全与成本包围，再放进真实模型调用。切片 1、2 全程零成本、零外部服务依赖。
+### 阶段 4：完整 L2 回归（90 分钟）
 
-**切片 1b 的三条易漏交接要点**（来自 1a 的独立审查，务必遵守）：
+**前置**：阶段 3 结果已记录；使用阶段 0 确认的隔离环境。**只读入口**：根脚本、Web 类型配置与四文件 diff。**写范围**：构建/检查产物；若需修复，只能回到原 owner 的四文件范围。
 
-1. 固定示例的 15 个证据 ID **全部可在英国归因页解析**；页面只检索 `country`/`bridge`/`diagnostics`/`drilldown` 四族。
-2. E08/E09 的三个数字在 `limitations` 中作为**不可点开的口径说明**呈现，**不得渲染为证据链接**。
-3. 固定示例的 `evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1"` 是**编造占位值**，
-   1b **必须绑真实服务端快照 ID**；`attribution-workspace.tsx:542` 要求证据对象带该字段才打开面板。
+1. 顺序执行完整 L2 矩阵；类型检查额外禁用 Web 增量模式复验，避免陈旧 `tsbuildinfo` 假绿，不递归删除仓库或 `.next`。
+2. 每条记录退出码和实际测试计数，核对 skipped 原因；历史 309 / 11 不作为本轮必须相同的计数。
+3. 检查差异只有允许文件和可识别产物，无锁文件/配置变化，无真实凭据进入差异。
+4. 本日不改页面、数据库或公开接口，故数据库迁移/权限/查询计划与浏览器专项不适用；这不构成合并、部署或阶段闸门验收。若发现实际影响这些层，停止并重评范围及预算。
 
-**已知缺口**：`packages/ai` **不在 `vitest.config.ts` 的 `coverage.include` 内**（该文件在切片 1a 禁改），
-其覆盖率**未知**——既不能称高也不能称低。99 项测试提供实质保护但无覆盖率门。
-须在有该文件写权限的切片或阶段闸门补齐。
+```powershell
+pnpm test
+pnpm typecheck
+pnpm --filter @logiplan/web exec tsc --noEmit --incremental false
+pnpm lint
+pnpm format:check
+pnpm build
+git diff --check
+git status --short
+```
 
----
+**验收**：五项 L2 必需命令及无增量类型复验退出 0，差异范围正确。**失败处理**：不为赶时限跳过检查；若 build 被工具策略或环境阻断，记录实际失败/阻断与未完成项，交用户终端按同命令补证，不关闭安全保护。修复后重跑受影响检查；若阶段 5 又改代码，相应验证结论需更新。
 
-## 4. 暂缓项（用户 2026-09-25 指示「先不推进」）
+### 阶段 5：独立审查与返工（90 分钟）
 
-| 项                       | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **S1 闸门二只读设计**    | ✅ **已完成（2026-09-28）**：产出 `docs/gate2-design.md`——`ModelGateway` 供应商中立边界与适配器契约、D-180 适配器参数、匿名限流与两级熔断、不可变证据快照与三检、20 题评估集与重跑触发条件、角色路由、失败关闭矩阵、验收矩阵、D-182 排除项自查。**未写生产代码**，未引入 D-182 排除项。**2026-10-04：设计文档 §11「实施前需确认的点」五项已全部关闭并冻结于 `docs/decisions.md` D-190**（L1 = 5 次 / 5 分钟、L2 = 30 元人民币；角色配置受版本控制、密钥仍走环境变量；评估为脚本自动 + 人工复核归档；评估集 V2 对齐已核实数字基准有效；快照每标签页 20 份 LRU、单份 2 MB）。D-190 另含一条实施约束：评估脚本必须区分 `LIVE_GENERATED` 与 `FIXED_EXAMPLE`，固定示例的答对应计该题不通过，真实生成题数不足时不得判定评估通过。闸门二**实施尚未立项**，且 D-190 不授权任何真实付费调用                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| **S2 `pg` 并发告警归因** | ✅ **已完成（2026-09-28）**：结论见 `docs/pg-concurrency-deprecation.md`——触发条件已源码级确认（同一 `Client` 上并发提交查询），触发点为 `query-service.ts:257/1111/1251` 经 Web 的 `pool.connect()` 分支与三个 CLI 脚本；判定**需先修但不阻塞当前计划**（`pg` 尚无 9.x）。真实库端到端复现未完成（沙箱无 PG/Docker），已如实记录。**2026-10-02 修复已落地并验证**：归因已在真实 `postgres:18.4` 上复核——告警的判定对象是**单个 `Client` 的 `_queryQueue`**，故三处并发 `pool.query()` **不是**告警源（`Pool.query` 每次取独占 client）；真实触发源是 V1.1 单连接事务路径与发布物化路径。已新增模块私有 `serializeQueries` 并**只在两个单连接判定点注入**，V1.0 纯 Pool 路径与三处 `Promise.all` 保持不变；新增 6 个回归测试（`pnpm test` 15 文件 128 passed / 11 skipped / 139）。完整 Gate 1 以 `--trace-deprecation` 跑完全程零告警（含 E1 激活物化步骤），唯一失败仍是已收口的 `Firefox 核心冒烟` 本地环境限制。落地与验证记录见 `docs/pg-concurrency-deprecation.md` §8。**2026-10-04 补充**：串行化实现已重构为唯一工厂 `createQueryTarget(source, concurrency)`（`"single"` 分支承担串行化，`"pool"` 分支不做包装；独立函数 `serializeQueries` 不再存在），三处并发 `Promise.all` 仍逐字未改；并发判定点改收带模块私有 nominal brand 的 `QueryTarget`，裸 `Client` 与手写 `{ db, concurrency }` 字面量在编译期均被拒绝，§5 第 8 条那条「类型层面区分尚未闭合」的遗留**已更新为已实质闭合**（残余边界见 §5 与 `docs/pg-concurrency-deprecation.md` §8.6）。`pnpm test` 现为 15 文件 136 passed / 11 skipped / 147；真实库 `verify:gate1:isolated` 复验**进行中、尚未验证** |
+**前置**：owner 自测与阶段 4 完成。**只读入口**：四文件 diff、§2 不变量、各命令结果、覆盖率摘要。**写范围**：auditor 不写源码/文档；必要修复回原 owner 的四文件范围。
 
-> **2026-09-27 实测补充**：该并发告警在 E1 激活时**真实出现**（`activate-release` 运行日志中的
-> `DeprecationWarning: Calling client.query() when the client is already executing a query`），
-> 因此 S2 不再是纯理论问题，其触发面覆盖到发布/激活入口。
-> **已于 2026-09-28 归因收口**：触发条件是**同一 `Client` 上并发提交查询**（源码 predicate + 静态路径 + 该日志三方一致），
-> 结论与处置建议见 `docs/pg-concurrency-deprecation.md`。
->
-> **2026-10-02 追加**：上条**归因与修复均已落地并验证**，且 `docs/development-roadmap.md` §0 遗留项 5 曾把候选来源
-> 误记为三处并发 `pool.query()` 配合 `max: 2`——该说法**已被证伪并以 dated 注记修正**（原文保留）。
-> **`pg@9` 仍未发布**（npm 最新 `8.23.0`），D-183 兼容性闸门**当前仍无可执行对象**；闸门入口条件中
-> 「不得在同一 client 上并发提交」的回归防线已由 6 个测试就位。详见 `docs/pg-concurrency-deprecation.md` §8
-> 与 `docs/development-roadmap.md` §0 遗留项 5 的 2026-10-02 注记。
+1. 主 Agent 创建独立 auditor，交付工作流 §5 的最小包，以及 `changed_files / implementation_summary / invariants_checked / tests_run / tests_not_run / remaining_risks / git_status_delta`。
+2. auditor 先记录 Git 状态，再检查密钥身份与缓存复用、只读副作用、失败输出、服务端隔离及范围；至少独立复跑两文件定向命令，必要时增加验证。
+3. 问题回原 owner 修复；owner 自测后，由原 auditor 定向复查。两轮仍未通过必须停止，不能换审查者绕过问题。
+4. 审查通过后由主 Agent验收；若返工改变测量结果，重跑受影响的覆盖率和回归，更新最终证据。
 
----
+```powershell
+git status --short
+git diff -- packages/ai/src/control-plane/server.ts packages/ai/src/control-plane/server.test.ts packages/ai/src/read-monthly-usage.ts packages/ai/src/read-monthly-usage.test.ts
+pnpm exec vitest run packages/ai/src/control-plane/server.test.ts packages/ai/src/read-monthly-usage.test.ts
+```
 
-## 5. 已定决策（无需再回答）
+**验收**：独立结论为 PASS，无阻断问题，必需验证齐全。**失败处理**：预算耗尽或未通过均保留非破坏性改动，标记未完成，顺延剩余工作；不省略审查来换取“当天完成”。
 
-- **D-190**：冻结闸门二实施前的四项参数与配置形态——L1 = 5 分钟内连续 5 次、L2 = 月度 30 元；
-  角色配置受版本控制（密钥仍走环境变量）；20 题评估为脚本自动 + 人工复核归档；
-  会话快照每标签页 20 份 LRU、单份 2 MB。**调试与评估调用同池计费，不分池。**
-  **D-190 不授权任何真实付费调用**，也不代表闸门二实施已立项。✓
-- **D-189**：发布门采用 **Vercel 原生 staged production**，不再自建 GitHub Actions 工作流。✓
-- **切片 1 的 `pnpm-lock.yaml` 改动已授权**（2026-10-04 用户明示）：新增 workspace 包必然修改锁文件
-  `importers` 段，该文件在执行闭包内。✓
-- **`AGENTS.md` 与 `multi-agent-workflow.md` §2.6 的模型降级口径已生效**（`be527ba7`）：
-  首选模型不可用时可改为不显式指定、用当前可用模型继续，但必须记录偏差，
-  且不降低分级、验证与独立审查的任何要求。✓
-- **计划类文档以单一滚动文档入库**（形式乙）→ **本文件**。✓
+### 阶段 6：最终证据与接续（30 分钟）
 
----
+**前置**：前序结果已经确定，包括失败或未执行。**只读入口**：最终 diff、实际命令摘要、审查结论。**写范围**：仅本文件与 [最新交接](handoff-2026-10-09.md)。
 
-## 6. 仍待你决策 / 待授权
+1. 写入最终有效结论：实际 HEAD、改动文件、行为验收、覆盖率四项数值、命令退出码、跳过/未执行项、审查结果、模型偏差、剩余风险。
+2. 区分“代码与本地验证完成”“生产已发布”“闸门二通过”，后两者本日没有相应操作和证据；不把本地结果回写为生产状态。
+3. 状态只按实测更新；未完成阶段保留待执行及下一步。校验两文件格式、相对链接、差异范围，再由主 Agent 接收。
 
-1. **E 段已全部完成**（E2a / E2b / E2c / E3 / E3b / E1 / E4 / E5，2026-09-27）。
-2. **凭据轮换：已完成并验证（2026-09-28）**。四个角色（`app_reader` / `neondb_owner` / `schema_migrator` /
-   `data_publisher`）全部轮换；原始值与首次重设值共 7 个凭据经只读探测全部报 `28P01`；最终值由 Neon Console
-   的 **Reset password** 生成、只在弹窗显示一次，全程未进入对话。执行记录与两条操作教训见
-   `docs/neon-vercel-baseline-runbook.md` §13（关键教训：**回显不能当验证，必须用独立探测**；优先用 Reset 按钮）。
-3. **`3221226505` 根因消除：已执行一轮、未命中（2026-10-08）——仍未定性，维持 D-188**。
-   取证步骤见 `docs/windows-crash-evidence.md`（该文件版本已到 V1.4）。**2026-09-28 曾挂起**，理由是
-   「用户开发机已切换为 macOS 且不再持有 Windows 机器」；**2026-10-08 用户确认当前主力开发机就是
-   Windows**（`DESKTOP-1UIFBM1`，win32 / x64，Windows 10.0.26200），macOS 27.0 / 26A428（arm64）
-   **仅在非工作时间段可能用于开发** ⇒ 挂起理由不成立。同日执行：§1 只读取证复跑（**仍无可归因记录**）、
-   §2.1 LocalDumps 配置（映像名按实测更正为 `chrome-headless-shell.exe`，并补上 Firefox 内容进程
-   `plugin-container.exe`）、§2.2 由用户在本机终端跑完整 Gate 1——**全绿且未出现该崩溃，无转储产生**。
-   按判据表落在「仍未定性」一行，**维持 D-188 现状、不新增决策**（CI 仍为权威证据；「本地 Windows」
-   自 2026-10-08 起重新成为当前事实）。
-   **⚠️ 未关闭**：① 根因仍未定性。② 取证用的 LocalDumps 配置**已清理完毕**（2026-10-08，管理员会话执行，
-   回读只剩既有的 `WeaselServer.exe`）——注意**非提权**终端下原清理命令会**静默失败**，判据必须回读子键列表。
-   是否继续追（下一次运行前重新启用 LocalDumps）仍待你决定。
-4. **（已执行）把 `scripts/verify-gate1-isolated.test.mjs` 纳入 `executionClosurePaths`**：闭包由 **26 条增至 27 条**，
-   并在 `scripts/neon-baseline.test.mjs` 的覆盖断言中同步登记。本地验证：3 个测试文件 61 项（58 通过、0 失败、
-   3 项 Docker 条件跳过），`pnpm lint` 与 prettier 均通过。**副作用**：闭包变化使既有工具 SHA 对应的执行闭包失效，
-   下一次 `neon-baseline --write` 前须重新锚定并批准工具 SHA（runbook §11.2 第 3 点）。
-   **2026-10-02 复算实测**：执行闭包 `executionClosurePaths` 长度 = **27**（与上条一致）；候选
-   `0229755a097dff94c8de67954b36ab4f9412c0f5` 现已落后 **77 个提交**（实测
-   `git rev-list --count 0229755a…..HEAD` = 77；`docs/development-roadmap.md` §0 遗留项 8 当时记录的 22 为
-   2026-09-25 实测值）。**该值随分支推进单调增加，进入写入模式前须以当时实测为准**。硬前置不变：
-   `neon-baseline --write` 前必须重新锚定并独立批准工具 SHA。**本次未提交改动、未生成新工具 SHA、未申请批准**。
-   **2026-10-05 复算实测**：候选 `0229755a…` 现已落后 **94 个提交**（实测
-   `git rev-list --count 0229755a…..HEAD` = 94；上条记录的 77 为 2026-10-02 实测值）。
-   执行闭包仍为 **27 条**，但**闭包内容已因闸门二切片 1a 再次变化**——新增 `packages/ai`
-   workspace 包使 `pnpm-lock.yaml` 的 `importers` 段由 5 条增至 6 条（该文件在闭包内，
-   已获用户授权的必然改动）。旧工具 SHA `e03d192…` 相对当前闭包有 7 条路径、21 文件漂移，确认失效。
-   **锚定仍必须推迟**：按 runbook §1.1，工具 SHA 须取 `--write` 执行当时的 HEAD，
-   任何后续提交都会使其失效；而当前**无任何待执行的 `--write`**（见 §7），
-   现在锚定等于制造一个立即失效的锚点。
-5. **（已收口）Dependabot 失败运行排查**：`npm_and_yarn in /. - Update #1593405539`（2026-09-27T15:36:30Z，failure）
-   根因已定位——Dependabot 升级 `react-dom` 到 `19.3.0` 时，因 `.npmrc` 的 `strict-peer-dependencies=true`
-   报 `ERR_PNPM_PEER_DEP_ISSUES`（`react` 仍 19.2.8、`@types/react` 仍 19.2.18），属**预期摩擦而非故障**。
-   建议在 `dependabot.yml` 用 `groups` 把 react 家族编组；**不得**放宽 `strict-peer-dependencies`。
-   另附当前 10 个开放 Dependabot PR 的分类（4 个改工作流 action SHA、4 个触碰冻结依赖组合、1 个常规补丁），
-   结论是**一个都不应顺手合并**。详见 `docs/neon-vercel-baseline-runbook.md` §10.1.1—§10.1.2。
-   **（2026-10-04 已实施）** `groups` 编组已加入 `.github/dependabot.yml`：把 `react`、`react-dom`、
-   `@types/react`、`@types/react-dom` 四个包编为 `react-family` 一组，`update-types` 取 `minor` 与 `patch`，
-   并在文件内注明该摩擦属预期而非故障、**不得**以放宽 `strict-peer-dependencies` 消除。实测确认该编组
-   仍有必要：当前 react 家族为 `react@19.2.8` / `react-dom@19.2.8` / `@types/react@19.2.18` /
-   `@types/react-dom@19.2.4`，而开放的 **PR #9 只改 `react` 与 `@types/react`**（`apps/web/package.json`
-   仅 +2/−2），单独合并会留下 `react@19.3.0` 配 `react-dom@19.2.8` 的错配，在
-   `strict-peer-dependencies=true` 下直接失败。`.github/` **不在 `executionClosurePaths` 内**，本改动
-   不改变执行闭包、未触碰 `pnpm-lock.yaml`。既有 10 个开放 PR 的合并判断不变（一个都不应顺手合并；其中
-   #2、#3、#6 为 action 主版本跳跃，风险更高）。
-6. **（待验证）macOS / Windows 双环境保障（2026-09-28 轮次）**。需求由你提出：两套系统都要能开发与使用。
-   已交付三项：① CI 新增 `cross-platform` job（`ubuntu-latest` / `macos-latest` / `windows-latest`，
-   跑 `format:check + lint + typecheck + test` 与 `scripts/` 下的三个测试文件）——**不参与 Gate 1 稳定性判定**，
-   稳定性权威证据仍是 ubuntu 的 `gate1` job（D-188 不变）；② 新增平台中立包装器 `scripts/run-gate1.mjs`
-   （`--target/--repeat/--timeline` → 既有环境变量，两端同一条命令）；③ 新增 `.editorconfig`。
-   审计结论：代码层**原本就是跨平台设计**（`taskkill` / `detached` / `NUL` 与 `/dev/null` / Docker 候选探测
-   均有 win32 分支，全部 npm 脚本为 Node 而非 POSIX shell），真正缺口是**这些 win32 分支从未被机器验证过**——
-   `scripts/` 下的测试此前不在 vitest 收集范围内、也不在任何一个 CI job 中执行，本次由矩阵首次覆盖。
-   **刻意未改 `package.json`**：它在 `executionClosurePaths` 内，加 npm 脚本别名会让闭包再变一次、
-   又要重新锚定工具 SHA，故包装器只以 `node scripts/run-gate1.mjs` 调用。
-   **验证状态**：本机（Linux）已验证 prettier / lint / typecheck / 单元测试与包装器行为；
-   三个平台的机器验证以 CI 结果为准，**未通过前该项不算完成**。
-   **2026-09-28 补充**：矩阵首次运行即在 `windows-latest` 抓到真实缺陷——`actions/checkout` 继承
-   `core.autocrlf=true` 使工作区为 CRLF，`pnpm format:check` 对 123 个文件报错；已由 `.gitattributes`
-   的 `* text=auto eol=lf` 修复，随后四个 job 全绿（Windows 上 `scripts/` 测试 61 项 / 59 通过 / 0 失败）。
-   用户当前**仅有 macOS 机器**，Windows 侧兼容性自此**只由 CI 保证**（矩阵里已有该 runner），无需本机 Windows。
-   **（已执行，2026-09-28）macOS 本机基线**：用户在新 Mac 上执行 `node scripts/verify-local-baseline.mjs`，
-   **五项检查全通过**——平台 `darwin arm64`、Node `24.15.0`、pnpm `10.34.5`（正好是 `.nvmrc` 与
-   `packageManager` 指定值）；脚本测试 `61 / 58 / 0 / 3`、单元测试 `122 / 11 / 133`，
-   与 CI `ubuntu-latest` 及沙箱 Linux **逐项一致**。据此 `docs/development-roadmap.md` §0 已加注：
-   本地环境换为 macOS、D-188 三条决策不变、Windows 记录转历史。
-   剩余可选：完整 Gate 1（`pnpm verify:gate1:isolated`，需 Docker Desktop）——**已在 2026-09-30 执行**：
-   除 `Firefox 核心冒烟`（该版本 macOS 的环境限制，见 §5.7）外全部通过。因此**不提请**把 D-188 的
-   「本地环境」一栏改写为「本地基线通过」——本地仍有腿不可运行，该栏**维持原措辞**；事实更新以
-   `docs/development-roadmap.md` §0 的 2026-09-30 注记为准（平台区分，不改 D-188 正文）。
-7. **（已收口，2026-09-30）macOS 上 `Firefox 核心冒烟` 挂起（首台 macOS 机器实测）**。同日 macOS 首次完整 Gate 1
-   已推进至浏览器阶段，此前全部阶段通过（数据库集成四条腿、迁移/发布/激活/校验、生产构建、快照 `28/28`、
-   Chromium 双视口基础 `10 passed / 22 skipped`、Chromium 历史证据 `22/22`）；**唯一失败**是 Firefox 冒烟：
-   首条用例 `0ms` 失败且无用例输出，随后 Playwright 挂起，被步骤超时 `240s` 终止（`timedOut` 分支），
-   Playwright 的失败详情未及打印（编排 `stdio: inherit`，无缓冲可补）。
-   已排除：权限位问题（同日已修复）、Docker/镜像、`.env` 缺失。**2026-09-30 续：根因区间已收窄**——
-   最小判据（`firefox.launch()`，无需数据库/服务）复现为 `browserType.launch: Timeout 180000ms exceeded`，
-   日志显示 `sandbox_extension_issue_file_to_process failed for …/plugin-container.app: 1 (Operation not permitted)`：
-   Firefox 主进程能起，但**内容进程的沙箱扩展签发被拒**，Juggler 管道未建立。同机 Chromium 两轮全过 ⇒
-   非系统范围策略问题，指向该 Firefox 构建在本机的签名/沙箱条件。
-   同次发现的 `4173 已占用` 是该失败的**后果**（挂起被强杀时 Playwright 自起的 webServer 未被清理），
-   属次生现象、需先清理以免掩盖真因。**待判据**：`xattr -l`（`com.apple.quarantine`）、
-   `codesign -v --deep`（嵌套 app 签名是否有效）、`spctl -a -vv`、`sw_vers`；
-   修复尝试：`pnpm exec playwright install --force firefox` 后重跑最小判据。
-   **边界**：不得用浏览器启动参数类开关（如关闭内容进程沙箱）绕过——属 §7 明确不做项，需单独批准。
-   **2026-09-30 取证结果（Firefox 仍无法启动）**：4173 上的残留进程为**孤儿**（`PPID 1`、已存活 12h30m、
-   `SIGTERM` 无效，需 `kill -9`），故那次定向重跑 0.6s 报 `already used` **未跑到浏览器**、不可作现场；
-   `codesign -v --deep` 显示该构建 **ad-hoc 签名**（`Signature=adhoc`、`Sealed Resources=none`、
-   `Nightly.app: code has no resources but signature indicates they must be present`）；
-   `sw_vers` = macOS **27.0 / 26A428（预发布）**；`--force` 重装无效 ⇒ 判定为**该 Firefox 构建与本版 macOS
-   的组合不兼容**，非仓库缺陷。**升级路径已现成**：上游 1.63.0 的 Firefox 为 156.0（firefox-1553），
-   而仓库内已有 Dependabot **PR #8**（1.62.1 → 1.63.0）；但该升级会改 `pnpm-lock.yaml`（闭包内）⇒
-   需重新锚定工具 SHA + 全量重跑验证，**须先批准**。备选收口：把 macOS 本地 Firefox 腿记为环境限制
-   （与 D-188 对 Windows 的处置同构但**平台不同，不得合并**），稳定性权威证据仍为 CI（ubuntu 上 Firefox 腿真跑）。
-   **2026-09-30 判定完成（对照探针，run `36739876157`）**：同一构建、同一 ad-hoc 签名，在 GitHub 的
-   **macOS 26.6.2** runner 上 Firefox 153 **正常启动**（`PROBE_A=OK firefox 153.0`）、上游 1.63.0 的
-   Firefox 155 亦正常（`PROBE_B=OK firefox 155.0`），而在用户的 **macOS 27.0 / 26A428 预发布版**上失败
-   ⇒ **变量是操作系统版本**，非构建损坏、非签名缺失。**升级路径因此失去依据**（构建本身没问题）；
-   `1.63.0` 的 Firefox 实测版本号亦更正为 **155.0**（第 323 行原写的 156.0/firefox-1553 取自上游 `main`
-   分支未发布的 `browsers.json`，与已发布的 1.63.0 不符）。**建议收口口径（待你批准）**：把 macOS 本机 Firefox 腿
-   记为本地环境限制，CI 仍为权威证据；待 macOS 27 转正式版或上游更新后再复核。
-   **未获批准前不改任何结论记录。**
-   **2026-09-30 收口完成（用户已批准，不新增决策条目）**：本项由 **open 转已收口**，落地口径如下——
-   ① macOS 本机 `Firefox 核心冒烟` 记为**本地环境限制**（成因：macOS **27.0 / 26A428 预发布版**；
-   同构建、同 ad-hoc 签名在 CI 的 macOS **26.6.2** runner 上正常启动，故非仓库缺陷、非构建缺陷）；
-   ② 稳定性权威证据**仍为 CI**（ubuntu 的 `gate1` job 真跑 Firefox 腿，另有本轮 macOS runner 对照）；
-   ③ 与 D-188 的 Windows 限制**平台不同、不得合并**，且**不改写 D-188 正文、不新增决策条目**；
-   ④ **复核触发条件**：macOS 27 转正式版，或上游 Playwright / Firefox 构建更新；
-   ⑤ **本机不再重复尝试**：不升级依赖（无依据）、不再跑最小判据与定向复跑、不使用关闭内容进程沙箱的启动开关。
-   本机 macOS 的其余证据保持不变：完整 Gate 1 除 Firefox 腿外全部通过（详见 `docs/neon-vercel-baseline-runbook.md` §0.3）。
-8. **（已修复并已验证，2026-10-02）`pg` 单 client 并发弃用告警**。S2 归因已在真实 `postgres:18.4` 上复核并修正：
-   告警判定对象是**单个 `Client` 的 `_queryQueue`**，故 `query-service.ts:257` / `:1111` / `:1251` 三处并发
-   `pool.query()` 与 `packages/db/src/index.ts:4` 的 `max: 2` **不是**告警源（`Pool.query` 每次取独占 client 后
-   立即 release，结构上不可能触发）；真实触发源是 V1.1 单连接事务路径（`runDeterministicQuery` 的 `pool.connect()`
-   分支）与发布物化路径（`materializeEvidenceSnapshots`）。**已落地**：新增模块私有 `serializeQueries`（**2026-10-04 更新**：该函数已并入唯一工厂 `createQueryTarget(source, concurrency)` 的 `"single"` 分支，不再作为独立函数存在，要点逐条迁入工厂注释、语义未变），**只在
-   这两个单连接判定点注入**；V1.0 纯 Pool 分支与三处 `Promise.all` **刻意保持不变**（保留池级并发）；错误以同一
-   对象抛出、不吞错；新增 6 个回归测试（`pnpm test` 15 文件 128 passed / 11 skipped / 139，基线 122 / 11 / 133）。
-   **验证**：真实 `postgres:18.4` + `NODE_OPTIONS=--trace-deprecation` 的完整 `pnpm verify:gate1:isolated` 全程零告警，
-   含 2026-09-27 告警真实出现的激活物化步骤；唯一失败仍是 §5.7 已收口的 `Firefox 核心冒烟` 本地环境限制，
-   非本次回归。**边界未变**：`pg@9` 未发布（最新 `8.23.0`），D-183 闸门仍无可执行对象；闸门入口条件中的
-   「不得在同一 client 上并发提交」回归防线已就位。落地记录见 `docs/pg-concurrency-deprecation.md` §8。
-   **遗留（2026-10-04 更新：已实质闭合，仅余一层由行为测试兜底）**：类型层面区分「可并发的池」与「必须串行的
-   单连接」**已闭合**——新增唯一工厂 `createQueryTarget(source, concurrency)` 与带**模块私有 `unique symbol` nominal
-   brand** 的 `QueryTarget`，带 brand 的对象只能由该工厂构造，故裸 `Client`、`Pick<Client, "query">`、包装对象与
-   **手写字面量 `{ db, concurrency }`** 在编译期均被拒绝（后者缺 `[queryTargetBrand]`）⇒ **无法伪造**一个「自称已
-   串行化但实际未串行化」的并发目标；原文「该项须在 `pg@9` 升级动作前正式处置」随之失效。**残余边界（如实记录，
-   不得宣称已闭合）**：类型系统只证明「对象出自本工厂」，**不证明 `concurrency` 实参传对了**——对单连接误传
-   `concurrency: "pool"` 时类型仍然成立但不会串行化；该层由**既有行为测试（单连接在飞计数探测）兜底，不是类型系统
-   解决的**。证据：三轮独立审查最终判 **PASS**（含 20+ 组仓库外副本变异实验）；`pnpm test` 15 文件
-   **136 passed / 11 skipped / 147**（基线 122 / 11 / 133）；`query-service.ts` 覆盖率 **93.76 / 85.02 / 94.23 /
-   94.13**（`pg` 修复前 93.68 / 84.94 / 94.23 / 94.06，三项均未下降）；`pnpm typecheck`（4 个 workspace）/
-   `pnpm lint` / `pnpm format:check` / `pnpm build` 退出码 0；回归测试累计 8 个，且**既有 6 个串行化用例一行未改
-   仍通过**（`git diff` 删除行数 0）⇒ 重构行为等价。**（2026-10-04 更新：上条「进行中、未验证」已作废，本轮端到端证据已取得）**
-   本机 `pnpm verify:gate1:isolated`（真实 `postgres:18.4` + `--trace-deprecation`）走完全部 18 阶段、**全程零
-   `DeprecationWarning` 零 `already executing a query`**，含激活物化步骤；6 条核心查询计划 `temp_written_blocks` 全 0；
-   快照集成 28/28；Chromium 基础 10 passed / 22 skipped、历史证据 22/22；唯一失败仍是已收口的 `Firefox 核心冒烟`
-   本地环境限制（`0ms` 签名逐字一致），运行后残留进程已清理。**CI 权威证据**：run **`37167407079`**（head = `6a9f72d8`）
-   **全绿**，`Gate 1 deterministic validation`（ubuntu-latest）success 且 `Run isolated Gate 1 validation` 步骤 success
-   ⇒ **Firefox 腿在 ubuntu 上真跑并通过**（本机跑不了该腿）；`Cross-platform checks` 三平台矩阵与 `CodeQL` 全部 success。
-   上述 2026-10-02 / 2026-10-03 的验证与 CI 证据继续有效，但对应
-   提交 `7e089efb` 的形态。完整记录见 `docs/pg-concurrency-deprecation.md` §8.2、§8.3、§8.6。
-   **维护提示**：不要再去改那三处 `Promise.all`（既无收益，又会摧毁池级并发）。
-   **权威证据（2026-10-03）**：改动已提交（`7e089efb` / `6c828dc9` / `94f1caf7`）并推送 `main`（`b3a62b4c..94f1caf7`）。
-   CI run **`37088307553`**（head = `94f1caf7`）**全绿**：`Gate 1 deterministic validation`（ubuntu-latest，含完整
-   `pnpm verify:gate1:isolated`，**Firefox 核心冒烟腿真跑并通过**——本机 macOS 27.0 跑不了该腿）3m55s success、
-   `Cross-platform checks` 三平台矩阵 job 全部 success、`CodeQL` success、PR 依赖审查按设计 skipped。
-   按 **D-188**，CI 为稳定性权威证据来源；上条本机记录与之**分别记录、不得合并**。
-9. **（待你决定）本机 Docker Hub 不可达的处理方式（2026-10-05 实测）**。`registry-1.docker.io`
-   的 TCP 443 从本机不可连、TLS 握手被重置（`docker pull postgres:18.4` 约 60 秒后 `context deadline
-exceeded` 或 `EOF`）；同网络下 GitHub / npm / ghcr 均正常，**故不是 Docker 未启动**。本机镜像库存
-   因此只剩 `postgres:18.6`，而 `compose.yaml:5` 与 Gate 1 数据库集成腿 1 都钉 `postgres:18.4`，
-   于是 `pnpm db:up`、`pnpm verify:gate1:isolated`、任何需真实库的 Playwright 用例在本机**一律跑不了**。
-   三个选项：**(a)** 你开代理/VPN 后告知，我按官方源拉取——**唯一零偏差路径，推荐**；
-   **(b)** 用本机 18.6 跑（18.6 是 Gate 1 腿 2 的受测基线、同样全通过，但与 compose 钉的版本有偏差，
-   须记录）；**(c)** 走第三方镜像源——**官方源不通 ⇒ 无法取官方 digest 比对，只能信任该源**，
-   而该库要跑迁移、装演示数据，**不建议**。
-   **你 2026-10-05 的决定是暂缓**：先不解决网络问题、不复查，推进其他事项；切片 1b 因此保持未收口。
-   **明确禁止**给本机 18.6 打 `postgres:18.4` 标签冒充。
+```powershell
+pnpm exec prettier --check docs/current-plan.md docs/handoff-2026-10-09.md
+git diff --check
+git status --short
+```
 
----
+**验收**：文档能让下一会话按入口复验，所有未执行项显式保留；没有新增逐次工作日志、提交或部署。**失败处理**：事实与证据不一致时先修文档，不能修改验收口径迎合结果。
 
-## 7. 明确不做（沿用既有授权边界）
+## 5. 超时与顺延
 
-- Neon 远程写（**除已执行的 E1 原子激活**）、Vercel 部署配置之外的其他远程写。
-- **在未确认 `Staged` 标签之前合并 `main`**：E2c 已实测生效，推 main 只产生 Staged 部署；但仍须按
-  §2.1 E2c 的两条可靠判据逐次确认，不得凭域名列表或专属 URL 判定（见 runbook §11.4 陷阱 1）。
-- 强追本地「连续 5/5」（D-188 已把本地 Windows 记为已接受的环境限制）。
-- 任何浏览器启动参数类改动。
-- 放宽闸门一的任何数字、证据或页面验收标准。
+优先保证已改动部分的测试和独立审查。阶段 1 超时尚未开始 B 时，可由主 Agent 将 B 整体顺延，明确当天目标仅部分完成；已写入的 B 不能因时间不足跳过验证。覆盖测量、完整矩阵或审查没完成时，保留“待验证”，不得宣称工作流完成。
 
----
+以下不纳入当天 8 小时：
 
-## 8. 暂停条件（命中即停下提问，一次一个问题并给推荐答案）
-
-1. E3 产生的是 `Current` 而非 `Staged` 部署（说明 E2c 未生效，须先查开关）。**判定只能用两条可靠判据**：
-   生产域名本身服务的内容，或面板上的 `Staged` / `Current` 标签。**不得**用「详情页 Domains 列了生产域名」
-   或「专属 URL 上的内容」判定——2026-09-27 已因此误判一次。
-2. E1 激活后复验失败，且回切路径无法确认（回切路径见 runbook §12）。
-3. 发布过程中出现「提交结果未知」——按 runbook §6，**只能记录为结果未知，不得宣称回滚**，
-   须先用只读状态查询确认。
-4. 需要放宽闸门一的任何数字、证据或页面验收标准。
-5. 需要执行破坏性数据库操作（`main` 上禁止破坏性删改数据库对象）。
-
----
-
-## 9. 参考
-
-- 权威资料顺序：`AGENTS.md` → `CONTEXT.md` → `docs/development-roadmap.md` → `docs/decisions.md`
-  → `docs/query-contract.md` → `docs/multi-agent-workflow.md`。
-- 本窗口详细交接：`docs/handoff-2026-09-26.md`。
-- 部署轨道全部细节：`docs/neon-vercel-baseline-runbook.md`（§1.1 冻结锚点、§5.1 环境变量分层、
-  §7 部署前清单、§8 平台配额、§9 Neon 隔离性、§10 GitHub 安全治理与发布门、§11 部署现状与 E 段前置）。
+- **真实 AI 与 20 题评估**：门 B、C 未开；后续依 [切片实施计划 §5、§6](gate2-implementation-plan.md) 单独启动。开发、排错、评估调用同池计入月度 30 元，不为实施绕过 L2。
+- **多快照恢复**：15 条证据跨 4 个快照，回答契约只有单值快照 ID；逐条证据可打开，但页面恢复能力尚不成立。需 contracts / 查询契约的独立 L2 工作流。
+- **真实基础设施与其他 P2**：Upstash Lua 原子性、真实 Redis 读取成功路径、跨实例 L1、原 url/token 缓存容量、真实审计 sink、XFF 语义、动态 import 可达性断言分别留待后续，不随 A / B 扩写。
+- **环境与发布**：Windows `3221226505 = 0xC0000409` 根因仍未定性；2026-10-08 一轮取证未命中，维持 D-188，见 [取证文档](windows-crash-evidence.md)。部署、合并与阶段闸门前另补覆盖率、完整 Playwright、性能和可访问性验证；历史生产结果不能替代。
