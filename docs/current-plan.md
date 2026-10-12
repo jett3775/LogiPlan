@@ -189,6 +189,7 @@ git status --short
 
 - **AI 包覆盖率（本次实测）**：lines **90.02%**（577/641）、statements **86.99%**（635/730）、functions **78.72%**（148/188）、branches **81.60%**（275/337）；现有阈值 **85 / 83 / 75 / 78 全部通过**（较 2026-10-09 基线 89.87 / 86.81 / 78.49 / 81.49 略有提升）。`All files` = 93.61 / 92.16 / 88.49 / 85.90。
 - **阶段 4 独立审查**：结论 **PASS**，无阻断项。审查者独立复跑定向（14 passed）与 `packages/ai`（177 passed），并核对范围合规（仅 4 文件）。遗留 **2 条 P2（非阻断）**：① `catch {}` 无参，会一并吞掉 `clock.now()` 抛错（与 `control-plane.ts:229` 的失败关闭口径一致）；② 文案 `控制面未配置…` 在「已配置但读取失败」时措辞不精确——两者都是本计划 §阶段 2 明文指定实现方式的直接后果。
-- **跳过与未执行（如实记录，不表述为通过）**：真实 Upstash Lua 原子性与 `eval` 运行时、CLI 真实 Redis 成功路径（本机无凭据/实例，替身不可替代）；切片 2 专项 Playwright / axe 与会话内隔离数据库（`spawnSync`/`execSync` 恒 `EBUSY`）；**独立审查者未做回退验证**（受只读约束，改为代码推理；回退验证由 slice_owner 完成并报告）。CI 本轮尚未出证。
+- **跳过与未执行（如实记录，不表述为通过）**：真实 Upstash Lua 原子性与 `eval` 运行时、CLI 真实 Redis 成功路径（本机无凭据/实例，替身不可替代）；切片 2 专项 Playwright / axe 与会话内隔离数据库（`spawnSync`/`execSync` 恒 `EBUSY`）；**独立审查者未做回退验证**（受只读约束，改为代码推理；回退验证由 slice_owner 完成并报告）。
+- **提交与 CI 证据（2026-10-12）**：提交 `64a4f2c2`（`feat(ai)`：A/B 四文件）与 `eaa6a2d6`（`docs`：本文件）。推送后 CI run **`38224713233`**（head `eaa6a2d6`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。**CI 是稳定性权威证据（D-188）**，本机结果与 CI 结果分别记录、不得合并。
 - **模型偏差**：本计划指定 L2 使用 `gpt-5.6-sol` / `high`，运行环境不提供该档位名称，按工作流 §2.6 降级使用环境可用推理档位；**分级、验证矩阵与独立审查要求均未降低**。实际精确模型 ID 与推理强度未暴露，记为未知。
 - **状态边界**：以上仅为「代码与本地验证完成」。**生产发布与闸门二通过本次均无证据**，不得由本地结果推导。后续切片 3 / 4 仍待门 B、C 授权。
