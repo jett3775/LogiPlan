@@ -21,11 +21,15 @@ import { createLazyUpstashRedisLike } from "./upstash-redis";
  * 导出本模块或 `upstash-redis.ts`——否则服务端基础设施会被打进浏览器包（P1-1）。
  * `no-live-call.test.ts` 有一条从 `index.ts` 出发的静态可达性断言锁死这一点。
  *
- * ## 进程级单例（P1-2）
+ * ## 进程级单例（P1-2）与主密钥隔离（阶段 1）
  *
  * L1 熔断要求「同一角色 5 分钟窗口内**连续 5 次**」**跨请求**累计，因此装配结果必须
- * 跨请求复用同一 `L1CircuitBreaker` 实例。本模块按 **Redis 实例** 缓存运行时：
- * - 生产路径：Redis 实例按凭据（url+token）缓存 → 同一进程内恒定 → 运行时恒定；
+ * 跨请求复用同一 `L1CircuitBreaker` 实例。本模块按 **Redis 实例 + 当前主密钥的不可逆摘要**
+ * 缓存运行时：
+ * - 生产路径：Redis 实例按凭据（url+token）缓存 → 同一进程内恒定；
+ * - 运行时条目同时保存**当前主密钥的不可逆摘要**：摘要不变 → 复用（同一配置下 L1 跨请求
+ *   累计）；摘要变化（轮换主密钥）→ **替换**该 Redis 的条目，使匿名派生立即改用新密钥，
+ *   且条目数不随历史密钥增长；
  * - 测试路径：注入的 Redis 实例即缓存键，同一替身复用同一运行时（隔离由「每个用例新建
  *   替身」保证）。
  *
@@ -38,8 +42,33 @@ import { createLazyUpstashRedisLike } from "./upstash-redis";
 
 /** 生产 Redis 实例：按凭据缓存，使同一进程内实例恒定（进程级单例的前提）。 */
 const productionRedisByCredentials = new Map<string, RedisLike>();
-/** 运行时缓存：以 Redis 实例为键，保证同一存储复用同一 L1 熔断状态。 */
-const runtimeByRedis = new Map<RedisLike, ControlPlaneRuntime>();
+
+/**
+ * 运行时缓存：每个 Redis 实例只保存**当前主密钥的不可逆摘要**及其运行时。
+ * 摘要相同 → 复用（同一存储复用同一 L1 熔断状态）；摘要变化（轮换主密钥）→
+ * **替换**该条目，使匿名派生立即改用新密钥，且条目数不随历史密钥增长。
+ */
+interface CachedRuntime {
+  readonly secretDigest: string;
+  readonly runtime: ControlPlaneRuntime;
+}
+const runtimeByRedis = new Map<RedisLike, CachedRuntime>();
+
+/**
+ * 主密钥的不可逆摘要（SHA-256），只作运行时缓存的比较键。
+ *
+ * 复用 `anonymous-id.ts` 已在用的 Web Crypto（`globalThis.crypto.subtle`），不引新依赖。
+ * SHA-256 对高熵主密钥不可逆，无法从摘要反推密钥。摘要**绝不外泄**：不写日志、不进返回值、
+ * 不进错误消息（阶段 1 验收第 4 条）。
+ */
+const digestMasterSecret = async (secret: string): Promise<string> => {
+  const encoded = new TextEncoder().encode(secret);
+  // 复制为独立 `ArrayBuffer`：DOM 与 Node 的 `BufferSource` 对 `Uint8Array<ArrayBufferLike>` 判定不同。
+  const bytes = new Uint8Array(encoded.byteLength);
+  bytes.set(encoded);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
 
 const resolveProductionRedis = (
   environment: Record<string, string | undefined>,
@@ -86,7 +115,8 @@ const buildRuntime = (
  * 调用方据此走「控制面不可用 → 失败关闭」。密钥缺失不抛错，避免把配置问题
  * 变成请求期异常。
  *
- * 同一 Redis 实例重复调用返回**同一运行时**（进程级单例），使 L1 跨请求累计。
+ * 同一 Redis 实例、同一主密钥重复调用返回**同一运行时**（进程级单例），使 L1 跨请求累计；
+ * 主密钥轮换（摘要变化）时**替换**该 Redis 的运行时条目，使匿名派生立即改用新密钥。
  */
 export const createControlPlaneFromEnvironment = async (
   environment: Record<string, string | undefined>,
@@ -96,10 +126,11 @@ export const createControlPlaneFromEnvironment = async (
   if (secret === undefined || secret.length === 0) return null;
   const redis = options.redis ?? resolveProductionRedis(environment);
   if (redis === null) return null;
+  const secretDigest = await digestMasterSecret(secret);
   const cached = runtimeByRedis.get(redis);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.secretDigest === secretDigest) return cached.runtime;
   const runtime = buildRuntime(environment, options, redis, secret);
-  runtimeByRedis.set(redis, runtime);
+  runtimeByRedis.set(redis, { secretDigest, runtime });
   return runtime;
 };
 

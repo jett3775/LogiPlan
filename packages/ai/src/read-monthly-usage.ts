@@ -28,9 +28,10 @@ import {
  *
  * ## 受控失败
  *
- * 缺主密钥或缺 Redis 凭据时 `createControlPlaneFromEnvironment` 返回 `null`，本 CLI
- * 输出**固定**中文说明并以非零退出码结束；**不**回显任何连接串 / token / 密钥
- * （异常路径同样只打印同一固定文案，绝不透出底层错误信息）。
+ * 缺主密钥或缺 Redis 凭据时 `createControlPlaneFromEnvironment` 返回 `null`；读取失败
+ * （`budgetRead` 拒绝、存储不可达等）时 `readMonthlyUsage` 抛错——两条路径都由
+ * `runReadMonthlyUsage` 收敛为**同一固定**中文说明，程序化调用方拿到 `ok:false` 而非异常。
+ * 本 CLI 据此以非零退出码结束；**不**回显任何连接串 / token / 密钥 / 底层异常信息。
  */
 
 /** 受控失败文案（固定；不含任何凭据信息）。 */
@@ -69,6 +70,10 @@ export type ReadMonthlyUsageOutcome =
  *
  * `nowMs` 取自装配后的注入时钟：生产默认时钟即 `Date.now`（`server.ts`），故线上行为
  * 与「读当前自然月」一致；测试注入 `FixedClock` 后完全确定（避免跨月边界抖动）。
+ *
+ * 读取失败（`budgetRead` 拒绝、存储不可达等）与「未配置」走**同一条受控失败**：
+ * 返回固定 `message_zh`，绝不把底层异常（可能含连接串 / token）冒泡给程序化调用方
+ * ——与 CLI 顶层 `.catch`（`isDirectRun` 分支）同一语义。
  */
 export const runReadMonthlyUsage = async (
   environment: Record<string, string | undefined>,
@@ -78,11 +83,15 @@ export const runReadMonthlyUsage = async (
   if (runtime === null) {
     return { ok: false, message_zh: USAGE_UNAVAILABLE_MESSAGE_ZH };
   }
-  const usage = await readMonthlyUsage(runtime.deps.redis, {
-    threshold: runtime.config.threshold,
-    nowMs: runtime.deps.clock.now(),
-  });
-  return { ok: true, usage };
+  try {
+    const usage = await readMonthlyUsage(runtime.deps.redis, {
+      threshold: runtime.config.threshold,
+      nowMs: runtime.deps.clock.now(),
+    });
+    return { ok: true, usage };
+  } catch {
+    return { ok: false, message_zh: USAGE_UNAVAILABLE_MESSAGE_ZH };
+  }
 };
 
 /** 仅当作为脚本直接运行时执行；被 `import` 时不执行（单测导入纯函数即安全）。 */

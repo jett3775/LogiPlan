@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { deriveAnonymousId } from "./anonymous-id";
 import {
   CONTROL_PLANE_TIMEOUT_MS,
   evaluateControlPlane,
@@ -110,5 +111,94 @@ describe("控制面装配（服务端入口 @logiplan/ai/server）", () => {
     expect(blocked.liveCallPermitted).toBe(false);
     expect(blocked.errorCode).toBe("PROVIDER_UNAVAILABLE");
     expect(blocked.audit.circuit_state).toBe("open");
+  });
+});
+
+/**
+ * 阶段 1：运行时缓存键必须含**当前主密钥的不可逆摘要**——同 Redis 下换主密钥必须产生
+ * 新运行时（匿名派生改用新密钥），同 Redis 同密钥必须复用（L1 跨请求累计），且只保留
+ * 「当前密钥」的条目（替换而非嵌套，不随历史密钥无限增长）。
+ *
+ * 修复前 `runtimeByRedis` 只按 Redis 实例做键：本文件的「换主密钥」与「替换语义」两条
+ * 用例都会失败（见报告中的临时回退验证）。
+ */
+describe("运行时缓存按主密钥摘要隔离（阶段 1）", () => {
+  const envWithSecret = (secret: string): Record<string, string | undefined> => ({
+    LOGIPLAN_AI_ANON_SECRET: secret,
+  });
+
+  it("同 Redis + 换主密钥 → 产生新运行时，且匿名派生改用新密钥", async () => {
+    const redis = new InMemoryRedisLike();
+    const clock = new FixedClock(T0);
+    const first = await createControlPlaneFromEnvironment(envWithSecret("secret-a"), {
+      redis,
+      clock,
+      environmentName: "test",
+    });
+    const rotated = await createControlPlaneFromEnvironment(envWithSecret("secret-b"), {
+      redis,
+      clock,
+      environmentName: "test",
+    });
+    expect(first).not.toBeNull();
+    expect(rotated).not.toBeNull();
+    // 修复前：只按 Redis 做键 → 命中旧条目，返回同一（旧密钥）运行时。
+    expect(rotated).not.toBe(first);
+    expect(rotated?.deps.breaker).not.toBe(first?.deps.breaker);
+
+    // 运行时内固化的密钥已切换 → 匿名派生值随之变化。
+    const derive = (secret: string): Promise<string> =>
+      deriveAnonymousId({
+        rawIp: "203.0.113.7",
+        userAgent: "LogiPlanTest/1.0",
+        secret,
+        nowMs: T0,
+      });
+    const before = await derive(first!.config.secret);
+    const after = await derive(rotated!.config.secret);
+    expect(after).not.toBe(before);
+  });
+
+  it("不同 Redis 实例相互隔离（不共享运行时与 L1 状态）", async () => {
+    const clock = new FixedClock(T0);
+    const a = await createControlPlaneFromEnvironment(envWithSecret("test-secret"), {
+      redis: new InMemoryRedisLike(),
+      clock,
+      environmentName: "test",
+    });
+    const b = await createControlPlaneFromEnvironment(envWithSecret("test-secret"), {
+      redis: new InMemoryRedisLike(),
+      clock,
+      environmentName: "test",
+    });
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(a).not.toBe(b);
+    expect(a?.deps.breaker).not.toBe(b?.deps.breaker);
+  });
+
+  it("换密钥后再次使用当前密钥仍复用同一运行时（替换而非每次新建）", async () => {
+    const redis = new InMemoryRedisLike();
+    const clock = new FixedClock(T0);
+    const assemble = (
+      secret: string,
+    ): Promise<Awaited<ReturnType<typeof createControlPlaneFromEnvironment>>> =>
+      createControlPlaneFromEnvironment(envWithSecret(secret), {
+        redis,
+        clock,
+        environmentName: "test",
+      });
+
+    const a1 = await assemble("secret-a");
+    const b1 = await assemble("secret-b");
+    const b2 = await assemble("secret-b"); // 当前密钥再次装配 → 复用 b1
+    expect(a1).not.toBeNull();
+    expect(b1).not.toBeNull();
+    expect(b2).toBe(b1);
+    expect(b1).not.toBe(a1);
+
+    // 只保留「当前密钥」的条目：回到旧密钥得到新实例（替换语义，不按历史无限增长）。
+    const a2 = await assemble("secret-a");
+    expect(a2).not.toBe(a1);
   });
 });
