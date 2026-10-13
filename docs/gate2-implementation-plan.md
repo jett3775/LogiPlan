@@ -228,7 +228,7 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 **未执行（不得表述为通过）**：
 
 - ~~浏览器产物复核~~ **已于 2026-10-09 完成**：用户终端 `pnpm build` 成功，主 Agent 只读核验——客户端 `.next/static` 搜 `upstash` **零命中**，服务端产物**有命中**（正向对照，证明搜索有效），旧泄漏 chunk 已不存在。本会话内 `pnpm build` 仍会被 `node-safe-delete-shim` 拦截，项目禁止用 `CODEBUDDY_SAFE_DELETE_ENABLED=0` 绕过（未使用）。
-- 真实 Upstash 的 Lua 原子性与 `eval` 运行时行为（无凭据/实例，替身只验接口形态）；**AC2.11 只读 CLI 的「真实 Redis 成功路径」同样未实跑**（本机无 Upstash 凭据）——已验证的是无凭据时的**受控失败路径**（退出码 1、固定中文文案、**无凭据回显**，另以伪造 token/url/密钥实测确认不泄漏）。
+- ~~真实 Upstash 的 Lua 原子性与 `eval` 运行时行为（无凭据/实例，替身只验接口形态）；**AC2.11 只读 CLI 的「真实 Redis 成功路径」同样未实跑**（本机无 Upstash 凭据）~~ ——**已于 2026-10-13 用真实 Upstash 完成**（用户提供凭据）：CLI 退出码 0、恰好五字段；Lua 原子性 5 项中 4 项通过，**并暴露一处 Lua 返回值截断缺陷，已修复**（详见 `docs/current-plan.md` §9）。此前已验证的无凭据**受控失败路径**（退出码 1、固定中文文案、**无凭据回显**，另以伪造 token/url/密钥实测确认不泄漏）结论不变。
 - ~~`packages/ai` 覆盖率~~ **已于 2026-10-09 关闭**（经用户批准扩大写范围）：`vitest.config.ts` 的
   `coverage.include` 新增 `packages/ai/src/**/*.ts`，并新增阈值组（`lines 85` / `statements 83` /
   `functions 75` / `branches 78`）。实测全包 **89.87% lines / 86.81% statements / 78.49% functions /
@@ -237,8 +237,11 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
   `packages/db/src/evidence-snapshot.test.ts`，由 `SNAPSHOT_TEST_*` 门控），且 CI 的
   `pnpm test:coverage` 跑在**单一 `ubuntu-latest` job**（`.github/workflows/gate1.yml:50`，非跨平台矩阵）。
   **主要拖累项（如实记录）**：`upstash-redis.ts` 仅 **20% statements / 0% branches / 5% functions**
-  ——它的 Lua/`eval` 路径需要真实 Upstash 实例才能执行；**门 C（首次真实付费调用）前补做真实原子性
-  验证后应上调该阈值**。 `vitest.config.ts` **不在** `scripts/neon-baseline.mjs` 的
+  ——它的 Lua/`eval` 路径需要真实 Upstash 实例才能执行。**2026-10-13 更新**：真实原子性验证已完成
+  （见 `docs/current-plan.md` §9），并据此修复一处 **Lua 返回值截断**缺陷；但该验证由**受门控的集成测试**
+  （需 `LOGIPLAN_UPSTASH_INTEGRATION=1`）承载，**默认 `pnpm test` / `test:coverage` 仍跳过它** ⇒
+  `upstash-redis.ts` 在默认覆盖率运行中**仍是 20% stmts**，**不得据此认为该文件已覆盖**；
+  上调该阈值须在带 opt-in 的运行下进行。 `vitest.config.ts` **不在** `scripts/neon-baseline.mjs` 的
   `executionClosurePaths` 内，故本次改动**不触发工具 SHA 重锚定**。
   **CI 证据**：run `37910980424`（`c837ac6e`）**全绿**——`Gate 1 deterministic validation`
   （含 `Test with coverage` 步骤）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、
