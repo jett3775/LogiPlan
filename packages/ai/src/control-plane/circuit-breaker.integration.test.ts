@@ -234,5 +234,30 @@ describe.skipIf(!enabled)(
         expect(snapshot.state).toBe("open");
       },
     );
+
+    it(
+      "压测：100 次同毫秒并发故障跨两实例不漏计数，且墙钟在合理上界内",
+      { timeout: INTEGRATION_TIMEOUT_MS },
+      async () => {
+        const { a, b } = newPair();
+        const CONCURRENCY = 100;
+        const startedAt = Date.now();
+        await Promise.all(
+          Array.from({ length: CONCURRENCY }, (_, index) =>
+            index % 2 === 0
+              ? a.breaker.recordTransientFailure(ROLE, T0)
+              : b.breaker.recordTransientFailure(ROLE, T0),
+          ),
+        );
+        const elapsedMs = Date.now() - startedAt;
+        const snapshot = await a.breaker.read(ROLE, T0);
+        // 唯一成员机制下 100 次同毫秒并发必须**全部**计入（成员只用 `now` 会被折叠成 1 次）。
+        expect(snapshot.failures).toBe(CONCURRENCY);
+        expect(snapshot.state).toBe("open");
+        // 只做**宽松上界**的健全性检查（不把远端网络抖动变成红灯）；实测墙钟另行记录在
+        // `docs/current-plan.md` §10.4，供后续对比，不作为断言。
+        expect(elapsedMs).toBeLessThan(INTEGRATION_TIMEOUT_MS);
+      },
+    );
   },
 );
