@@ -159,7 +159,7 @@ git status --short
 - **真实基础设施验证**：Upstash Lua 原子性、`eval` 行为和 CLI 真实成功路径尚未验证，替身无法替代；取得对应真实服务授权后另排验证。切片 2 专项 Playwright / axe 及会话内隔离数据库仍缺本地证据，历史 CI 隔离验证曾通过，两者分别记录。合并、部署或阶段闸门前仍须补齐完整 Playwright、性能、可访问性及路线图要求，不能用历史生产结果代替。
 - **真实 AI 与 20 题评估**：须先完成前置验证并开启门 B、C；切片 3 / 4 依 [实施计划 §5、§6](gate2-implementation-plan.md) 单独推进。20 题必须全为真实生成，至少 **18/20**，E19、E20 全通过；数字按 **4 位小数精确一致、无容差**，语义人工复核，固定示例不能计通过；开发、排错、评估同池计入月度 30 元。
 - **多快照恢复**：15 条证据跨 4 个快照，回答契约只有单值快照 ID；逐条证据可打开不等于页面恢复能力成立，需 contracts / 查询契约的独立 L2 工作流。
-- **其他独立项**：跨实例 L1、原 url/token 缓存容量、`noopAuditSink`、XFF 语义及动态 import 可达性断言留待后续，不随 A/B 扩写。
+- **其他独立项**：~~原 url/token 缓存容量~~、~~动态 import 可达性断言~~ **已于 2026-10-13 完成**（见 §7）；跨实例 L1、`noopAuditSink`、XFF 语义留待后续。
 - **Windows 稳定性**：`3221226505 = 0xC0000409` 根因未定性；2026-10-08 取证未命中，维持 D-188，稳定性权威证据取 CI ubuntu、本地证据单列，见 [取证文档](windows-crash-evidence.md)。新一轮环境可执行性按实际运行判断。
 
 ## 5. 执行模型与本次更新范围
@@ -193,3 +193,26 @@ git status --short
 - **提交与 CI 证据（2026-10-12）**：提交 `64a4f2c2`（`feat(ai)`：A/B 四文件）与 `eaa6a2d6`（`docs`：本文件）。推送后 CI run **`38224713233`**（head `eaa6a2d6`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。**CI 是稳定性权威证据（D-188）**，本机结果与 CI 结果分别记录、不得合并。
 - **模型偏差**：本计划指定 L2 使用 `gpt-5.6-sol` / `high`，运行环境不提供该档位名称，按工作流 §2.6 降级使用环境可用推理档位；**分级、验证矩阵与独立审查要求均未降低**。实际精确模型 ID 与推理强度未暴露，记为未知。
 - **状态边界**：以上仅为「代码与本地验证完成」。**生产发布与闸门二通过本次均无证据**，不得由本地结果推导。后续切片 3 / 4 仍待门 B、C 授权。
+
+## 7. 2026-10-13 执行结果（其他独立项 2 条）
+
+按「最少人工干预」优先，先做 §4 中**零外部依赖**的两条；另三条（跨实例 L1、`noopAuditSink`、XFF 语义）仍待后续。
+
+- **范围**：`packages/ai/src/control-plane/server.ts`、`server.test.ts`、`packages/ai/src/no-live-call.test.ts`。`packages/ai` **不在** `executionClosurePaths` 内 → **不触发工具 SHA 重锚定**；**零新依赖**。
+- **① 凭据缓存容量上限**：`productionRedisByCredentials` 由「只增不减、无上限」改为具名上限 `MAX_CACHED_REDIS_CREDENTIALS = 4` + **LRU 淘汰**；命中时做 LRU 触碰；淘汰时**同步删除对应 `runtimeByRedis` 条目**（不留孤儿）。**单凭据常态下该条目恒为最近使用项、永不被淘汰**，故 L1 跨请求累计不受影响；仅当同一进程**同时**使用超过 4 组凭据时最久未用者才被淘汰并重置其 L1 计数——属已文档化的取舍。新增 3 条用例（有界且最旧被淘汰、两表一致无孤儿、单凭据不淘汰且复用同一运行时）。
+- **② 动态 import 可达性断言**：`no-live-call.test.ts` 把依赖边提取抽成纯函数 `extractImportSpecifiers`，覆盖 `from "..."`、`import("...")`、`import "..."` 三形态；既有三条断言与两条正对照**原样保留**，另补一条正对照证明扩展真的生效。**扩展未发现此前不可见的可达路径**（全包源码扫描确认）。
+- **回归（本机实测，退出码全部 0）**：
+
+| 命令                              | 结果                                                        |
+| --------------------------------- | ----------------------------------------------------------- |
+| `pnpm test`                       | 35 文件 / **317 passed / 11 skipped（328）**（较 10-12 +4） |
+| `pnpm typecheck` / web 非增量 tsc | 0 / 0                                                       |
+| `pnpm lint` / `pnpm format:check` | 0 / 0                                                       |
+| `pnpm build`                      | 0                                                           |
+| `pnpm test:coverage`              | 0                                                           |
+| `git diff --check`                | 干净                                                        |
+
+- **AI 包覆盖率（本次实测）**：lines **90.23%**（591/655）、statements **87.11%**（649/745）、functions **78.95%**（150/190）、branches **81.23%**（277/341）；阈值 **85 / 83 / 75 / 78 全部通过**。
+- **独立审查**：结论 **PASS**，无阻断项。审查者独立复跑定向（20 passed）与 `packages/ai`（181 passed），并用 node 复刻 LRU 逻辑做隔离模拟、扫描全包源码验证正则扩展未新增可达边。遗留 **2 条非阻断 P2**：① `server.test.ts` 硬编码上限 `4` 而未引用生产常量（方向 fail-safe，但失败信息会误导）；② 三条正则仅匹配双引号，模板字面量 `import(...)` 未覆盖（本仓无此形态，已注释记录）。
+- **未执行（如实记录）**：真实 Upstash（无凭据/实例）；docker 相关脚本（`spawnSync`/`execSync` 恒 `EBUSY`）；**独立审查者未做回退验证**（受只读约束，改为代码推理 + node 模拟；回退验证由 slice_owner 完成并报告）。
+- **模型偏差**：同 §6（环境不提供 `gpt-5.6-sol` 档位名，按工作流 §2.6 降级；分级、验证与独立审查要求未降低）。

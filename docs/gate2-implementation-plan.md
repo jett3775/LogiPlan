@@ -249,8 +249,8 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 **遗留 P2（记录为后续任务，未在本轮修复）**：
 
 1. **单例缓存键未含 secret**（`control-plane/server.ts:99-102`）：同 Redis 不同 secret 会复用首个运行时 → 同进程内密钥轮换后可能用到旧 secret。今日生产为单密钥单环境，无实际影响；切片 3 或密钥轮换前应把 `secret` 并入键。
-2. **进程级缓存无上限/不淘汰**（`server.ts:40,42`）。
-3. **可达性断言不跟随动态相对 `import()`**（`no-live-call.test.ts:121`）——当前无此边，断言标题已限定「静态可达性」，属如实。
+2. ~~**进程级缓存无上限/不淘汰**（`server.ts:40,42`）~~ **已于 2026-10-13 修复**：加具名上限 `MAX_CACHED_REDIS_CREDENTIALS = 4` + LRU 淘汰，淘汰时同步清理对应 `runtimeByRedis` 条目（见 `docs/current-plan.md` §7）。
+3. ~~**可达性断言不跟随动态相对 `import()`**（`no-live-call.test.ts:121`）~~ **已于 2026-10-13 修复**：抽出纯函数 `extractImportSpecifiers`，覆盖 `from "..."`、`import("...")`、`import "..."` 三形态；扩展未发现新的可达路径（见 `docs/current-plan.md` §7）。
 4. `audit-log.ts` 在切片 2 的 sink 为 `noopAuditSink`（**不落盘**），真实 sink 由切片 3 注入。
 5. 路由取 `x-forwarded-for` 的**首个**值（`respond/route.ts:62`）；Vercel 的 XFF 语义本机不可验证，待切片 3 前确认。
 6. **测试计数**：以实测为准——切片 2 主体新增约 **70** 条（owner 曾自报 72），AC2.11 的 CLI 追加 +4；**当前全量 `309 passed / 11 skipped (320)`**。
