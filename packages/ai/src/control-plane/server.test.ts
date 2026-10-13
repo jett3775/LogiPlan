@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { deriveAnonymousId } from "./anonymous-id";
 import {
@@ -200,5 +200,68 @@ describe("运行时缓存按主密钥摘要隔离（阶段 1）", () => {
     // 只保留「当前密钥」的条目：回到旧密钥得到新实例（替换语义，不按历史无限增长）。
     const a2 = await assemble("secret-a");
     expect(a2).not.toBe(a1);
+  });
+});
+
+/**
+ * 其他独立项：生产凭据缓存（`productionRedisByCredentials`）的**容量上限与淘汰**。
+ *
+ * 修复前该表只增不减、无上限：本文件的「有界」「无孤儿」两条用例都会失败（见报告中的
+ * 临时回退验证）。每个用例用 `vi.resetModules()` + 动态 `import("./server")` 取得**全新
+ * 模块实例**，使两张缓存表从空开始，计数断言确定、互不干扰。
+ */
+describe("生产凭据缓存容量上限与淘汰", () => {
+  const MAX_CACHED_REDIS_CREDENTIALS = 4;
+
+  const credsEnv = (index: number): Record<string, string | undefined> => ({
+    LOGIPLAN_AI_ANON_SECRET: "test-secret",
+    UPSTASH_REDIS_REST_URL: `https://example-${index}.invalid`,
+    UPSTASH_REDIS_REST_TOKEN: `token-${index}`,
+  });
+
+  const freshServer = async (): Promise<typeof import("./server")> => {
+    vi.resetModules();
+    return import("./server");
+  };
+
+  it("超过上限后最旧凭据条目被淘汰，条目数有界", async () => {
+    const server = await freshServer();
+    const oldest = await server.createControlPlaneFromEnvironment(credsEnv(0));
+    expect(oldest).not.toBeNull();
+    for (let index = 1; index <= MAX_CACHED_REDIS_CREDENTIALS; index += 1) {
+      expect(await server.createControlPlaneFromEnvironment(credsEnv(index))).not.toBeNull();
+    }
+    // 插入上限 +1 组不同凭据后，凭据表仍被上界约束（最旧的 0 号已被淘汰）。
+    expect(server.__controlPlaneCacheCountsForTest().credentials).toBe(
+      MAX_CACHED_REDIS_CREDENTIALS,
+    );
+    // 0 号已淘汰 → 重新装配得到**新**运行时（旧实例不再复用）。
+    expect(await server.createControlPlaneFromEnvironment(credsEnv(0))).not.toBe(oldest);
+    expect(server.__controlPlaneCacheCountsForTest().credentials).toBe(
+      MAX_CACHED_REDIS_CREDENTIALS,
+    );
+  });
+
+  it("淘汰后两张表一致，不残留孤儿运行时条目", async () => {
+    const server = await freshServer();
+    for (let index = 0; index <= MAX_CACHED_REDIS_CREDENTIALS; index += 1) {
+      expect(await server.createControlPlaneFromEnvironment(credsEnv(index))).not.toBeNull();
+    }
+    const counts = server.__controlPlaneCacheCountsForTest();
+    // 两张表都恰为上限：凭据表被上界约束，运行时表不残留被淘汰凭据的孤儿条目。
+    expect(counts.credentials).toBe(MAX_CACHED_REDIS_CREDENTIALS);
+    expect(counts.runtimes).toBe(MAX_CACHED_REDIS_CREDENTIALS);
+  });
+
+  it("单凭据重复调用不触发淘汰，仍复用同一实例与同一运行时", async () => {
+    const server = await freshServer();
+    const first = await server.createControlPlaneFromEnvironment(credsEnv(0));
+    expect(first).not.toBeNull();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(await server.createControlPlaneFromEnvironment(credsEnv(0))).toBe(first);
+    }
+    const counts = server.__controlPlaneCacheCountsForTest();
+    expect(counts.credentials).toBe(1);
+    expect(counts.runtimes).toBe(1);
   });
 });

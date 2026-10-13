@@ -26,7 +26,8 @@ import { createLazyUpstashRedisLike } from "./upstash-redis";
  * L1 熔断要求「同一角色 5 分钟窗口内**连续 5 次**」**跨请求**累计，因此装配结果必须
  * 跨请求复用同一 `L1CircuitBreaker` 实例。本模块按 **Redis 实例 + 当前主密钥的不可逆摘要**
  * 缓存运行时：
- * - 生产路径：Redis 实例按凭据（url+token）缓存 → 同一进程内恒定；
+ * - 生产路径：Redis 实例按凭据（url+token）缓存 → 同一进程内恒定；该表有容量上限
+ *   （`MAX_CACHED_REDIS_CREDENTIALS`），超限按 LRU 淘汰并同步清理对应运行时条目；
  * - 运行时条目同时保存**当前主密钥的不可逆摘要**：摘要不变 → 复用（同一配置下 L1 跨请求
  *   累计）；摘要变化（轮换主密钥）→ **替换**该 Redis 的条目，使匿名派生立即改用新密钥，
  *   且条目数不随历史密钥增长；
@@ -44,6 +45,22 @@ import { createLazyUpstashRedisLike } from "./upstash-redis";
 const productionRedisByCredentials = new Map<string, RedisLike>();
 
 /**
+ * 生产凭据缓存的**容量上限**。
+ *
+ * 生产实际只配置**一组** Upstash 凭据，正常运行时本表恒为 1 条。取 `4` 是为了在
+ * 凭据轮换的过渡窗口内允许新旧凭据短暂并存，同时给异常配置一个远小于「无界」的硬上限
+ * ——凭据（含 token）是敏感数据，缓存不应随历史轮换无限增长。
+ *
+ * ⚠️ 与 L1 熔断的关系：`runtimeByRedis`（键为 Redis **实例**）持有 L1 状态。淘汰凭据条目时
+ * **必须同时移除对应 Redis 实例的运行时条目**（见 `evictLeastRecentlyUsedCredential`），
+ * 否则会留下孤儿条目。**单凭据常态下该条目始终是最近使用项，绝不会被淘汰**，因此 L1 计数
+ * 不会因淘汰而重置。只有当同一进程**同时**使用超过 `MAX_CACHED_REDIS_CREDENTIALS` 组不同
+ * 凭据时，最久未用的一组才会被淘汰、其 L1 计数随之重置——这是为有界内存付出的、被明确
+ * 记录的取舍。
+ */
+const MAX_CACHED_REDIS_CREDENTIALS = 4;
+
+/**
  * 运行时缓存：每个 Redis 实例只保存**当前主密钥的不可逆摘要**及其运行时。
  * 摘要相同 → 复用（同一存储复用同一 L1 熔断状态）；摘要变化（轮换主密钥）→
  * **替换**该条目，使匿名派生立即改用新密钥，且条目数不随历史密钥增长。
@@ -53,6 +70,19 @@ interface CachedRuntime {
   readonly runtime: ControlPlaneRuntime;
 }
 const runtimeByRedis = new Map<RedisLike, CachedRuntime>();
+
+/**
+ * 淘汰**最久未用**的凭据条目，并**同步移除其 Redis 实例的运行时条目**，使两张表保持一致
+ * （不留孤儿）。`Map` 的迭代顺序即插入顺序；命中会在 `resolveProductionRedis` 中把键移到
+ * 末尾（LRU 触碰），故首个键即最久未用项。被淘汰实例的运行时条目若不存在则为无操作。
+ */
+const evictLeastRecentlyUsedCredential = (): void => {
+  const oldestKey = productionRedisByCredentials.keys().next().value;
+  if (oldestKey === undefined) return;
+  const evictedRedis = productionRedisByCredentials.get(oldestKey);
+  productionRedisByCredentials.delete(oldestKey);
+  if (evictedRedis !== undefined) runtimeByRedis.delete(evictedRedis);
+};
 
 /**
  * 主密钥的不可逆摘要（SHA-256），只作运行时缓存的比较键。
@@ -80,9 +110,18 @@ const resolveProductionRedis = (
   }
   const cacheKey = `${url}\u0000${token}`;
   const cached = productionRedisByCredentials.get(cacheKey);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    // LRU 触碰：命中后移到末尾（最近使用），使单凭据常态下永不被淘汰。
+    productionRedisByCredentials.delete(cacheKey);
+    productionRedisByCredentials.set(cacheKey, cached);
+    return cached;
+  }
   const redis = createLazyUpstashRedisLike({ url, token });
   productionRedisByCredentials.set(cacheKey, redis);
+  // 超限即按 LRU 淘汰（同时清理运行时条目），保持本表有界且两表一致。
+  while (productionRedisByCredentials.size > MAX_CACHED_REDIS_CREDENTIALS) {
+    evictLeastRecentlyUsedCredential();
+  }
   return redis;
 };
 
@@ -133,6 +172,18 @@ export const createControlPlaneFromEnvironment = async (
   runtimeByRedis.set(redis, { secretDigest, runtime });
   return runtime;
 };
+
+/**
+ * **仅供测试**：返回两张进程级缓存表的当前条目数（凭据表与运行时表），用于验证淘汰有界、
+ * 两表一致（不残留孤儿）。只返回计数，不泄露任何凭据；生产调用方不得依赖此导出。
+ */
+export const __controlPlaneCacheCountsForTest = (): {
+  credentials: number;
+  runtimes: number;
+} => ({
+  credentials: productionRedisByCredentials.size,
+  runtimes: runtimeByRedis.size,
+});
 
 export {
   evaluateControlPlane,

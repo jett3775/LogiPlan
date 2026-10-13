@@ -32,6 +32,28 @@ const productionSources = sourceFiles(SRC_DIR)
   .filter((file) => !file.endsWith(".test.ts"))
   .map((file) => ({ file: relative(file), text: readFileSync(file, "utf8") }));
 
+/**
+ * 从源码文本提取**模块依赖 specifier**：静态 `from "..."`、动态 `import("...")` 与副作用
+ * `import "..."` 三种形态。抽成纯函数以便直接单测（见下方「依赖边提取」正对照用例）。
+ *
+ * 只做文本匹配、不解析语法；对相对/非相对 specifier 一视同仁——是否跟随由调用方决定
+ * （`resolveRelative` 只跟随以 `.` 开头的相对路径，`node:` 与包名不会被当成可达文件）。
+ */
+const extractImportSpecifiers = (source: string): string[] => {
+  const specifiers: string[] = [];
+  const patterns = [
+    /\bfrom\s+"([^"]+)"/gu, // import/export ... from "..."
+    /\bimport\s*\(\s*"([^"]+)"\s*\)/gu, // 动态 import("...")
+    /\bimport\s+"([^"]+)"/gu, // 副作用 import "..."
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (match[1] !== undefined) specifiers.push(match[1]);
+    }
+  }
+  return specifiers;
+};
+
 describe("无真实模型调用路径（AC2.12）", () => {
   it("非测试源码中零处出现 LIVE_GENERATED", () => {
     const offenders = productionSources
@@ -51,8 +73,7 @@ describe("无真实模型调用路径（AC2.12）", () => {
   it("不导入任何供应商适配器包（packages/ai-provider-*）", () => {
     const offenders: string[] = [];
     for (const source of productionSources) {
-      for (const match of source.text.matchAll(/from\s+"([^"]+)"/gu)) {
-        const specifier = match[1] ?? "";
+      for (const specifier of extractImportSpecifiers(source.text)) {
         if (specifier.includes("ai-provider")) offenders.push(`${source.file} → ${specifier}`);
       }
     }
@@ -102,7 +123,10 @@ describe("主 barrel 静态可达性（P1-1 回归）", () => {
     return null;
   };
 
-  /** 从入口出发、跟随相对 `from "..."` 再导出/导入的可达文件集合。 */
+  /**
+   * 从入口出发、跟随相对 specifier（`from "..."`、`import("...")`、`import "..."`）的
+   * 可达文件集合。非相对 specifier（`node:`、包名）由 `resolveRelative` 过滤，不作为文件。
+   */
   const reachableFrom = (entry: string): string[] => {
     const seen = new Set<string>();
     const stack = [entry];
@@ -110,8 +134,8 @@ describe("主 barrel 静态可达性（P1-1 回归）", () => {
       const file = stack.pop();
       if (file === undefined || seen.has(file)) continue;
       seen.add(file);
-      for (const match of readFileSync(file, "utf8").matchAll(/from\s+"([^"]+)"/gu)) {
-        const target = resolveRelative(file, match[1] ?? "");
+      for (const specifier of extractImportSpecifiers(readFileSync(file, "utf8"))) {
+        const target = resolveRelative(file, specifier);
         if (target !== null) stack.push(target);
       }
     }
@@ -125,6 +149,8 @@ describe("主 barrel 静态可达性（P1-1 回归）", () => {
       .filter((file) => readFileSync(file, "utf8").includes("@upstash"))
       .map(relative);
     expect(offenders).toEqual([]);
+    // 只跟随真实存在的 `.ts` 文件：`node:` 与包名不会被当成可达文件。
+    expect(reachableRaw.every((file) => file.endsWith(".ts"))).toBe(true);
     expect(reachable.some((file) => file.endsWith("control-plane/upstash-redis.ts"))).toBe(false);
     expect(reachable.some((file) => file.endsWith("control-plane/server.ts"))).toBe(false);
   });
@@ -133,5 +159,22 @@ describe("主 barrel 静态可达性（P1-1 回归）", () => {
     const reachable = reachableFrom(indexFile).map(relative);
     expect(reachable.some((file) => file.endsWith("control-plane/control-plane.ts"))).toBe(true);
     expect(reachable.some((file) => file.endsWith("gateway/retry-policy.ts"))).toBe(true);
+  });
+
+  it("（正对照）依赖边提取覆盖 from / 动态 import() / 副作用 import 三种形态", () => {
+    const sample = [
+      'import { a } from "./static";',
+      'export { b } from "../re-export";',
+      'const lazy = await import("./dynamic");',
+      'import "./side-effect";',
+      'import type { T } from "@logiplan/contracts";',
+    ].join("\n");
+    const specifiers = extractImportSpecifiers(sample);
+    // 动态 import("./dynamic") 与副作用 import "./side-effect" 都必须被提取（否则扩展未生效）。
+    expect(specifiers).toContain("./static");
+    expect(specifiers).toContain("../re-export");
+    expect(specifiers).toContain("./dynamic");
+    expect(specifiers).toContain("./side-effect");
+    expect(specifiers).toContain("@logiplan/contracts");
   });
 });
