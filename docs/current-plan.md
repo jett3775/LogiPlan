@@ -297,3 +297,14 @@ git status --short
 - **跨实例 L1** 的阻塞点（真实共享 Redis）**现已具备**，可另行排期，但本轮**未做**。
 - `docs/current-plan.md` §4 五条独立项中，`跨实例 L1` 的阻塞点据此解除；其余处置结论不变（§7、§8）。
 - CI 证据见 §9.6。
+
+### 9.6 提交与 CI 证据
+
+- 提交 **`94c51335`**（`fix(ai)`：`upstash-redis.ts` + 受门控集成测试，2 文件 +141/−9）与
+  **`7c0679cc`**（`docs`：本文件 §9 与闸门二实施计划 §4.1 回填，2 文件 +86/−14）。
+- CI run **`38354494953`**（head `7c0679cc`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage`
+  与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、
+  `CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
+- **仍未执行（如实记录，不表述为通过）**：真实 Redis 的**跨实例 L1 一致性**（阻塞点已解除但本轮未做）；
+  切片 2 专项 Playwright / axe 与会话内隔离数据库（`spawnSync` 恒 `EBUSY`）；**`upstash-redis.ts` 在默认
+  覆盖率运行中仍是 20% stmts**（其验证由受门控集成测试承载，默认跳过）。
