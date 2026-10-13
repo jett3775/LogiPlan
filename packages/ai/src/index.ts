@@ -137,6 +137,7 @@ export {
   ControlPlaneUnavailableError,
   isBudgetReserveOutcome,
   isBudgetSettleOutcome,
+  isCircuitSnapshot,
   isSlidingWindowOutcome,
   type BudgetReserveOutcome,
   type BudgetSettleOutcome,
@@ -184,6 +185,7 @@ export {
   type MonthlyUsageInput,
 } from "./control-plane/budget-ledger";
 export {
+  circuitKey,
   isMonthlyBudgetBreached,
   isTransientFailure,
   L1CircuitBreaker,
@@ -191,6 +193,7 @@ export {
   L1_WINDOW_MS,
   TRANSIENT_FAILURE_CODES,
   type CircuitBreakerOptions,
+  type CircuitSnapshot,
   type CircuitState,
 } from "./control-plane/circuit-breaker";
 export {

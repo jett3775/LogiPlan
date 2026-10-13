@@ -54,7 +54,7 @@ const makeDeps = (
   clock: ControlPlaneClock = new FixedClock(T0),
 ): ControlPlaneDeps => ({
   redis,
-  breaker: new L1CircuitBreaker(),
+  breaker: new L1CircuitBreaker(redis),
   clock,
 });
 
@@ -96,7 +96,7 @@ describe("控制面失败关闭（AC2.3 / AC2.4）", () => {
   it("L1 熔断打开 → PROVIDER_UNAVAILABLE", async () => {
     const deps = makeDeps(new InMemoryRedisLike());
     for (let count = 0; count < 5; count += 1) {
-      deps.breaker.recordTransientFailure("management_analysis", T0);
+      await deps.breaker.recordTransientFailure("management_analysis", T0);
     }
     const decision = await evaluateControlPlane(deps, makeConfig(), request());
     expect(decision.liveCallPermitted).toBe(false);

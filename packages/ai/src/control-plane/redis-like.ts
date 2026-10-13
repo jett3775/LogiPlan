@@ -40,6 +40,24 @@ export interface BudgetSettleOutcome {
   readonly applied: boolean;
 }
 
+/**
+ * L1 熔断三态（docs/decisions.md D-190 决策一）。
+ *
+ * 定义在存储层而非 `circuit-breaker.ts`，使 `RedisLike` 的熔断方法不必反向依赖
+ * 领域模块（`circuit-breaker.ts` 仍 re-export 本类型，对外导出位置不变）。
+ */
+export type CircuitState = "closed" | "open" | "half_open";
+
+/** L1 熔断状态一次**纯读**的结果（`circuitRead`）。 */
+export interface CircuitSnapshot {
+  /** 当前状态：闭合 / 打开 / 半开（窗口滑出后自动半开）。 */
+  readonly state: CircuitState;
+  /** 窗口内的故障数（严格 `nowMs - at < windowMs`，等价于 ZSET 排他下界计数）。 */
+  readonly failures: number;
+  /** 打开时刻（毫秒）；`null` 表示从未打开。 */
+  readonly openedAt: number | null;
+}
+
 export interface RedisLike {
   /** 原子滑动窗口：同一次调用内完成计数与判定。 */
   slidingWindow(
@@ -64,6 +82,26 @@ export interface RedisLike {
   ): Promise<BudgetSettleOutcome>;
   /** 只读读取账本累计值；不存在返回 null（不产生任何写入）。 */
   budgetRead(ledgerKey: string): Promise<number | null>;
+  /**
+   * 原子读取 L1 熔断判定：**纯读**，不写任何键。
+   *
+   * 单次调用返回「是否放行（`state !== "open"`）+ 审计用状态 + 窗口内故障数」，
+   * 使调用方无需为同一次判定做两次往返（`canAttempt` + `state`）。
+   */
+  circuitRead(key: string, nowMs: number, windowMs: number): Promise<CircuitSnapshot>;
+  /**
+   * 原子记录一次瞬时故障（读—改—写在同一脚本/单次调用内完成）。
+   *
+   * 同一毫秒的并发故障必须以**唯一成员**入 ZSET，否则会互相覆盖而漏计数。
+   */
+  circuitRecordFailure(
+    key: string,
+    nowMs: number,
+    windowMs: number,
+    threshold: number,
+  ): Promise<void>;
+  /** 记录一次成功：清除该角色熔断状态（闭合）。 */
+  circuitRecordSuccess(key: string): Promise<void>;
 }
 
 /**
@@ -107,4 +145,18 @@ export const isBudgetSettleOutcome = (value: unknown): value is BudgetSettleOutc
   if (value === null || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return isFiniteNumber(record.totalCny) && typeof record.applied === "boolean";
+};
+
+const isCircuitState = (value: unknown): value is CircuitState =>
+  value === "closed" || value === "open" || value === "half_open";
+
+/** 校验熔断快照结构；不确定结构由调用方收敛为失败关闭（不当作可用）。 */
+export const isCircuitSnapshot = (value: unknown): value is CircuitSnapshot => {
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    isCircuitState(record.state) &&
+    isFiniteNumber(record.failures) &&
+    (record.openedAt === null || isFiniteNumber(record.openedAt))
+  );
 };

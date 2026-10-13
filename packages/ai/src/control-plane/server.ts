@@ -23,22 +23,17 @@ import { createLazyUpstashRedisLike } from "./upstash-redis";
  *
  * ## 进程级单例（P1-2）与主密钥隔离（阶段 1）
  *
- * L1 熔断要求「同一角色 5 分钟窗口内**连续 5 次**」**跨请求**累计，因此装配结果必须
- * 跨请求复用同一 `L1CircuitBreaker` 实例。本模块按 **Redis 实例 + 当前主密钥的不可逆摘要**
- * 缓存运行时：
+ * 本模块按 **Redis 实例 + 当前主密钥的不可逆摘要** 缓存运行时，使同一配置下**复用同一
+ * 运行时**（同一 `config`、同一 Redis 客户端、同一时钟），避免每请求重建配置：
  * - 生产路径：Redis 实例按凭据（url+token）缓存 → 同一进程内恒定；该表有容量上限
  *   （`MAX_CACHED_REDIS_CREDENTIALS`），超限按 LRU 淘汰并同步清理对应运行时条目；
- * - 运行时条目同时保存**当前主密钥的不可逆摘要**：摘要不变 → 复用（同一配置下 L1 跨请求
- *   累计）；摘要变化（轮换主密钥）→ **替换**该 Redis 的条目，使匿名派生立即改用新密钥，
- *   且条目数不随历史密钥增长；
+ * - 运行时条目同时保存**当前主密钥的不可逆摘要**：摘要不变 → 复用；摘要变化（轮换主密钥）
+ *   → **替换**该 Redis 的条目，使匿名派生立即改用新密钥，且条目数不随历史密钥增长；
  * - 测试路径：注入的 Redis 实例即缓存键，同一替身复用同一运行时（隔离由「每个用例新建
  *   替身」保证）。
  *
- * **Vercel serverless 局限（取舍）**：进程级单例只在**单个热实例**内有效；冷启动或横向
- * 扩容会产生独立实例，L1 计数不跨实例共享。这是有意的取舍——把 L1 落到 Redis 需要为
- * 「连续计数 + 半开」增加一套原子脚本与键，成本与复杂度显著高于切片 2 的目标，且
- * D-190 的 L1 目的是「约 25—100 秒内切断真故障供应商」，单实例内的短窗计数已能满足该
- * 语义。切片 3 若需要跨实例一致，应把 L1 状态迁到注入的存储（RedisLike）并重新验收。
+ * **L1 熔断状态不在此缓存中**：`L1CircuitBreaker` 只承载窗口/阈值参数，计数与判定落在注入
+ * 的 `RedisLike`（见 `circuit-breaker.ts`），因此**跨进程/跨实例共享**，不再受单热实例限制。
  */
 
 /** 生产 Redis 实例：按凭据缓存，使同一进程内实例恒定（进程级单例的前提）。 */
@@ -51,19 +46,16 @@ const productionRedisByCredentials = new Map<string, RedisLike>();
  * 凭据轮换的过渡窗口内允许新旧凭据短暂并存，同时给异常配置一个远小于「无界」的硬上限
  * ——凭据（含 token）是敏感数据，缓存不应随历史轮换无限增长。
  *
- * ⚠️ 与 L1 熔断的关系：`runtimeByRedis`（键为 Redis **实例**）持有 L1 状态。淘汰凭据条目时
- * **必须同时移除对应 Redis 实例的运行时条目**（见 `evictLeastRecentlyUsedCredential`），
- * 否则会留下孤儿条目。**单凭据常态下该条目始终是最近使用项，绝不会被淘汰**，因此 L1 计数
- * 不会因淘汰而重置。只有当同一进程**同时**使用超过 `MAX_CACHED_REDIS_CREDENTIALS` 组不同
- * 凭据时，最久未用的一组才会被淘汰、其 L1 计数随之重置——这是为有界内存付出的、被明确
- * 记录的取舍。
+ * ⚠️ 淘汰凭据条目时**必须同时移除对应 Redis 实例的运行时条目**（见
+ * `evictLeastRecentlyUsedCredential`），否则会留下孤儿条目（两表不一致）。被淘汰实例的
+ * 运行时条目若仍被复用，会指向一个已不在凭据表中的 Redis 客户端——故两表必须保持一致。
  */
 const MAX_CACHED_REDIS_CREDENTIALS = 4;
 
 /**
  * 运行时缓存：每个 Redis 实例只保存**当前主密钥的不可逆摘要**及其运行时。
- * 摘要相同 → 复用（同一存储复用同一 L1 熔断状态）；摘要变化（轮换主密钥）→
- * **替换**该条目，使匿名派生立即改用新密钥，且条目数不随历史密钥增长。
+ * 摘要相同 → 复用同一运行时；摘要变化（轮换主密钥）→ **替换**该条目，使匿名派生立即改用
+ * 新密钥，且条目数不随历史密钥增长。
  */
 interface CachedRuntime {
   readonly secretDigest: string;
@@ -133,7 +125,7 @@ const buildRuntime = (
 ): ControlPlaneRuntime => ({
   deps: {
     redis,
-    breaker: new L1CircuitBreaker(),
+    breaker: new L1CircuitBreaker(redis),
     clock: options.clock ?? { now: () => Date.now() },
   },
   config: {
@@ -154,8 +146,9 @@ const buildRuntime = (
  * 调用方据此走「控制面不可用 → 失败关闭」。密钥缺失不抛错，避免把配置问题
  * 变成请求期异常。
  *
- * 同一 Redis 实例、同一主密钥重复调用返回**同一运行时**（进程级单例），使 L1 跨请求累计；
+ * 同一 Redis 实例、同一主密钥重复调用返回**同一运行时**（进程级单例），避免每请求重建配置；
  * 主密钥轮换（摘要变化）时**替换**该 Redis 的运行时条目，使匿名派生立即改用新密钥。
+ * L1 熔断状态落在注入的 Redis（`circuit-breaker.ts`），与是否复用本运行时无关。
  */
 export const createControlPlaneFromEnvironment = async (
   environment: Record<string, string | undefined>,

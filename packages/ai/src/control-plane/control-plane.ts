@@ -142,9 +142,13 @@ const runChecks = async (
     nowMs,
   });
 
-  if (!deps.breaker.canAttempt(request.role, nowMs)) {
+  // L1 熔断判定：一次**纯读**同时得到「是否放行」与审计用状态（避免两次往返）。
+  // 读取失败 / 返回畸形结构 → `L1CircuitBreaker.read` 抛错 → 本函数被 `evaluateControlPlane`
+  // 收敛为失败关闭，绝不回落到进程内计数。
+  const circuit = await deps.breaker.read(request.role, nowMs);
+  if (circuit.state === "open") {
     return failClosed(config.environment, request, nowMs, "PROVIDER_UNAVAILABLE", {
-      circuitState: deps.breaker.state(request.role, nowMs),
+      circuitState: circuit.state,
     });
   }
 
@@ -241,20 +245,20 @@ export interface ControlPlaneRuntime {
  * 记录一次**真实调用**的结果，驱动 L1 连续故障计数（D-190 决策一）。
  *
  * 切片 3 在每次供应商调用结束后调用本函数（成功→`recordSuccess`；瞬时故障→
- * `recordTransientFailure`；其余错误码不改变计数）。切片 2 无真实调用，故本函数是
- * 「已接线但尚未被触发」的接缝——L1 的**跨请求累计**由 `server.ts` 的进程级单例保证。
+ * `recordTransientFailure`；其余错误码不改变计数）。L1 状态落在注入的存储（Redis），
+ * 因此**跨实例一致**；存储不可用时本函数会**拒绝**（不再静默），由调用方失败关闭。
  */
-export const recordProviderAttemptOutcome = (
+export const recordProviderAttemptOutcome = async (
   runtime: ControlPlaneRuntime,
   role: AiRole,
   errorCode: GatewayErrorCode | null,
-): void => {
+): Promise<void> => {
   if (errorCode === null) {
-    runtime.deps.breaker.recordSuccess(role);
+    await runtime.deps.breaker.recordSuccess(role);
     return;
   }
   if (isTransientFailure(errorCode)) {
-    runtime.deps.breaker.recordTransientFailure(role, runtime.deps.clock.now());
+    await runtime.deps.breaker.recordTransientFailure(role, runtime.deps.clock.now());
   }
 };
 

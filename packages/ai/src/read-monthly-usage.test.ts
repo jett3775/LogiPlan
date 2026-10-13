@@ -71,9 +71,9 @@ describe("只读月度用量 CLI（AC2.11）", () => {
 
     // 把熔断器推到「打开」，随后断言只读操作不会改变它。
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      runtime.deps.breaker.recordTransientFailure(ROLE, T0);
+      await runtime.deps.breaker.recordTransientFailure(ROLE, T0);
     }
-    expect(runtime.deps.breaker.state(ROLE, T0)).toBe("open");
+    expect(await runtime.deps.breaker.state(ROLE, T0)).toBe("open");
 
     // 直接观测熔断**写入口**：只读操作必须零调用（排除经 evaluateControlPlane /
     // recordProviderAttemptOutcome 间接改状态——所有状态变更都经这两个入口）。
@@ -98,7 +98,7 @@ describe("只读月度用量 CLI（AC2.11）", () => {
     expect(redis.calls.slidingWindow).toBe(callsBefore.slidingWindow);
 
     // 熔断状态保持不变（只读操作不触碰熔断器）。
-    expect(runtime.deps.breaker.state(ROLE, T0)).toBe("open");
+    expect(await runtime.deps.breaker.state(ROLE, T0)).toBe("open");
     expect(recordSuccessSpy).not.toHaveBeenCalled();
     expect(recordFailureSpy).not.toHaveBeenCalled();
 

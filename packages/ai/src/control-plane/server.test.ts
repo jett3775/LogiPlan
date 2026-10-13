@@ -14,8 +14,10 @@ import { FixedClock, InMemoryRedisLike } from "./test-doubles";
  * P1-2：L1 熔断的**装配级**验证。走 `createControlPlaneFromEnvironment`（而非直接 new 类），
  * 复现路由「每请求装配」的调用形态，断言 L1 计数**跨请求累计**（第 4 次不触发、第 5 次触发）。
  *
- * 修复前 `createControlPlaneFromEnvironment` 每次 `new L1CircuitBreaker()`，本文件的
- * 「进程级单例」与「集成级 AC2.7」两条用例都会失败（见报告中的临时回退验证）。
+ * 本切片起 L1 状态落在注入的存储（`RedisLike`），装配层只负责把它接上：
+ * `createControlPlaneFromEnvironment` 把同一个 Redis 实例传给 `L1CircuitBreaker`，故跨请求
+ * 累计由存储保证（生产为 Redis，跨实例一致）。下方「进程级单例」断言仍锁定运行时/配置复用
+ * 与主密钥摘要隔离（见 `server.ts`）。
  */
 
 const T0 = Date.parse("2026-10-08T12:00:00.000Z");
@@ -55,7 +57,7 @@ describe("控制面装配（服务端入口 @logiplan/ai/server）", () => {
     expect(decision.liveCallPermitted).toBe(true);
   });
 
-  it("进程级单例：同一 Redis 复用同一运行时（L1 状态跨请求保留）", async () => {
+  it("进程级单例：同一 Redis 复用同一运行时（配置与客户端跨请求保留）", async () => {
     const redis = new InMemoryRedisLike();
     const clock = new FixedClock(T0);
     const first = await createControlPlaneFromEnvironment(ENV, {
@@ -91,7 +93,7 @@ describe("控制面装配（服务端入口 @logiplan/ai/server）", () => {
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       const runtime = await assemble();
       if (runtime === null) throw new Error("runtime 必须可装配");
-      recordProviderAttemptOutcome(runtime, role, "PROVIDER_TIMEOUT");
+      await recordProviderAttemptOutcome(runtime, role, "PROVIDER_TIMEOUT");
       const decision = await evaluateControlPlane(
         runtime.deps,
         runtime.config,
@@ -102,7 +104,7 @@ describe("控制面装配（服务端入口 @logiplan/ai/server）", () => {
 
     const runtime = await assemble();
     if (runtime === null) throw new Error("runtime 必须可装配");
-    recordProviderAttemptOutcome(runtime, role, "PROVIDER_TIMEOUT");
+    await recordProviderAttemptOutcome(runtime, role, "PROVIDER_TIMEOUT");
     const blocked = await evaluateControlPlane(
       runtime.deps,
       runtime.config,

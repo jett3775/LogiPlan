@@ -1,6 +1,8 @@
 import type {
   BudgetReserveOutcome,
   BudgetSettleOutcome,
+  CircuitSnapshot,
+  CircuitState,
   RedisLike,
   SlidingWindowOutcome,
 } from "./redis-like";
@@ -44,7 +46,17 @@ export class InMemoryRedisLike implements RedisLike {
   readonly #totals = new Map<string, number>();
   readonly #reservations = new Map<string, Map<string, number>>();
   readonly #settled = new Map<string, Set<string>>();
-  readonly calls = { slidingWindow: 0, budgetReserve: 0, budgetSettle: 0, budgetRead: 0 };
+  readonly #circuitFailures = new Map<string, number[]>();
+  readonly #circuitOpened = new Map<string, number>();
+  readonly calls = {
+    slidingWindow: 0,
+    budgetReserve: 0,
+    budgetSettle: 0,
+    budgetRead: 0,
+    circuitRead: 0,
+    circuitRecordFailure: 0,
+    circuitRecordSuccess: 0,
+  };
 
   slidingWindow(
     key: string,
@@ -110,6 +122,50 @@ export class InMemoryRedisLike implements RedisLike {
     const total = this.#totals.get(ledgerKey);
     return Promise.resolve(total ?? null);
   }
+
+  /**
+   * L1 熔断的**纯读**：只用 GET 语义，不写任何键（与生产脚本一致）。
+   *
+   * 内存替身用数组保存故障时间戳，天然允许同一毫秒重复（不模拟 ZSET 成员唯一性）；
+   * 「同一毫秒并发不漏计数」由门控集成测试打真实 Redis 验证。
+   */
+  circuitRead(key: string, nowMs: number, windowMs: number): Promise<CircuitSnapshot> {
+    this.calls.circuitRead += 1;
+    const cutoff = nowMs - windowMs;
+    const failures = (this.#circuitFailures.get(key) ?? []).filter((at) => at > cutoff).length;
+    const openedAt = this.#circuitOpened.get(key);
+    let state: CircuitState = "closed";
+    let opened: number | null = null;
+    if (openedAt !== undefined) {
+      opened = openedAt;
+      state = nowMs - openedAt >= windowMs ? "half_open" : "open";
+    }
+    return Promise.resolve({ state, failures, openedAt: opened });
+  }
+
+  circuitRecordFailure(
+    key: string,
+    nowMs: number,
+    windowMs: number,
+    threshold: number,
+  ): Promise<void> {
+    this.calls.circuitRecordFailure += 1;
+    const cutoff = nowMs - windowMs;
+    const openedAt = this.#circuitOpened.get(key);
+    const halfOpen = openedAt !== undefined && nowMs - openedAt >= windowMs;
+    const kept = halfOpen ? [] : (this.#circuitFailures.get(key) ?? []).filter((at) => at > cutoff);
+    const failures = [...kept, nowMs];
+    this.#circuitFailures.set(key, failures);
+    if (halfOpen || failures.length >= threshold) this.#circuitOpened.set(key, nowMs);
+    return Promise.resolve();
+  }
+
+  circuitRecordSuccess(key: string): Promise<void> {
+    this.calls.circuitRecordSuccess += 1;
+    this.#circuitFailures.delete(key);
+    this.#circuitOpened.delete(key);
+    return Promise.resolve();
+  }
 }
 
 /** 永远抛错：模拟 Upstash 连接失败（AC2.3）。 */
@@ -124,6 +180,15 @@ export class FailingRedisLike implements RedisLike {
     return Promise.reject(new Error("connection refused"));
   }
   budgetRead(): Promise<number | null> {
+    return Promise.reject(new Error("connection refused"));
+  }
+  circuitRead(): Promise<CircuitSnapshot> {
+    return Promise.reject(new Error("connection refused"));
+  }
+  circuitRecordFailure(): Promise<void> {
+    return Promise.reject(new Error("connection refused"));
+  }
+  circuitRecordSuccess(): Promise<void> {
     return Promise.reject(new Error("connection refused"));
   }
 }
@@ -141,6 +206,15 @@ export class HangingRedisLike implements RedisLike {
   }
   budgetRead(): Promise<number | null> {
     return new Promise<number | null>(() => undefined);
+  }
+  circuitRead(): Promise<CircuitSnapshot> {
+    return new Promise<CircuitSnapshot>(() => undefined);
+  }
+  circuitRecordFailure(): Promise<void> {
+    return new Promise<void>(() => undefined);
+  }
+  circuitRecordSuccess(): Promise<void> {
+    return new Promise<void>(() => undefined);
   }
 }
 
@@ -161,5 +235,18 @@ export class MalformedRedisLike implements RedisLike {
   }
   budgetRead(): Promise<number | null> {
     return Promise.resolve(null);
+  }
+  circuitRead(): Promise<CircuitSnapshot> {
+    return Promise.resolve({
+      state: "bogus",
+      failures: 1,
+      openedAt: null,
+    } as unknown as CircuitSnapshot);
+  }
+  circuitRecordFailure(): Promise<void> {
+    return Promise.resolve();
+  }
+  circuitRecordSuccess(): Promise<void> {
+    return Promise.resolve();
   }
 }
