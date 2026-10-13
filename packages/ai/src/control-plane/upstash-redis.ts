@@ -26,6 +26,10 @@ import {
  * Lua 脚本只经过人工审查，未经真实执行；AC2.2 在本机只能由内存替身验证接口形态与
  * 调用方逻辑。切片 3 接入真实凭据后必须补做真实原子性验证。
  *
+ * **返回值精度回归（opt-in 集成测试）**：`upstash-redis.integration.test.ts` 打真实
+ * Upstash REST，覆盖「Lua number 返回值被 RESP 截断为整数」这一内存替身无法复现的缺陷；
+ * 它默认跳过，仅在 `LOGIPLAN_UPSTASH_INTEGRATION=1` 且存在真实凭据时运行。
+ *
  * ## 动态导入
  *
  * `@upstash/redis` 用**动态** `import()` 加载，使 `@logiplan/ai` 的 barrel 被浏览器
@@ -45,34 +49,43 @@ end
 return {0, count}
 `;
 
+// 账本总量必须以**字符串**（bulk string）返回：Redis 会把脚本返回值里的 Lua number 转成
+// RESP integer 并**截断小数**（1.5 → 1、0.8 → 0），使 `totalCny` 少报，进而污染审计字段
+// `budget_used_cny`（D-138 白名单）。`tostring`（Lua 5.1 即 `%.14g`）对 2—4 位小数的金额
+// 精确往返；且这里把**同一个**格式化字符串既交给 `SET` 又作为返回值，保证返回值与持久化值
+// **逐字节一致**（不依赖 Redis 对 SET 参数的内部数值格式化）。`ok`/`applied` 仍是整数。
 const BUDGET_RESERVE_SCRIPT = `
-local total = tonumber(redis.call('GET', KEYS[1]) or '0')
+local totalText = redis.call('GET', KEYS[1]) or '0'
+local total = tonumber(totalText)
 if redis.call('HEXISTS', KEYS[2], ARGV[1]) == 1 then
-  return {1, total, 0}
+  return {1, totalText, 0}
 end
 local amount = tonumber(ARGV[2])
 local cap = tonumber(ARGV[3])
 if total + amount > cap then
-  return {0, total, 0}
+  return {0, totalText, 0}
 end
 local nextTotal = total + amount
-redis.call('SET', KEYS[1], nextTotal)
+local nextTotalText = tostring(nextTotal)
+redis.call('SET', KEYS[1], nextTotalText)
 redis.call('HSET', KEYS[2], ARGV[1], amount)
-return {1, nextTotal, 1}
+return {1, nextTotalText, 1}
 `;
 
 const BUDGET_SETTLE_SCRIPT = `
-local total = tonumber(redis.call('GET', KEYS[1]) or '0')
+local totalText = redis.call('GET', KEYS[1]) or '0'
+local total = tonumber(totalText)
 if redis.call('SISMEMBER', KEYS[3], ARGV[1]) == 1 then
-  return {total, 0}
+  return {totalText, 0}
 end
 local reserved = tonumber(redis.call('HGET', KEYS[2], ARGV[1]) or '0')
 local actual = tonumber(ARGV[2])
 local nextTotal = total - reserved + actual
-redis.call('SET', KEYS[1], nextTotal)
+local nextTotalText = tostring(nextTotal)
+redis.call('SET', KEYS[1], nextTotalText)
 redis.call('HDEL', KEYS[2], ARGV[1])
 redis.call('SADD', KEYS[3], ARGV[1])
-return {nextTotal, 1}
+return {nextTotalText, 1}
 `;
 
 const totalKey = (ledgerKey: string): string => `${ledgerKey}:total`;
