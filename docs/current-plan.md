@@ -400,3 +400,12 @@ git status --short
 - **过程披露**：主 Agent 在实现者交付后自行修正了受门控集成测试的**用例超时**（vitest 默认 5 s 不足，
   最重用例实测 **7.17 s** → 具名常量 `INTEGRATION_TIMEOUT_MS = 60_000`）；该改动已由独立审查确认生效。
 - CI 证据见 §10.6。
+
+### 10.6 提交与 CI 证据
+
+- 提交 **`7e2350b3`**（`feat(ai)`：跨实例 L1，13 文件 +961/−125，含 2 个新文件）与 **`a686c7c8`**
+  （`docs`：本文件 §10、闸门二实施计划 §4.1、路线图 §0，3 文件 +101/−7）。
+- CI run **`38365614014`**（head `a686c7c8`）**全绿**——`Gate 1 deterministic validation`（含
+  `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
+  （ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review`
+  按设计 skipped。
