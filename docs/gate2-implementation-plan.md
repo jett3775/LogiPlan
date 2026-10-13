@@ -251,14 +251,14 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **遗留 P2（记录为后续任务，未在本轮修复）**：
 
-1. **单例缓存键未含 secret**（`control-plane/server.ts:99-102`）：同 Redis 不同 secret 会复用首个运行时 → 同进程内密钥轮换后可能用到旧 secret。今日生产为单密钥单环境，无实际影响；切片 3 或密钥轮换前应把 `secret` 并入键。
+1. ~~**单例缓存键未含 secret**（`control-plane/server.ts:99-102`）~~ **已于 2026-10-12 修复**（阶段 1「运行时密钥隔离」）：`runtimeByRedis` 的值改为 `{secretDigest, runtime}`，命中前比较主密钥的**不可逆摘要**，摘要变化即**替换**该 Redis 的条目——同 Redis 换 secret **不再**复用旧运行时（由 `server.test.ts` 的「换主密钥 → 新运行时且匿名派生值变化」断言锁定）。见 `docs/current-plan.md` §6。
 2. ~~**进程级缓存无上限/不淘汰**（`server.ts:40,42`）~~ **已于 2026-10-13 修复**：加具名上限 `MAX_CACHED_REDIS_CREDENTIALS = 4` + LRU 淘汰，淘汰时同步清理对应 `runtimeByRedis` 条目（见 `docs/current-plan.md` §7）。
 3. ~~**可达性断言不跟随动态相对 `import()`**（`no-live-call.test.ts:121`）~~ **已于 2026-10-13 修复**：抽出纯函数 `extractImportSpecifiers`，覆盖 `from "..."`、`import("...")`、`import "..."` 三形态；扩展未发现新的可达路径（见 `docs/current-plan.md` §7）。
 4. `audit-log.ts` 在切片 2 的 sink 为 `noopAuditSink`（**不落盘**），真实 sink 由切片 3 注入。**2026-10-13 复核：属已文档化的设计决定、非缺陷，本轮不改**（见 `docs/current-plan.md` §8）。
 5. 路由取 `x-forwarded-for` 的**首个**值（`respond/route.ts:62`）。**2026-10-13 已确认：Vercel 在函数看到请求头前清洗 `X-Forwarded-For`、剥离客户端自带段，故首个值即真实客户端 IP，当前实现安全，无需改代码**。证据为**第三方**技术分析（2026-04-18），**未获第一方确认**（Vercel 官方 `request-headers` 页面为客户端渲染，本会话工具取不到正文）；风险有界（控制面不可用时本就失败关闭，L2 的 30 元/月上限仍生效）。切片 3 可选加固：优先 `x-vercel-forwarded-for`、回退 XFF 首值。见 `docs/current-plan.md` §8。
-6. **测试计数**：以实测为准——切片 2 主体新增约 **70** 条（owner 曾自报 72），AC2.11 的 CLI 追加 +4；**当前全量 `309 passed / 11 skipped (320)`**。
-7. **AC2.11 CLI 的 `ok:false` 分支只覆盖「未配置」**：读取期异常会**抛出**（CLI 顶层 `.catch` 已兜住并输出同一固定文案），类型契约与实现略有落差——若日后被程序化复用，调用方需自行处理 throw。
-8. **AC2.11 的「读不改熔断」断言偏窄**（`read-monthly-usage.test.ts:55,75`）：能抓到 `recordSuccess`（会把 open 翻回 closed），抓不到 `recordTransientFailure`（open 仍 open）或 `evaluateControlPlane`；只读性的**主要**证据是调用序列增量断言（`:69-72`），已足够。
+6. **测试计数**（**历史值，勿再引用**）：切片 2 主体新增约 **70** 条（owner 曾自报 72），AC2.11 的 CLI 追加 +4。**2026-10-13 当前全量 `334 passed / 20 skipped (354)`**；skip 由 11 → 20，**+9 全部是两处受门控的真实 Redis 集成测试**（`upstash-redis.integration` 5 + `circuit-breaker.integration` 4），默认运行跳过。
+7. ~~**AC2.11 CLI 的 `ok:false` 分支只覆盖「未配置」**~~ **已于 2026-10-12 修复**（阶段 2「只读用量受控失败」）：`runReadMonthlyUsage` 把 `readMonthlyUsage` 包进 `try/catch`，**读取期异常与「未配置」走同一条受控失败**（返回固定 `message_zh`，不把底层异常冒泡给程序化调用方），类型契约与实现已一致。见 `docs/current-plan.md` §6。
+8. ~~**AC2.11 的「读不改熔断」断言偏窄**（`read-monthly-usage.test.ts:55,75`）~~ **已于 2026-10-13 复核为已覆盖**：该测试现对 `recordSuccess` **与** `recordTransientFailure` **两个写入口都做 spy 并断言零调用**；由于熔断状态的**全部**变更都经这两个入口（含 `evaluateControlPlane` / `recordProviderAttemptOutcome` 的间接路径），两个 spy 已足以排除间接改状态。只读性的主要证据仍是调用序列增量断言。
 
 **L1 状态的存放形态（~~已知局限~~ 已于 2026-10-13 关闭）**：~~目前为**进程级单例**，`control-plane/server.ts:32-36` 已注明——在 Vercel serverless 下仅单热实例内有效、跨实例不共享；切片 3 迁至 Redis。~~ ——**2026-10-13 已把 L1 状态迁至注入的 `RedisLike`**（3 个原子 Lua 脚本 + 键 `circuit:{role}:failures|opened|seq` + TTL；`L1CircuitBreaker` 方法改异步，`recordProviderAttemptOutcome` 由同步改异步），**跨实例一致已用真实 Upstash 验证**（两个相互独立的客户端共享同一 Redis，4/4 通过；反向验证：改回进程内则 4/4 失败）。`server.ts` 的进程级单例、主密钥摘要隔离与凭据 LRU 上限保留。详见 `docs/current-plan.md` §10。
 
