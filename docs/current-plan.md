@@ -1,6 +1,6 @@
 # LogiPlan 本周开发进度与计划
 
-最后更新：2026-10-13（**§6—§9 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
+最后更新：2026-10-13（**§6—§10 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
 
 **本次仅更新本文件，未执行下列代码任务。** A/B 修复工作流的净工时估算为 **8 小时**，包含回归、审查和必要返工，不计已完成的覆盖率配置任务，也不代表 40 小时周预算或完成承诺。历史交接保留在 [handoff-2026-10-09.md](handoff-2026-10-09.md)，本周状态以本文件为接续入口。
 
@@ -16,6 +16,7 @@
 | A：运行时密钥隔离  | **已实施并验收（2026-10-12）**：`runtimeByRedis` 改按「Redis 实例 + 当前主密钥的不可逆摘要」缓存，摘要变化即替换条目；工作区未提交                               |
 | B：只读用量失败    | **已实施并验收（2026-10-12）**：`runReadMonthlyUsage` 将 `budgetRead` 异常收敛为既有 `ok:false` 固定文案；工作区未提交                                           |
 | C：Lua 返回值精度  | **已修复并验收（2026-10-13）**：真实 Upstash 验证暴露 Lua 返回值被截断为整数（审计字段 `budget_used_cny` 少报）；改为 `tostring` 返回并新增受门控集成测试；见 §9 |
+| D：跨实例 L1 熔断  | **已实施并验收（2026-10-13）**：L1 状态由进程内存迁到注入的 `RedisLike`（3 个原子脚本 + 键 + TTL），**跨实例一致已用真实 Upstash 验证**；工作区未提交；见 §10    |
 | 切片 3 / 4         | 待前置验证和授权；切片 3 须门 B、C 均开启，之后才具备真实生成评估的实施条件                                                                                      |
 
 本次只读核查的本地基线为 `main / 8ab93f4581423ede29a10d51138c2f6134674067`（10-10 文档提交），写入前工作区干净。未 fetch，也未查询线上状态，不能据此断言最新远端或当前生产状态。
@@ -160,7 +161,7 @@ git status --short
 - **真实基础设施验证**：~~Upstash Lua 原子性、`eval` 行为和 CLI 真实成功路径尚未验证，替身无法替代；取得对应真实服务授权后另排验证~~ ——**已于 2026-10-13 用真实 Upstash 完成**（用户提供凭据，见 §9），并据此**发现并修复**一处 Lua 返回值截断缺陷。切片 2 专项 Playwright / axe 及会话内隔离数据库仍缺本地证据（`spawnSync` 恒 `EBUSY`），历史 CI 隔离验证曾通过，两者分别记录。合并、部署或阶段闸门前仍须补齐完整 Playwright、性能、可访问性及路线图要求，不能用历史生产结果代替。
 - **真实 AI 与 20 题评估**：须先完成前置验证并开启门 B、C；切片 3 / 4 依 [实施计划 §5、§6](gate2-implementation-plan.md) 单独推进。20 题必须全为真实生成，至少 **18/20**，E19、E20 全通过；数字按 **4 位小数精确一致、无容差**，语义人工复核，固定示例不能计通过；开发、排错、评估同池计入月度 30 元。
 - **多快照恢复**：15 条证据跨 4 个快照，回答契约只有单值快照 ID；逐条证据可打开不等于页面恢复能力成立，需 contracts / 查询契约的独立 L2 工作流。
-- **其他独立项**：~~原 url/token 缓存容量~~、~~动态 import 可达性断言~~ **已于 2026-10-13 完成**（见 §7）；~~跨实例 L1（**阻塞于真实 Upstash**）~~ ——**阻塞点已于 2026-10-13 解除**（真实 Upstash 已具备，见 §9），可另行排期，但本轮**未做**；`noopAuditSink`（**按设计留切片 3**）、XFF 语义（**已确认无需改**）**已处置**（见 §8）。
+- **其他独立项**：~~原 url/token 缓存容量~~、~~动态 import 可达性断言~~ **已于 2026-10-13 完成**（见 §7）；~~跨实例 L1~~ **已于 2026-10-13 完成**（阻塞点由 §9 的真实 Upstash 解除；实现与跨实例验证见 §10）；`noopAuditSink`（**按设计留切片 3**）、XFF 语义（**已确认无需改**）**已处置**（见 §8）。**§4 五条独立项至此全部收口。**
 - **Windows 稳定性**：`3221226505 = 0xC0000409` 根因未定性；2026-10-08 取证未命中，维持 D-188，稳定性权威证据取 CI ubuntu、本地证据单列，见 [取证文档](windows-crash-evidence.md)。新一轮环境可执行性按实际运行判断。
 
 ## 5. 执行模型与本次更新范围
@@ -294,7 +295,7 @@ git status --short
 ### 9.5 证据边界
 
 - 本次真实 Upstash 验证**不解锁门 C**（首次真实付费调用），全程**零真实模型调用、零付费**。
-- **跨实例 L1** 的阻塞点（真实共享 Redis）**现已具备**，可另行排期，但本轮**未做**。
+- **跨实例 L1** 的阻塞点（真实共享 Redis）**已于 2026-10-13 解除**；该项本身随后在同一日完成，见 §10。
 - `docs/current-plan.md` §4 五条独立项中，`跨实例 L1` 的阻塞点据此解除；其余处置结论不变（§7、§8）。
 - CI 证据见 §9.6。
 
@@ -305,6 +306,97 @@ git status --short
 - CI run **`38354494953`**（head `7c0679cc`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage`
   与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、
   `CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
-- **仍未执行（如实记录，不表述为通过）**：真实 Redis 的**跨实例 L1 一致性**（阻塞点已解除但本轮未做）；
-  切片 2 专项 Playwright / axe 与会话内隔离数据库（`spawnSync` 恒 `EBUSY`）；**`upstash-redis.ts` 在默认
-  覆盖率运行中仍是 20% stmts**（其验证由受门控集成测试承载，默认跳过）。
+- **仍未执行（如实记录，不表述为通过）**：切片 2 专项 Playwright / axe 与会话内隔离数据库
+  （`spawnSync` 恒 `EBUSY`）；真实 Redis 压测。
+
+## 10. 2026-10-13 追加：跨实例 L1 熔断（L1 状态迁至 Redis）
+
+**目标**：把 L1 熔断状态从**进程内存**迁到注入的 `RedisLike`，使「同一角色 5 分钟窗口内连续 5 次」的
+计数与判定**跨进程 / 跨实例共享**——这是 Vercel serverless 下 L1 真正生效的前提（此前 `server.ts`
+原注释已承认「进程级单例只在单热实例内有效、跨实例不共享」）。该项是
+`docs/gate2-implementation-plan.md` §4.1 记录的已知局限，原计划留到切片 3；用户 2026-10-13 指示
+提前作为独立项实施（§4 五条独立项的最后一条）。
+
+### 10.1 实现（L2 工作流：slice_owner → 独立审查 → 回归）
+
+- `redis-like.ts` 新增 `CircuitState` / `CircuitSnapshot` / `isCircuitSnapshot`，以及 `RedisLike` 的
+  3 个方法：`circuitRead`（**纯读**，单次调用返回「是否放行 + 审计状态 + 窗口内故障数」）、
+  `circuitRecordFailure`、`circuitRecordSuccess`。
+- `circuit-breaker.ts`：`L1CircuitBreaker` 构造改为 `(redis, options?)`，方法全部改为**异步**；新增
+  `read()`（一次纯读同时给出放行判定与审计状态，避免两次往返）与 `circuitKey()`。常量
+  （`L1_WINDOW_MS = 300000`、`L1_CONSECUTIVE_FAILURE_THRESHOLD = 5`）与 `isTransientFailure` 不变。
+- `upstash-redis.ts`：新增 3 个 Lua 脚本，键 `circuit:{role}:failures|opened|seq`；**唯一成员**
+  `now .. ':' .. INCR(seq)` 使同一毫秒的并发故障不互相覆盖（若成员只用 `now`，ZSET 的成员唯一性会把
+  并发故障折叠成一条而**漏计数**）；TTL = 2 × 窗口。构造参数由 `Redis` 收窄为结构兼容的
+  `RedisScriptClient`，**并移除 `import type { Redis } from "@upstash/redis"`**（该文件自此**无**对
+  `@upstash/redis` 的静态导入，只剩 `createUpstashRedisLike` 里的动态 `import()`）。
+- `control-plane.ts`：`runChecks` 改为**单次** `await deps.breaker.read(...)`；
+  `recordProviderAttemptOutcome` **由同步改异步**（公共接口变更，切片 3 的调用方须处理）。
+- `server.ts`：`new L1CircuitBreaker(redis)`；**单例、主密钥摘要隔离、凭据 LRU 上限 4 全部保留**
+  （L1 不再依赖单例，但单例仍避免每请求重建配置）。
+
+**语义不变（D-190 决策一）**：同一角色、5 分钟窗口、**连续 5 次**瞬时故障 → 打开；**第 4 次不触发、
+第 5 次触发**；窗口滑出 → 半开；半开成功 → 闭合；半开失败 → 重新打开（重置为单次）；按角色隔离。
+窗口判定沿用**严格** `nowMs - at < windowMs`（Lua 用 `ZCOUNT ... '(' .. cutoff` 的排他下界）。
+
+### 10.2 独立审查
+
+全新上下文只读审查 **PASS**，**无 P0/P1**。审查者独立复跑门控集成测试（**4 passed**）并确认：
+`circuitRead` 的 Lua **只有** `ZCOUNT` / `GET`（无任何写命令）；`RedisLike` 既有 4 方法与 3 条既有 Lua
+脚本的 `git diff` **删除行数为 0**（逐字节未改）；既有测试断言**只加 `await`、无删除或放宽**；
+`vitest.config.ts` **无 diff**；`server.ts` 仍是唯一静态可达 `upstash-redis.ts` 的入口；`index.ts` 新增
+导出不会让 `upstash-redis.ts` 从主 barrel 可达。审查者另独立验证了主 Agent 的用例超时写法
+（`it(name, { timeout }, fn)`）在 vitest 4.1.11 **确实生效**（6508 ms 用例在 20 s 超时下通过）。
+
+**P2 观察（非阻断，如实记录）**：① 静默 2 × 窗口后 `opened` 键过期 → 状态读作 `closed` 而非
+`half_open`——两者**放行行为一致**（判定均为 `state !== "open"`），仅审计字段 `circuit_state` 不同；
+② `recordProviderAttemptOutcome` 由「永不抛」变为「存储失败即 reject」，切片 3 调用方须处理；
+③ `circuitRead` 的纯读断言只覆盖固定写命令清单，`ZREM` / `EXPIRE` / `ZINCRBY` 等会漏网（测试强度小缺口）；
+④ `vitest.config.ts` 的注释仍称 `upstash-redis.ts` 约 20% stmts，**现已过期**（该文件不在本轮写范围，未改）。
+
+### 10.3 跨实例一致性验证（本项核心验收）
+
+`packages/ai/src/control-plane/circuit-breaker.integration.test.ts`（**受门控**：需凭据 **+**
+`LOGIPLAN_UPSTASH_INTEGRATION=1`，默认跳过并写明原因；随机测试键前缀 + `afterAll` 清理；
+**不触碰生产键**）构造**两个相互独立**的客户端 / breaker（模拟实例 A / 实例 B）共享同一 Redis：
+
+| 用例                                                                    | 结果 |
+| ----------------------------------------------------------------------- | ---- |
+| A 的连续故障对 B 可见：第 4 次不触发、第 5 次跨实例触发打开，且键有 TTL | ✅   |
+| 窗口滑出后半开、成功闭合，均跨实例可见                                  | ✅   |
+| 半开探测失败重新打开，跨实例可见（重置为单次）                          | ✅   |
+| 同一毫秒的并发故障不漏计数（唯一成员机制）                              | ✅   |
+
+**4/4 通过**（真实 Upstash）。反向验证：把 L1 状态临时改回进程内 → 该文件 **4/4 失败**（并发用例收到
+`1` 而非 `5`；半开失败用例收到 `half_open` 而非 `open`）→ 还原后 4/4 通过。
+
+### 10.4 回归实测（本机，全部退出码 0）
+
+| 命令                              | 结果                                                                            |
+| --------------------------------- | ------------------------------------------------------------------------------- |
+| 默认 `vitest run packages/ai/src` | **198 passed / 9 skipped**                                                      |
+| 门控集成测试（带 opt-in）         | **9 passed**（`circuit-breaker.integration` 4 + `upstash-redis.integration` 5） |
+| `pnpm test`                       | **334 passed / 20 skipped（354）**（skip 由 16 → 20，+4 即新集成测试）          |
+| `pnpm typecheck` / web 非增量 tsc | 0                                                                               |
+| `pnpm lint` / `pnpm format:check` | 0                                                                               |
+| `pnpm build`                      | 0                                                                               |
+| `pnpm test:coverage`              | 0                                                                               |
+
+**覆盖率显著上升**（**未改** `vitest.config.ts`）：AI 包 lines **90.23% → 93.68%**、statements
+**87.11% → 91.15%**、functions **78.95% → 84.62%**、branches **81.23% → 87.74%**；`upstash-redis.ts`
+单文件 lines **23.91% → 90.9%**、statements **20% → 92.59%**、functions **5% → 96.87%**、branches
+**0% → 90.9%**——长期记录的「20% stmts 拖累项」由「把客户端依赖收窄为可注入接口 + 默认运行单测覆盖
+映射逻辑」关闭，**不是**靠排除或下调阈值。
+
+**浏览器产物复核**（本轮动了 barrel 与适配器）：客户端 `.next/static` 搜 `upstash` **零命中**、
+搜 `circuit:` **零命中**；服务端产物**有命中**（正向对照）。
+
+### 10.5 证据边界与待办
+
+- 本轮**不解锁门 C**（首次真实付费调用），全程**零真实模型调用、零付费**。
+- **未执行**：`pnpm verify:gate1:isolated`（`spawnSync` 恒 `EBUSY`）、Playwright / axe、真实 Redis 压测。
+- **待用户决定**：`vitest.config.ts` 的阈值与注释已过期（`upstash-redis.ts` 实际 92.59%，注释仍写
+  「约 20% stmts」），是否上调阈值 / 更正注释——该文件**不在**本轮写范围。
+- **过程披露**：主 Agent 在实现者交付后自行修正了受门控集成测试的**用例超时**（vitest 默认 5 s 不足，
+  最重用例实测 **7.17 s** → 具名常量 `INTEGRATION_TIMEOUT_MS = 60_000`）；该改动已由独立审查确认生效。
+- CI 证据见 §10.6。

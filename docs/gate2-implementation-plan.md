@@ -260,7 +260,7 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 7. **AC2.11 CLI 的 `ok:false` 分支只覆盖「未配置」**：读取期异常会**抛出**（CLI 顶层 `.catch` 已兜住并输出同一固定文案），类型契约与实现略有落差——若日后被程序化复用，调用方需自行处理 throw。
 8. **AC2.11 的「读不改熔断」断言偏窄**（`read-monthly-usage.test.ts:55,75`）：能抓到 `recordSuccess`（会把 open 翻回 closed），抓不到 `recordTransientFailure`（open 仍 open）或 `evaluateControlPlane`；只读性的**主要**证据是调用序列增量断言（`:69-72`），已足够。
 
-**L1 状态的存放形态（已知局限，如实记录）**：目前为**进程级单例**，`control-plane/server.ts:32-36` 已注明——在 Vercel serverless 下仅单热实例内有效、跨实例不共享；切片 3 迁至 Redis。
+**L1 状态的存放形态（~~已知局限~~ 已于 2026-10-13 关闭）**：~~目前为**进程级单例**，`control-plane/server.ts:32-36` 已注明——在 Vercel serverless 下仅单热实例内有效、跨实例不共享；切片 3 迁至 Redis。~~ ——**2026-10-13 已把 L1 状态迁至注入的 `RedisLike`**（3 个原子 Lua 脚本 + 键 `circuit:{role}:failures|opened|seq` + TTL；`L1CircuitBreaker` 方法改异步，`recordProviderAttemptOutcome` 由同步改异步），**跨实例一致已用真实 Upstash 验证**（两个相互独立的客户端共享同一 Redis，4/4 通过；反向验证：改回进程内则 4/4 失败）。`server.ts` 的进程级单例、主密钥摘要隔离与凭据 LRU 上限保留。详见 `docs/current-plan.md` §10。
 
 ---
 
