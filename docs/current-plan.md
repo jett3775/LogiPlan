@@ -215,4 +215,5 @@ git status --short
 - **AI 包覆盖率（本次实测）**：lines **90.23%**（591/655）、statements **87.11%**（649/745）、functions **78.95%**（150/190）、branches **81.23%**（277/341）；阈值 **85 / 83 / 75 / 78 全部通过**。
 - **独立审查**：结论 **PASS**，无阻断项。审查者独立复跑定向（20 passed）与 `packages/ai`（181 passed），并用 node 复刻 LRU 逻辑做隔离模拟、扫描全包源码验证正则扩展未新增可达边。遗留 **2 条非阻断 P2**：① `server.test.ts` 硬编码上限 `4` 而未引用生产常量（方向 fail-safe，但失败信息会误导）；② 三条正则仅匹配双引号，模板字面量 `import(...)` 未覆盖（本仓无此形态，已注释记录）。
 - **未执行（如实记录）**：真实 Upstash（无凭据/实例）；docker 相关脚本（`spawnSync`/`execSync` 恒 `EBUSY`）；**独立审查者未做回退验证**（受只读约束，改为代码推理 + node 模拟；回退验证由 slice_owner 完成并报告）。
+- **提交与 CI 证据（2026-10-13）**：提交 `2684e5bf`（`feat(ai)`：三文件）与 `807202fc`（`docs`：本文件与闸门二实施计划 §4.1）。推送后 CI run **`38333340375`**（head `807202fc`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
 - **模型偏差**：同 §6（环境不提供 `gpt-5.6-sol` 档位名，按工作流 §2.6 降级；分级、验证与独立审查要求未降低）。
