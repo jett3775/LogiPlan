@@ -227,3 +227,4 @@ git status --short
   **切片 3 可选加固**：优先读 `x-vercel-forwarded-for`、回退到 XFF 首个值，并在路由处补注释说明该假设（本轮**未改代码**）。
 - **本机隔离验收仍不可执行（已复测）**：`spawnSync` 仍恒 `EBUSY`（`docker` 本身可用，29.7.2，但 `scripts/run-docker-compose.mjs` 依赖 `spawnSync`）→ `pnpm verify:gate1:isolated` 仍只能在用户终端或 CI 执行。按「不沿用历史限制推定现在不能执行」的要求已复测，**结论未变**。
 - **§4 五条独立项至此全部有处置**：2 条已修复（§7）、1 条已确认无需改（XFF）、1 条按设计顺延（`noopAuditSink`）、1 条阻塞于真实 Upstash（跨实例 L1）。
+- **提交与 CI 证据**：提交 `6ebdbb67`（`docs`：本文件与闸门二实施计划 §4.1 的第 4、5 条处置）。CI run **`38335810758`**（head `6ebdbb67`）**全绿**——`Gate 1 deterministic validation`、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。**本轮未改任何源码**。
