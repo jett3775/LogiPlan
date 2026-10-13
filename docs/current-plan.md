@@ -461,3 +461,12 @@ git status --short
 | 切片 3（供应商适配器 + 网关 + 输出三检）            | **门 B（新增 `openai`）未开启**                                                                                                                  |
 | 切片 3 的真实调用验收 / 切片 4（20 题评估）         | **门 C（首次真实付费调用）未开启**；且 20 题的「相关性是否被写成确定因果」必须**人工语义复核**，脚本做不到                                       |
 | Windows `3221226505` 根因                           | 需**随机命中**崩溃（历史约 20%/次），**不可按需触发**；D-188 现状维持                                                                            |
+
+### 11.6 提交与 CI 证据
+
+- 提交 **`646055da`**（`chore(test)`：`vitest.config.ts` + 受门控集成测试，2 文件 +36/−9）与
+  **`14b4d5d4`**（`docs`：本文件 §11 与闸门二实施计划 §4.1，2 文件 +60/−8）。
+- CI run **`38378596001`**（head `14b4d5d4`）**全绿**——`Gate 1 deterministic validation`（含
+  **`Test with coverage` 步骤，即新阈值 89 / 86 / 80 / 83 在 CI 上通过**，以及 ubuntu 上的 isolated
+  Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；
+  `Pull request dependency review` 按设计 skipped。
