@@ -327,6 +327,8 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **⚠️ 执行闭包影响**：`pnpm-lock.yaml` **在** `scripts/neon-baseline.mjs` 的 `executionClosurePaths` 内 ⇒ 本次改动使执行闭包内容变化，**下次 `neon-baseline --write`（Neon 远程写）前必须重新锚定工具 SHA 并独立批准**。本轮**不做**该重锚定。`packages/contracts/src` 未改，故闭包变化只来自 `pnpm-lock.yaml`。
 
+**提交与 CI 证据**：提交 `c41adf79`（`feat(ai)`：新包 + 中立层，41 文件）与 `89218341`（`docs`：本节与 `docs/current-plan.md` §12、路线图 §0，3 文件 +98/−4）。CI run **`38503268885`**（head `89218341`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage`，即**新包的覆盖率阈值在 CI 上通过**，以及 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
+
 ---
 
 ## 6. 切片 4｜20 题评估与归档

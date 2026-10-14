@@ -529,3 +529,11 @@ git status --short
 任何**真实供应商调用**与 AC3.10 的真实结算证据（**门 C 未开启**）；Playwright / axe；
 `pnpm verify:gate1:isolated`（`spawnSync` 恒 `EBUSY`）；`pnpm build`（本机被 `node-safe-delete-shim`
 拦截）。**遗留 P2 见 `docs/gate2-implementation-plan.md` §5.1。**
+
+### 12.7 提交与 CI 证据
+
+- 提交 **`c41adf79`**（`feat(ai)`：新包 `packages/ai-provider-openai` + 中立层网关与三检）与
+  **`89218341`**（`docs`：闸门二实施计划 §5.1、本文件 §12、路线图 §0）。
+- CI run **`38503268885`**（head `89218341`）**全绿**——`Gate 1 deterministic validation`（含
+  `Test with coverage`，即**新包的覆盖率阈值在 CI 上通过**）、`Cross-platform checks`（ubuntu /
+  macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
