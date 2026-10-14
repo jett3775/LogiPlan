@@ -1,6 +1,6 @@
 # LogiPlan 本周开发进度与计划
 
-最后更新：2026-10-14（**§6—§12 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
+最后更新：2026-10-14（**§6—§13 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
 
 **本次仅更新本文件，未执行下列代码任务。** A/B 修复工作流的净工时估算为 **8 小时**，包含回归、审查和必要返工，不计已完成的覆盖率配置任务，也不代表 40 小时周预算或完成承诺。历史交接保留在 [handoff-2026-10-09.md](handoff-2026-10-09.md)，本周状态以本文件为接续入口。
 
@@ -160,7 +160,7 @@ git status --short
 
 - **真实基础设施验证**：~~Upstash Lua 原子性、`eval` 行为和 CLI 真实成功路径尚未验证，替身无法替代；取得对应真实服务授权后另排验证~~ ——**已于 2026-10-13 用真实 Upstash 完成**（用户提供凭据，见 §9），并据此**发现并修复**一处 Lua 返回值截断缺陷。切片 2 专项 Playwright / axe 及会话内隔离数据库仍缺本地证据（`spawnSync` 恒 `EBUSY`），历史 CI 隔离验证曾通过，两者分别记录。合并、部署或阶段闸门前仍须补齐完整 Playwright、性能、可访问性及路线图要求，不能用历史生产结果代替。
 - **真实 AI 与 20 题评估**：须先完成前置验证并开启门 B、C；切片 3 / 4 依 [实施计划 §5、§6](gate2-implementation-plan.md) 单独推进。20 题必须全为真实生成，至少 **18/20**，E19、E20 全通过；数字按 **4 位小数精确一致、无容差**，语义人工复核，固定示例不能计通过；开发、排错、评估同池计入月度 30 元。
-- **多快照恢复**：15 条证据跨 4 个快照，回答契约只有单值快照 ID；逐条证据可打开不等于页面恢复能力成立，需 contracts / 查询契约的独立 L2 工作流。
+- **多快照恢复**：~~15 条证据跨 4 个快照，回答契约只有单值快照 ID；逐条证据可打开不等于页面恢复能力成立，需 contracts / 查询契约的独立 L2 工作流。~~ **已于 2026-10-14 完成（D-191，L2）**：契约改为 `evidence_snapshot_ids`、种子按族多份、恢复逐份校验并逐条解析；见 §13。
 - **其他独立项**：~~原 url/token 缓存容量~~、~~动态 import 可达性断言~~ **已于 2026-10-13 完成**（见 §7）；~~跨实例 L1~~ **已于 2026-10-13 完成**（阻塞点由 §9 的真实 Upstash 解除；实现与跨实例验证见 §10）；`noopAuditSink`（**按设计留切片 3**）、XFF 语义（**已确认无需改**）**已处置**（见 §8）。**§4 五条独立项至此全部收口。**
 - **Windows 稳定性**：`3221226505 = 0xC0000409` 根因未定性；2026-10-08 取证未命中，维持 D-188，稳定性权威证据取 CI ubuntu、本地证据单列，见 [取证文档](windows-crash-evidence.md)。新一轮环境可执行性按实际运行判断。
 
@@ -454,13 +454,13 @@ git status --short
 
 ### 11.5 仍未执行（本轮之后；逐项说明卡点）
 
-| 项                                                  | 卡在哪                                                                                                                                           |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm verify:gate1:isolated`、Playwright / axe 专项 | **会话内 `spawnSync` 恒 `EBUSY`** → 只能在**用户终端**或 CI 执行（CI 已覆盖，按 D-188 属权威证据；本机跑只是补 Windows 旁证）                    |
-| **多快照恢复**（15 条证据跨 4 快照 vs 契约单值）    | 需改 `packages/contracts` + `docs/query-contract.md`，二者**在执行闭包内** → 触发工具 SHA 重锚定并需**用户单独批准**；属独立 L2 工作流，不宜夹带 |
-| 切片 3（供应商适配器 + 网关 + 输出三检）            | **门 B（新增 `openai`）未开启**                                                                                                                  |
-| 切片 3 的真实调用验收 / 切片 4（20 题评估）         | **门 C（首次真实付费调用）未开启**；且 20 题的「相关性是否被写成确定因果」必须**人工语义复核**，脚本做不到                                       |
-| Windows `3221226505` 根因                           | 需**随机命中**崩溃（历史约 20%/次），**不可按需触发**；D-188 现状维持                                                                            |
+| 项                                                  | 卡在哪                                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm verify:gate1:isolated`、Playwright / axe 专项 | **会话内 `spawnSync` 恒 `EBUSY`** → 只能在**用户终端**或 CI 执行（CI 已覆盖，按 D-188 属权威证据；本机跑只是补 Windows 旁证）         |
+| **多快照恢复**（15 条证据跨 4 快照 vs 契约单值）    | **已于 2026-10-14 完成（D-191）**，见 §13；`packages/contracts` 在闭包内 ⇒ 下次 `neon-baseline --write` 前须重锚定工具 SHA 并独立批准 |
+| 切片 3（供应商适配器 + 网关 + 输出三检）            | **门 B（新增 `openai`）未开启**                                                                                                       |
+| 切片 3 的真实调用验收 / 切片 4（20 题评估）         | **门 C（首次真实付费调用）未开启**；且 20 题的「相关性是否被写成确定因果」必须**人工语义复核**，脚本做不到                            |
+| Windows `3221226505` 根因                           | 需**随机命中**崩溃（历史约 20%/次），**不可按需触发**；D-188 现状维持                                                                 |
 
 ### 11.6 提交与 CI 证据
 
@@ -537,3 +537,65 @@ git status --short
 - CI run **`38503268885`**（head `89218341`）**全绿**——`Gate 1 deterministic validation`（含
   `Test with coverage`，即**新包的覆盖率阈值在 CI 上通过**）、`Cross-platform checks`（ubuntu /
   macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
+
+## 13. 2026-10-14 执行结果：多快照恢复（D-191）
+
+**用户 2026-10-14 指示「先做多快照恢复吧」**——即关闭切片 1b 独立审查遗留的 P1（`docs/gate2-implementation-plan.md` §3.1）。
+
+### 13.1 缺口与处置
+
+缺口原文：15 条证据分属 `country` / `bridge` / `diagnostics` / `drilldown` **四个不同的**
+`evidence_snapshot_id`，而 `ManagementAnalysis.evidence_snapshot_id` 是**单值**、种子载荷只含 `country`
+一族 ⇒ 逐条打开证据不受影响，但按 `gate2-design.md` §4.2 从本页快照恢复时 **15 条引用有 14 条不可解析**，
+**页面恢复能力不成立**。处置见 `docs/decisions.md` **D-191**。
+
+### 13.2 交付（L2：实现 → 独立审查 → 返工 → 定向复查）
+
+- **契约**（`packages/contracts/src/index.ts`、`docs/query-contract.md` §10）：`evidence_snapshot_id: string`
+  → **`evidence_snapshot_ids: string[]`**（`min(1) max(10)` + **去重**，元素复用 `aiEvidenceSnapshotIdSchema`）；
+  `AI_OUTPUT_SCHEMA_VERSION` `G2_ANSWER_V1_0` → **`G2_ANSWER_V2_0`**。**V1.0 / V1.1 查询契约不受影响。**
+- **中立层**（**新文件** `packages/ai/src/snapshot/snapshot-recovery.ts`）：`verifySnapshotRecovery` 把
+  「页面恢复能力成立」做成可机械判定的纯函数——断言**契约快照 ID 集合 == 种子集合** → 逐份恢复
+  （六项版本校验）→ 快照内证据对象自带 `evidence_snapshot_id` 与快照键一致（`snapshot_binding_mismatch`）
+  → **每条**引用证据的 `evidence_id` 命中其快照。失败原因枚举 6 项。范围一致性**不重复实现**
+  （由 `EVIDENCE_LOOKUP` 负责）。
+- **Web**（`apps/web`）：`AiAnswerBlock.snapshot_seed` → **`snapshot_seeds`（按族多份）**；
+  `bindAnswerToRealSnapshot` 绑定本回答引用的**全部**快照（去重、字典序稳定排序）而非单一主证据；
+  `buildAnswerSnapshotSeeds` 为每个被引用族各产一份种子；`ai-workspace.tsx` 逐份写入、**失败即 rollback
+  已写入的种子**（不留半套）、逐份恢复。`REJECTED_EVIDENCE_FIELDS` 增 `evidence_snapshot_ids`。
+- **测试**：新增 `packages/ai/src/snapshot/snapshot-recovery.test.ts`（10 用例，含**反向对照**：只保留
+  `country` 一份时其他族不可解析——正是被关闭的缺口）与 `apps/web/tests/ai-model.test.ts`（5 用例，
+  覆盖**生产装配**路径 + 反向对照「只引用 country 时只产一份」）；后者加入 `vitest.config.ts` 的
+  `test.include`，使该性质在**默认测试集**内可验证（此前只有需真实数据库的 Playwright 覆盖）。
+
+### 13.3 本机回归（全部退出码 0）
+
+| 命令                                                             | 结果                                                                          |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `pnpm test`                                                      | 51 通过 / 2 跳过（53 文件）；**486 passed / 21 skipped（507）**               |
+| `pnpm typecheck` / web 非增量 `tsc --noEmit --incremental false` | 0 / 0                                                                         |
+| `pnpm lint` / `pnpm format:check`                                | 0 / 0                                                                         |
+| `pnpm test:coverage`                                             | 0（`packages/ai/src` **94.63 / 92.68 / 87.12 / 89.60**，阈值 89/86/80/83）    |
+| `pnpm build`                                                     | **未验证**——被 `node-safe-delete-shim` 拦截（`SAFE_DELETE_BULK_GUARD_ERROR`） |
+
+`snapshot-recovery.ts` 单文件覆盖率 **100 / 100 / 100 / 100**。**未下调任何既有阈值、未新增排除。**
+
+### 13.4 仍未执行（不得表述为通过）
+
+Playwright / axe 与 `pnpm verify:gate1:isolated`（`spawnSync` 恒 `EBUSY`；**在 CI 上跑，属权威证据**，
+D-188）；`pnpm build`（本机被安全删除守卫拦截；**CI 的 `Gate 1` job 会构建**）；任何真实供应商调用
+（**门 C 未开启**）。
+
+### 13.5 执行闭包影响
+
+`packages/contracts` **在** `executionClosurePaths` 内 ⇒ 下次 `neon-baseline --write`（Neon 远程写）前
+必须**重新锚定工具 SHA 并独立批准**（与切片 3 的 `pnpm-lock.yaml` 变化同批，本轮**不做**）。
+`vitest.config.ts` **不在**闭包内。
+
+### 13.6 提交与 CI 证据
+
+- 提交 **`fa34bbd9`**（`feat(ai)`：21 文件 +987/−94，含 3 个新文件）。
+- CI run **`38539374695`**（head `fa34bbd9`）**全绿**——`CodeQL`、`Gate 1 deterministic validation`
+  （含 `Test with coverage`，即**新阈值在 CI 上通过**，以及 ubuntu 上的 isolated Gate 1 validation）、
+  `Cross-platform checks`（ubuntu / windows / macOS 三矩阵）全 success；`Pull request dependency review`
+  按设计 skipped。

@@ -132,11 +132,11 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 
 **独立审查判定 FAIL，三项问题的处置：**
 
-| 级别   | 问题                                                                                                                                                                                                                                   | 处置                                                                                       |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **P0** | `model.ts` 的 `EvidenceAddressBinding` 写成 `evidence_snapshot_id?: string`，与根 `tsconfig.base.json` 的 `exactOptionalPropertyTypes: true` 冲突，`pnpm typecheck` 与 `pnpm build` **双双退出码 1**                                   | 改为 `?: string \| undefined`                                                              |
-| **P1** | `validatePageAddress` 只检查 origin / pathname / `destination`，**查询参数一律不校验**——实测走私 `provider` / `model` / `evidence_id` / `evidence_snapshot_id` / `temperature` / 重复 `destination` 全部返回 200 并给出完整固定示例    | 加参数白名单（归因页合法的 9 个参数）并拒绝重复键                                          |
-| **P1** | 15 条证据分属 `country` / `bridge` / `diagnostics` / `drilldown` **四个不同的** `evidence_snapshot_id`，而 `ManagementAnalysis.evidence_snapshot_id` 是**单值**（`query-contract.md` §10 定义为必填标量），种子载荷只含 `country` 一族 | 在 `ai-model.ts` 注释中如实标注覆盖缺口与处置方向，**未静默扩范围**改 `packages/contracts` |
+| 级别   | 问题                                                                                                                                                                                                                                   | 处置                                                                                                                                |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **P0** | `model.ts` 的 `EvidenceAddressBinding` 写成 `evidence_snapshot_id?: string`，与根 `tsconfig.base.json` 的 `exactOptionalPropertyTypes: true` 冲突，`pnpm typecheck` 与 `pnpm build` **双双退出码 1**                                   | 改为 `?: string \| undefined`                                                                                                       |
+| **P1** | `validatePageAddress` 只检查 origin / pathname / `destination`，**查询参数一律不校验**——实测走私 `provider` / `model` / `evidence_id` / `evidence_snapshot_id` / `temperature` / 重复 `destination` 全部返回 200 并给出完整固定示例    | 加参数白名单（归因页合法的 9 个参数）并拒绝重复键                                                                                   |
+| **P1** | 15 条证据分属 `country` / `bridge` / `diagnostics` / `drilldown` **四个不同的** `evidence_snapshot_id`，而 `ManagementAnalysis.evidence_snapshot_id` 是**单值**（`query-contract.md` §10 定义为必填标量），种子载荷只含 `country` 一族 | 在 `ai-model.ts` 注释中如实标注覆盖缺口与处置方向，**未静默扩范围**改 `packages/contracts`；**2026-10-14 由 D-191 关闭**（见 §3.2） |
 
 P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].evidence_snapshot_id` 每条自带，审查实测 15/15 全部 200 命中）；但若后续切片按 `gate2-design.md` §4.2「页面恢复的六项校验」真从本页快照恢复，15 条引用中有 **14 条不可解析**。正确处置需把「本回答引用了哪些快照」提升为一等事实（按族分组携带多份种子载荷），要改 `packages/contracts` 与 `query-contract.md` §10，**超出 1b 写范围**。**该缺口留待后续切片处置；切片 1 未收口前不得声称页面恢复能力成立。**
 
@@ -165,9 +165,24 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
   `24 passed / 22 skipped`（**含新 P2 用例在 1440 与 1280 两档通过**）；Chromium 历史证据 `22/22`；
   **Firefox 核心冒烟 `3/3`**；并发 5 × 100 热查询 `p50 27.399ms / p95 49.877ms / p99 56.911ms`；
   隔离容器/卷/网络全部移除。**全程未出现 `3221226505`。**
-- **仍未关闭（如实携带，不得表述为已关闭）**：P1 遗留的「15 条证据跨 4 个快照而契约
-  `evidence_snapshot_id` 为单值」缺口仍在，**页面恢复能力在处置前不成立**。
+- **仍未关闭（如实携带，不得表述为已关闭）**：~~P1 遗留的「15 条证据跨 4 个快照而契约
+  `evidence_snapshot_id` 为单值」缺口仍在，**页面恢复能力在处置前不成立**。~~
+  **已于 2026-10-14 关闭（D-191）**：契约改为 `evidence_snapshot_ids`（集合）、种子按族多份、
+  页面恢复逐份做六项校验并逐条解析；见 §3.2 与 `docs/current-plan.md` §13。
   （~~`packages/ai` 覆盖率未知~~ **已于 2026-10-09 关闭**，见 §4.1 的覆盖率条目。）
+
+### 3.2 多快照恢复（D-191，2026-10-14）
+
+**关闭切片 1b 遗留的 P1**（见 §3.1 的 P1 行）：15 条证据跨 4 个快照而契约 `evidence_snapshot_id` 为单值 → 页面恢复能力不成立。
+
+- **契约（`packages/contracts/src/index.ts`）**：`ManagementAnalysis.evidence_snapshot_id: string` → **`evidence_snapshot_ids: string[]`**（新增 `aiEvidenceSnapshotIdsSchema`：`min(1) max(10)` + **去重**，元素复用 `aiEvidenceSnapshotIdSchema`）；`AI_OUTPUT_SCHEMA_VERSION` `G2_ANSWER_V1_0` → **`G2_ANSWER_V2_0`**（破坏性形状变更，必须换版本号，否则恢复校验会把旧形状判为有效）。`docs/query-contract.md` §10 同步。
+- **中立层（`packages/ai/src/snapshot/snapshot-recovery.ts`，新文件）**：`verifySnapshotRecovery` 把「页面恢复能力成立」做成可机械判定的纯函数——断言**契约快照 ID 集合 == 种子集合**、逐份恢复（六项版本校验）、快照内证据对象自带 `evidence_snapshot_id` 与快照键一致（`snapshot_binding_mismatch`）、**每条**引用证据的 `evidence_id` 命中其快照。失败原因枚举 6 项。范围一致性**不重复实现**（由 `EVIDENCE_LOOKUP` 负责）。
+- **Web（`apps/web`）**：`AiAnswerBlock.snapshot_seed` → **`snapshot_seeds`（按族多份）**；`bindAnswerToRealSnapshot` 绑定本回答引用的**全部**快照（去重、字典序稳定排序）而非单一主证据；`buildAnswerSnapshotSeeds` 为每个被引用族各产一份种子（族结果缺失即整体失败关闭）；`ai-workspace.tsx` 逐份写入、逐份恢复，任一步失败即 **rollback 已写入的种子** 并回落固定示例（不留半套）。
+- **测试**：新增 `packages/ai/src/snapshot/snapshot-recovery.test.ts`（10 用例，含**反向对照**：只保留 `country` 一份时其他族不可解析——正是被关闭的缺口）与 `apps/web/tests/ai-model.test.ts`（5 用例，覆盖**生产装配**路径 + 反向对照「只引用 country 时只产一份」）。后者已加入 `vitest.config.ts` 的 `test.include`，使该性质在**默认测试集**内可验证（此前只有需真实数据库的 Playwright 覆盖）。
+- **本机实测（退出码全 0）**：`pnpm test` **486 passed / 21 skipped（507）**；`typecheck` / web 非增量 `tsc` / `lint` / `format:check` / `test:coverage` 全 0；`packages/ai/src` 覆盖率 **94.63 / 92.68 / 87.12 / 89.60**（阈值 89/86/80/83），`snapshot-recovery.ts` **100/100/100/100**。**`pnpm build` 本轮被 `node-safe-delete-shim` 拦截（未验证）**；本轮早前一次 build 曾退出码 0。
+- **独立审查**：首轮 **PASS / 无 P0/P1**（4 条 P2）→ 据 P2 返工（补生产装配单测、加 `snapshot_binding_mismatch`、拒绝表加复数、更正决策四文本、rollback 孤儿种子）→ **定向复查 PASS / 无新 P0/P1**。
+- **⚠️ 执行闭包影响**：`packages/contracts` 在 `executionClosurePaths` 内 ⇒ 下次 `neon-baseline --write` 前须重新锚定工具 SHA 并独立批准（与切片 3 的 `pnpm-lock.yaml` 变化同批）。`vitest.config.ts` **不在**闭包内。
+- **证据边界**：本轮**未**新增真实模型调用、**未**改 `packages/db`、**未**改查询契约 V1.0/V1.1；Playwright（`gate2-ai-respond.spec.ts` 的 D-191 断言）与 `verify:gate1:isolated` 在 CI 上跑，属权威证据（D-188）。
 
 ## 4. 切片 2｜匿名标识、限流、费用与两级熔断
 
