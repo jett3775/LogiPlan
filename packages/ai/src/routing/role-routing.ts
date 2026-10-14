@@ -15,10 +15,22 @@ export type AiRole = (typeof AI_ROLES)[number];
 export const isAiRole = (value: unknown): value is AiRole =>
   typeof value === "string" && (AI_ROLES as readonly string[]).includes(value);
 
+/**
+ * 角色推理强度（D-180：意图解析「最低推理」、管理分析「低推理」）。
+ *
+ * 取值与 `packages/ai-provider-*` 的推理档位同形（`minimal` / `low`），但此处是本包的
+ * **需求侧**声明：`packages/ai` 不得导入供应商适配器包，故不反向复用其类型；两侧的一致性
+ * 由 `packages/ai` 的编译期兼容断言（`adapter/adapter-compat.test.ts`）与运行期测试锁定。
+ */
+export const ROLE_REASONING_EFFORTS = ["minimal", "low"] as const;
+export type RoleReasoningEffort = (typeof ROLE_REASONING_EFFORTS)[number];
+
 export interface RoleRouteConfig {
   readonly role: AiRole;
   readonly provider: string;
   readonly model: string;
+  /** 需求侧推理强度（D-180 冻结）。 */
+  readonly reasoningEffort: RoleReasoningEffort;
   readonly maxOutputTokens: number;
   readonly systemPromptVersion: string;
   readonly outputSchemaVersion: string;
@@ -52,6 +64,7 @@ export const resolveRoleRoute = (
     !isNonBlank(route.model) ||
     !isNonBlank(route.systemPromptVersion) ||
     !isNonBlank(route.outputSchemaVersion) ||
+    !(ROLE_REASONING_EFFORTS as readonly string[]).includes(route.reasoningEffort) ||
     !Number.isInteger(route.maxOutputTokens) ||
     route.maxOutputTokens <= 0
   ) {

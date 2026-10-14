@@ -12,6 +12,7 @@
     "usage": "node --env-file-if-exists=../../.env --import tsx src/read-monthly-usage.ts"
   },
   "dependencies": {
+    "@logiplan/ai-provider-openai": "workspace:*",
     "@logiplan/contracts": "workspace:*",
     "@upstash/redis": "1.39.0",
     "zod": "4.4.3"

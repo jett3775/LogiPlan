@@ -82,13 +82,34 @@ describe("供应商中立", () => {
     expect(imports).toEqual([]);
   });
 
-  it("不出现供应商 SDK 或专有标识", () => {
-    const forbidden =
-      /\bopenai\b|azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
+  it("不导入任何供应商 SDK（任何生产文件）", () => {
+    // 供应商 SDK 的**导入语句**在生产源码中一律禁止。注意这里只看 import/require 语句，
+    // 不禁止「openai」作为**中立 provider 标识**出现在受版本控制的角色配置里（D-180/D-190）。
+    const sdkImport =
+      /\bfrom\s+["'](?:openai|@azure\/openai|langchain|dify|anthropic|cohere-ai|@google\/generative-ai|@mistralai\/[^"']+|ollama|@aws-sdk\/client-bedrock[^"']*|qwen|deepseek)["']/u;
+    const requireImport =
+      /\brequire\(\s*["'](?:openai|@azure\/openai|langchain|dify|anthropic)["']\s*\)/u;
     const offenders = productionSources
-      .filter((source) => forbidden.test(source.text))
+      .filter((source) => sdkImport.test(source.text) || requireImport.test(source.text))
       .map((source) => source.file);
     expect(offenders).toEqual([]);
+  });
+
+  it("供应商专有标识只允许出现在受版本控制的角色配置（provider 标识）", () => {
+    // 切片 3b：D-180/D-190 要求 provider 标识写在 `packages/ai` 内**受版本控制的角色配置**里，
+    // 故 `config/role-config.ts` 合法地含有 `provider: "openai"`。其余生产文件不得出现任何
+    // 供应商 SDK 名或专有标识（含注释）。
+    const providerIdentifier = /\bopenai\b/u;
+    const otherVendors =
+      /azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
+    const offenders = productionSources
+      .filter((source) => source.file !== "config/role-config.ts")
+      .filter((source) => providerIdentifier.test(source.text) || otherVendors.test(source.text))
+      .map((source) => source.file);
+    expect(offenders).toEqual([]);
+    // 正对照：role-config.ts 确实持有 provider 标识（否则上一条断言会因误判而恒真）。
+    const roleConfig = productionSources.find((source) => source.file === "config/role-config.ts");
+    expect(roleConfig?.text).toContain('"openai"');
   });
 
   it("Upstash Redis 客户端只出现在指定的中立适配器文件", () => {

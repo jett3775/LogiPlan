@@ -40,9 +40,11 @@ export type {
 export {
   AI_ROLES,
   isAiRole,
+  ROLE_REASONING_EFFORTS,
   resolveRoleRoute,
   resolveRoleRouteWithCapabilities,
   type AiRole,
+  type RoleReasoningEffort,
   type RoleRouteCapabilityResolution,
   type RoleRouteConfig,
   type RoleRouteResolution,
@@ -238,3 +240,55 @@ export {
   type RetryHooks,
   type TimedResult,
 } from "./gateway/retry-policy";
+
+/* ---------------------------------------------------------------------------
+ * 切片 3b：网关编排与输出三检
+ * docs/gate2-implementation-plan.md §5 执行步骤 3—5、AC3.2—AC3.9。
+ * 角色配置（D-190 决策二）、证据注入端口、输出三检、中文输出与审计元数据。
+ * 本切片仍**不发起任何真实调用**：适配器由调用方注入（门 C 未开）。
+ * ------------------------------------------------------------------------- */
+
+export {
+  AI_CONFIGURED_ROLES,
+  AI_ROLE_CONFIG_VERSION,
+  AI_ROLE_ROUTES,
+  roleConfigFor,
+} from "./config/role-config";
+export {
+  OUTPUT_SCHEMA_REGISTRY,
+  REGISTERED_OUTPUT_SCHEMA_VERSIONS,
+  REGISTERED_SYSTEM_PROMPT_VERSIONS,
+  resolveOutputSchema,
+  resolveSystemPrompt,
+  SYSTEM_PROMPT_REGISTRY,
+} from "./config/registry";
+export {
+  allWhitelistedEvidenceIds,
+  whitelistIsSingleScope,
+  type DeterministicResultSet,
+  type EvidencePort,
+  type EvidenceWhitelist,
+} from "./gateway/evidence-port";
+export {
+  answerStatementTexts,
+  citedEvidenceIds,
+  runOutputChecks,
+  type NumericFailureReason,
+  type OutputCheckCode,
+  type OutputCheckFailure,
+  type OutputCheckResult,
+  type OutputChecksInput,
+} from "./gateway/output-checks";
+export {
+  defaultGatewayConfig,
+  defaultGatewayRetryHooks,
+  extractNeutralErrorCode,
+  GATEWAY_BACKOFF_MAX_MS,
+  GATEWAY_BACKOFF_MIN_MS,
+  runGateway,
+  type GatewayConfig,
+  type GatewayDeps,
+  type GatewayOutcome,
+  type GatewayPreflight,
+  type GatewayRequest,
+} from "./gateway/gateway";

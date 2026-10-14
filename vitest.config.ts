@@ -23,6 +23,7 @@ export default defineConfig({
         "packages/db/src/query-service.ts",
         "packages/db/src/diagnostic-metrics.ts",
         "packages/ai/src/**/*.ts",
+        "packages/ai-provider-openai/src/**/*.ts",
       ],
       exclude: ["**/*.test.ts"],
       thresholds: {
@@ -63,6 +64,18 @@ export default defineConfig({
           statements: 86,
           functions: 80,
           branches: 83,
+        },
+        // 闸门二切片 3a：首个供应商适配器（能力声明 / 错误映射 / 成本估算）。适配器行为
+        // 全部由假客户端驱动，无网络、无环境门控跳过，故覆盖率确定。
+        // 2026-10-14 本机实测（`pnpm test:coverage`）：全包 99.14% stmts / 97.4% branch /
+        // 98.36% funcs / 100% lines。阈值取实测下方约 4—5 个点作回归护栏。
+        // 说明：`contract.ts` / `client-types.ts` 为纯类型文件、`index.ts` 为 re-export barrel，
+        // 编译后无运行期语句，在表中显示 0% 但不计入分母。
+        "packages/ai-provider-openai/src/**/*.ts": {
+          lines: 96,
+          statements: 95,
+          functions: 94,
+          branches: 93,
         },
       },
     },

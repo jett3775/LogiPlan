@@ -62,8 +62,10 @@ describe("无真实模型调用路径（AC2.12）", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("ProviderAdapter 只作为契约声明出现，无任何实现被导入或装配", () => {
-    const allowed = new Set(["adapter/adapter-contract.ts", "index.ts"]);
+  it("ProviderAdapter 只作为契约声明 / 注入端口出现，无任何实现被导入或装配", () => {
+    // 切片 3b 新增 `gateway/gateway.ts`：它只把 `ProviderAdapter` 当作**注入端口类型**使用，
+    // 不 import 任何具体适配器实现（`@logiplan/ai-provider-*` 的导入断言见下一条）。
+    const allowed = new Set(["adapter/adapter-contract.ts", "gateway/gateway.ts", "index.ts"]);
     const offenders = productionSources
       .filter((source) => /ProviderAdapter/u.test(source.text) && !allowed.has(source.file))
       .map((source) => source.file);
