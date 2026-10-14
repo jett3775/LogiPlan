@@ -2,7 +2,7 @@
 
 版本：V1.0
 日期：2026-10-04
-状态：**实施中**。切片 1a 已完成并收口；**切片 1b 已收口（2026-10-08）**——代码已推送、CI 全绿、独立审查的定向复查 **PASS**（唯一 P2 已补回归测试），且本机真实库验收 `pnpm verify:gate1:isolated` **全绿**（AC1.1 / AC1.11 取得本机证据，见 §3.1）。**切片 2 的授权门 A 已于 2026-10-08 开启（用户明示）；切片 3 的授权门 B、C 仍未开启。** **切片 2 已收口（2026-10-08 主体 / 2026-10-09 补 AC2.11）**：**AC2.1—AC2.12 全部满足**；两轮独立审查（首轮 FAIL → 返工 → 定向复查 **PASS**），AC2.11 追加部分另经一次定向复查 PASS；**浏览器产物已复核通过（2026-10-09）**；主体已提交 `21cef684`（CI run `37867164623` 全绿）。详见 §4.1。
+状态：**实施中**。切片 1a 已完成并收口；**切片 1b 已收口（2026-10-08）**——代码已推送、CI 全绿、独立审查的定向复查 **PASS**（唯一 P2 已补回归测试），且本机真实库验收 `pnpm verify:gate1:isolated` **全绿**（AC1.1 / AC1.11 取得本机证据，见 §3.1）。**切片 2 的授权门 A 已于 2026-10-08 开启（用户明示）；切片 3 的授权门 B 已于 2026-10-14 开启（用户明示，开工口径见 §5）；门 C（首次真实付费调用）仍未开启。** **切片 2 已收口（2026-10-08 主体 / 2026-10-09 补 AC2.11）**：**AC2.1—AC2.12 全部满足**；两轮独立审查（首轮 FAIL → 返工 → 定向复查 **PASS**），AC2.11 追加部分另经一次定向复查 PASS；**浏览器产物已复核通过（2026-10-09）**；主体已提交 `21cef684`（CI run `37867164623` 全绿）。详见 §4.1。**切片 3 已实施（2026-10-14，门 B 口径，见 §5）**：3a 适配器包 + 3b 网关与输出三检，代码完成、独立审查（首轮 PASS + 1 条费用边界 fail-open 的 P2 → 返工 → 定向复查 PASS）；**AC3.1—AC3.9 已满足，AC3.11 部分满足，AC3.10 的真实调用证据留待门 C**；详见 §5.1。
 依据：`docs/gate2-design.md`（设计 V1.0）、`docs/decisions.md` D-174 / D-181 / D-182 / D-190、`docs/query-contract.md` §10、`docs/ai-evaluation-baseline.md`、`docs/multi-agent-workflow.md`
 
 ---
@@ -31,7 +31,7 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 | -------- | --------- | -------------------------------------------------------------- | ------------------------------------- |
 | —        | 切片 1    | 新增 `packages/ai` workspace 包，**必然修改 `pnpm-lock.yaml`** | ✅ **已授权（2026-10-04，用户明示）** |
 | **门 A** | 切片 2 前 | 新增 `@upstash/redis` 依赖                                     | ✅ **已授权（2026-10-08，用户明示）** |
-| **门 B** | 切片 3 前 | 新增 `openai` 依赖                                             | ⛔ 未开启                             |
+| **门 B** | 切片 3 前 | 新增 `openai` 依赖                                             | ✅ **已授权（2026-10-14，用户明示）** |
 | **门 C** | 切片 3 内 | **首次真实付费调用**                                           | ⛔ 未开启（D-190 明确不授权）         |
 
 **切片 1 锁文件改动的实测依据**：`pnpm-workspace.yaml` 的 `packages/*` glob 已覆盖新包，**该文件无需修改**；但 `pnpm-lock.yaml` 的 `importers` 段会由 5 条增至 6 条（仓库外副本以 `pnpm install --lockfile-only --offline` 实测确认，即使新包零外部依赖亦会写入 `packages/ai: {}`）。`pnpm-lock.yaml` 属 `executionClosurePaths`，故切片 1 会改变执行闭包内容——**这是预期结果，不需修复**；工具 SHA 只在真正执行远程 `--write` 前才锚定（见 `docs/neon-vercel-baseline-runbook.md` §1.1）。
@@ -266,7 +266,15 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 ## 5. 切片 3｜供应商适配器与网关（首次真实调用）
 
-**授权门 B、C 均未开启前不得开工。**
+**开工口径（2026-10-14 用户明示；对原「B、C 均未开启前不得开工」的收窄）**
+
+用户 2026-10-14 批准**门 B** 并指示按「**全程替身、零真实调用、零付费**」开工实现。据此：
+
+- **门 B 已开启** ⇒ 可在 `packages/ai-provider-openai` 内新增 `openai` 依赖（`openai@7.5.0`，D-180 冻结版本；已核实该版本在注册表存在）。
+- **门 C 仍未开启** ⇒ 本切片的实现与验收**不得产生任何真实调用**：适配器行为全部用替身 / 假客户端验证；**不配置任何 API key**；无 key 时真实调用路径必然失败关闭（`PROVIDER_UNAVAILABLE` → 固定示例），故线上与本机行为不变。
+- **AC3.10 中「每次真实调用被结算」的真实证据**，以及任何需要真实响应的验收项，**留待门 C 开启后单独执行**；本轮只能给「接线正确」的替身级证据，**不得表述为已通过**。
+- **这是有意的、被记录的偏差**：原口径要求 B、C 同时开启；本轮把 C 的边界从「开工前」推到「首次真实调用前」。与 D-190「调试/评估调用同池计费」不冲突——本轮**零调用、零计费**。
+- **⚠️ 执行闭包影响**：本切片写范围中的 `packages/contracts/src` 与 `pnpm-lock.yaml` **都在 `scripts/neon-baseline.mjs` 的 `executionClosurePaths` 内** ⇒ 本次改动会使执行闭包内容变化，**在下次 `neon-baseline --write`（Neon 远程写）前必须重新锚定工具 SHA 并独立批准**。本轮**不做**该重锚定。
 
 **写范围**：`packages/ai-provider-openai/`（新建包）、`packages/ai/src/`（网关编排、输出三检）、`packages/contracts/src/`（输出模式版本）、`pnpm-lock.yaml`。
 
@@ -293,6 +301,31 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 | AC3.9  | 审计元数据完整：供应商、模型、适配器版本、提示词版本、输出模式版本、价格版本                                                                                                 |
 | AC3.10 | 每次真实调用被结算；**开发、排错与评估调用同池计入 30 元月度上限**（D-190 2026-10-04 补充）；达到阈值 L2 生效，**不得为实施期绕过 L2**                                       |
 | AC3.11 | 完整 L2 验证矩阵 + 覆盖率 + Playwright                                                                                                                                       |
+
+### 5.1 切片 3 实施结果（2026-10-14）
+
+**状态：代码已完成（工作区未提交）；独立审查首轮 PASS + 1 条 P2 → 返工 → 定向复查 PASS。**
+**⚠️ 本轮为「3a + 3b 实现」，门 C 未开启，全程零真实调用**（口径见 §5）。
+
+**新增 / 改动**
+
+- **新建包 `packages/ai-provider-openai`**（3a，24 文件 = 16 源码 + 8 测试）：能力声明（五项布尔，**缺失即失败关闭**）、Responses API 请求映射（**非流式**、`store: false`、**无工具调用**、按角色的推理强度与输出上限、`text.format` json_schema、`safety_identifier` **只用注入的匿名派生值**）、响应与用量标准化、错误映射、`omni-moderation-latest` 审核、成本估算（**注入 `CostLookup`**，未知模型 / 未知版本 / `NaN` / 负数一律 → `Infinity`，失败关闭）。
+- **中立层 `packages/ai/src/`**（3b）：`config/role-config.ts` **受版本控制**的角色配置（`AI_ROLE_CONFIG_2026_V1`，三处映射 + 推理强度 / 最大输出，**无 env 覆盖**，D-190 决策二）、`config/registry.ts` 提示词与输出模式版本注册表、`gateway/evidence-port.ts` **注入式证据端口**（**未 `import` `packages/db`**）、`gateway/output-checks.ts` **输出三检**、`gateway/gateway.ts` 编排（路由 → 能力门 → 控制面预检 → 适配器 → `invokeWithRetry` → 三检 → live / fallback）、`supplier-neutrality.test.ts`（AC3.3）。
+- **其他**：`packages/ai/package.json`（+1 依赖）、`pnpm-lock.yaml`、`vitest.config.ts`（**仅新增**新包 include 与阈值组）。
+
+**AC 逐条**：**AC3.1—AC3.9 已满足**（各有测试）；**AC3.11 部分满足**（非 Playwright 部分由单测覆盖；Playwright / axe **未执行**）；**AC3.10 只有替身级「接线正确」证据——真实调用证据未取得**（门 C 未开启）；**AC3.4 由切片 1b 的既有验收覆盖**（本轮**未改** `apps/web`）。
+
+**独立审查（PASS + 返工）**：首轮 **PASS**、无 P0/P1，但有一条**实为费用边界 fail-open 的 P2**——`gateway.ts` 的 `preflight`（限流 / 预算 / 两级熔断的**唯一入口**）**可选**、注释写「缺省视为未接控制面，**不阻止真实调用**」。主 Agent 判定其与 D-181 / §7「控制面不可用即**失败关闭**」直接冲突，**退回原 slice_owner 修复**：`preflight` 改为**必填**（编译期拦截，`TS2741` 实证）+ 运行期失败关闭（`errorCode = null` 归一为 `CONTROL_PLANE_UNAVAILABLE`，假适配器**零调用**）。**定向复查 PASS**，无新 P0/P1。
+
+**门 B 合规**：`pnpm-lock.yaml` 新增**仅 `openai@7.5.0`**；其 5 个 peer **全为 optional 且未安装**（仅 `zod` 解析到仓库既有 `4.4.3`）；D-182 逐项**未命中**。
+
+**覆盖与回归（本机，全部退出码 0）**：`pnpm test` **468 passed / 21 skipped（489）**；`typecheck` / web 非增量 tsc / `lint` / `format:check` / `test:coverage` 全 0；`packages/ai/src` 覆盖率 **94.44 / 92.44 / 86.87 / 88.99**（阈值 89/86/80/83），`packages/ai-provider-openai/src` **100 / 99.07 / 98.18 / 97.22**（阈值 96/95/94/93）。**未下调任何既有阈值、未新增排除**；`packages/contracts/src` **未改**。
+
+**未执行（不得表述为通过）**：任何**真实供应商调用**与 AC3.10 的**真实结算证据**（门 C 未开启）；Playwright / axe；`pnpm verify:gate1:isolated`（`spawnSync` 恒 `EBUSY`）；`pnpm build`（本机被 `node-safe-delete-shim` 拦截）。
+
+**遗留 P2（记录为后续任务）**：① `preflight` 的「缺结论」兜底现由**类型系统**承担——若未来出现无类型调用方传 `undefined`，`gateway.ts:242` 会抛 `TypeError`（仍是「不调用」，但非优雅回落）；② 范围锚定白名单的**多范围**场景未在测试中真正演练（依赖调用方注入，`apps/web` 未接线）；③ `safety_identifier` 的**匿名派生端到端**未验证（HMAC 实现在 `apps/web`）；④ 适配器包与中立层**各有一份** `GATEWAY_ERROR_CODES` 常量，存在漂移空间（漂移会归一为 `PROVIDER_UNAVAILABLE`，属失败关闭）；⑤ `test-doubles.ts` 被计入覆盖率分母（计量卫生）。
+
+**⚠️ 执行闭包影响**：`pnpm-lock.yaml` **在** `scripts/neon-baseline.mjs` 的 `executionClosurePaths` 内 ⇒ 本次改动使执行闭包内容变化，**下次 `neon-baseline --write`（Neon 远程写）前必须重新锚定工具 SHA 并独立批准**。本轮**不做**该重锚定。`packages/contracts/src` 未改，故闭包变化只来自 `pnpm-lock.yaml`。
 
 ---
 
