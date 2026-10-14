@@ -6,10 +6,15 @@ import type {
   ManagementAnalysis,
 } from "@logiplan/contracts";
 import {
+  EvidenceSnapshotStore,
   FIXED_EXAMPLE_DATA_RELEASE_ID,
   FIXED_EXAMPLE_OUTPUT_SCHEMA_VERSION,
   GATEWAY_ERROR_STATUS_ZH,
-  type EvidenceSnapshotPayload,
+  distinctSnapshotIds,
+  verifySnapshotRecovery,
+  type EvidenceSnapshotSeed,
+  type SnapshotRecoveryOutcome,
+  type SnapshotVersions,
 } from "@logiplan/ai";
 
 import {
@@ -71,6 +76,7 @@ const REJECTED_EVIDENCE_FIELDS = [
   "evidence_id",
   "evidence_ids",
   "evidence_snapshot_id",
+  "evidence_snapshot_ids",
   "evidence_scope",
 ] as const;
 
@@ -405,20 +411,12 @@ export const collectAnswerEvidenceIds = (analysis: ManagementAnalysis): readonly
   return [...ids];
 };
 
-/**
- * 结论区块的主证据 ID。
- *
- * 固定示例的 `evidence_snapshot_id` 必须绑定**服务端真实快照 ID**，而该字段是单值：
- * 取结论区块的首要证据 `E01-country` 所属 `country` 结果的快照 ID——四个族里
- * 该结果范围最窄（单一目的国、无因素下钻），且是结论与影响两个区块都引用的证据。
- */
-export const PRIMARY_EVIDENCE_ID = "E01-country";
-
 export type AiSnapshotBinding =
   | {
       readonly ok: true;
       readonly analysis: ManagementAnalysis;
-      readonly evidence_snapshot_id: string;
+      /** 本回答引用的全部快照 ID（去重、稳定排序），与 `analysis.evidence_snapshot_ids` 同值。 */
+      readonly evidence_snapshot_ids: readonly string[];
       readonly whitelist: ReadonlyMap<string, AiEvidenceEntry>;
       /** 回答实际引用到的证据条目，按引用顺序去重；只这部分下发给浏览器。 */
       readonly cited: readonly AiEvidenceEntry[];
@@ -426,14 +424,14 @@ export type AiSnapshotBinding =
   | { readonly ok: false; readonly missing: readonly string[] };
 
 /**
- * 用服务端真实快照 ID 绑定固定示例的 `evidence_snapshot_id`（交接要点 3）。
+ * 用服务端真实快照 ID 绑定固定示例的 `evidence_snapshot_ids`（交接要点 3、D-191）。
  *
  * ## 占位值的来源与替换策略
  *
- * `packages/ai/src/fixed-example/fixed-example.ts:213` 把 `evidence_snapshot_id` 硬编码为
- * `"SNAPSHOT_GB_2026_08_V1"`。那是**编造占位值**，不是任何真实快照：中立层（`gate2-design.md`
+ * `packages/ai/src/fixed-example/fixed-example.ts` 把 `evidence_snapshot_ids` 硬编码为
+ * `["SNAPSHOT_GB_2026_08_V1"]`。那是**编造占位值**，不是任何真实快照：中立层（`gate2-design.md`
  * §1.2）从不接触数据库，无从得知真实 ID；而它恰好能通过公共契约的
- * `evidenceSnapshotIdSchema`（1—240 字符、非空白、无首尾空格），因此写入 `sessionStorage`
+ * `aiEvidenceSnapshotIdSchema`（1—120 字符、非空白），因此写入 `sessionStorage`
  * 不会报错、失败是**静默**的——页面照样渲染，但点击任何证据都打不开面板
  * （`attribution-workspace.tsx:542` 的 `if (!source || !item?.evidence_snapshot_id) return;`）。
  *
@@ -442,6 +440,9 @@ export type AiSnapshotBinding =
  * `packages/db/src/query-service.ts:2187`），并**逐条校验**固定示例引用的每个证据 ID 都在
  * 白名单内。任一缺失即整体丢弃并回落受控状态（`EVIDENCE_WHITELIST_VIOLATION`），
  * 不裁剪、不部分展示（`gate2-design.md` §4.3）。
+ *
+ * D-191 之前只绑定**主证据**（`E01-country`）所属的单一快照；现在绑定本回答引用的
+ * **全部**快照（去重、稳定排序），使页面恢复能解析跨族的每一条引用。
  */
 export const bindAnswerToRealSnapshot = (
   analysis: ManagementAnalysis,
@@ -451,23 +452,14 @@ export const bindAnswerToRealSnapshot = (
   const referenced = collectAnswerEvidenceIds(analysis);
   const missing = referenced.filter((id) => !index.has(id));
   if (missing.length > 0 || whitelist.duplicated.length > 0) return { ok: false, missing };
-  const primary = index.get(PRIMARY_EVIDENCE_ID);
-  if (primary === undefined) return { ok: false, missing: [PRIMARY_EVIDENCE_ID] };
-  const validated = managementAnalysisSchema.safeParse({
-    ...analysis,
-    evidence_snapshot_id: primary.evidence_snapshot_id,
+  const cited = referenced.flatMap((id) => {
+    const entry = index.get(id);
+    return entry === undefined ? [] : [entry];
   });
+  const evidence_snapshot_ids = distinctSnapshotIds(cited);
+  const validated = managementAnalysisSchema.safeParse({ ...analysis, evidence_snapshot_ids });
   if (!validated.success) return { ok: false, missing: ["__contract__"] };
-  return {
-    ok: true,
-    analysis: validated.data,
-    evidence_snapshot_id: primary.evidence_snapshot_id,
-    whitelist: index,
-    cited: referenced.flatMap((id) => {
-      const entry = index.get(id);
-      return entry === undefined ? [] : [entry];
-    }),
-  };
+  return { ok: true, analysis: validated.data, evidence_snapshot_ids, whitelist: index, cited };
 };
 
 /* ---------------------------------------------------------------------------
@@ -510,29 +502,89 @@ export const bindAiEvidenceAddress = (url: URL, entry: AiEvidenceEntry): void =>
   bindEvidenceAddress(url, entry, entry.scope);
 };
 
+/**
+ * 单个族的快照种子：该族那次确定性结果的不可变副本 + 该族全部证据对象（D-191）。
+ *
+ * `evidence_snapshot_id` 必须与该族被引用证据的 `evidence_snapshot_id` 逐字一致；
+ * 客户端按它作为 `sessionStorage` 键名（`logiplan.ai.snapshot.<snapshot_id>`，D-190 决策四）。
+ */
+export type AiSnapshotSeed = EvidenceSnapshotSeed & { readonly family: AiEvidenceFamily };
+
 export type AiAnswerBlock = {
   readonly scope_label: string;
   readonly answer_type: AiAnswerType;
   readonly analysis: ManagementAnalysis;
   readonly evidence: readonly AiEvidenceEntry[];
   /**
-   * 写进本页不可变快照的载荷：主证据所属的那次确定性结果的不可变副本
-   * （`gate2-design.md` §4.1）。只随主证据的 `country` 结果下发，体积为一个国家摘要结果。
+   * 本回答引用到的**每个族**各一份快照种子（D-191）。
    *
-   * ⚠️ **已知覆盖缺口（独立审查 P1-2，待后续切片处置）**：本回答引用的证据分属
-   * `country` / `bridge` / `diagnostics` / `drilldown` **四个不同的** `evidence_snapshot_id`，
-   * 而 `ManagementAnalysis.evidence_snapshot_id` 是**单值**（`docs/query-contract.md` §10 定义为
-   * 必填标量），本块取主证据所属的 `country` 快照。因此：
-   * - 逐条打开证据**不受影响**——`entries[].evidence_snapshot_id` 是每条自带，链接由它生成；
-   * - 但若后续切片按 `gate2-design.md` §4.2「页面恢复的六项校验」真从本快照恢复，
-   *   15 条引用中有 14 条将不可解析。
+   * 一个回答可能同时引用分属 `country` / `bridge` / `diagnostics` / `drilldown` 的证据，
+   * 而契约的 `evidence_snapshot_ids` 是**集合**；因此种子必须**按族多份**，与
+   * `evidence_snapshot_ids` 一一对应（数量与取值都相等）。
    *
-   * 正确处置需把「本回答引用了哪些快照」提升为一等事实（按族分组携带多份种子载荷），
-   * 这要改 `packages/contracts` 的输出契约与 `docs/query-contract.md` §10，超出切片 1b 写范围。
-   * 本切片**不**静默扩范围，也**不**把单值语义伪装成覆盖全篇。
+   * 这关闭了切片 1b 独立审查的 P1 缺口（`docs/gate2-implementation-plan.md` §4）：
+   * 此前只下发主证据所属的 `country` 一族，页面恢复时 15 条引用中有 14 条不可解析。
    */
-  readonly snapshot_seed: EvidenceSnapshotPayload;
+  readonly snapshot_seeds: readonly AiSnapshotSeed[];
 };
+
+/**
+ * 按族组装快照种子（D-191）。
+ *
+ * 只为**本回答实际引用到**的族各产出一份种子；族 → 确定性结果的映射由调用方注入
+ * （`AttributionData`），本函数不接触数据库。任一族的结果缺失即返回 `null`，
+ * 由调用方整体失败关闭（不裁剪、不部分展示）。
+ */
+export const buildAnswerSnapshotSeeds = (
+  cited: readonly AiEvidenceEntry[],
+  data: AttributionData,
+): readonly AiSnapshotSeed[] | null => {
+  const byFamily = new Map<AiEvidenceFamily, DeterministicResult<unknown>>([
+    ["country", data.country],
+    ["bridge", data.bridge],
+    ["diagnostics", data.diagnostics],
+    ["drilldown", data.drilldown],
+  ]);
+  const seeds: AiSnapshotSeed[] = [];
+  for (const family of AI_EVIDENCE_FAMILIES) {
+    const citedInFamily = cited.filter((entry) => entry.family === family);
+    if (citedInFamily.length === 0) continue;
+    const result = byFamily.get(family);
+    const snapshotId = citedInFamily[0]?.evidence_snapshot_id;
+    if (result === undefined || snapshotId === undefined) return null;
+    seeds.push({
+      family,
+      evidence_snapshot_id: snapshotId,
+      payload: {
+        query_intent: result.query_intent,
+        deterministic_result: result,
+        evidence: result.evidence,
+      },
+    });
+  }
+  return seeds;
+};
+
+/**
+ * 页面恢复验证（D-191 决策四）：本回答引用的**每一条**证据都能在已写入的快照中解析。
+ *
+ * 委托中立层 `verifySnapshotRecovery`（`packages/ai/src/snapshot/snapshot-recovery.ts`）：
+ * 先断言「契约的快照 ID 集合 == 种子集合」，再对每份种子各恢复一次（六项版本校验），
+ * 最后断言每条被引用证据的 `evidence_id` 命中其快照的 `payload.evidence`。任一不过即
+ * 整体不可恢复——不返回「部分可用」。只断言「主证据可解析」**不算**通过。
+ */
+export const verifyAnswerRecovery = (
+  answer: AiAnswerBlock,
+  store: EvidenceSnapshotStore,
+  expected: SnapshotVersions,
+): SnapshotRecoveryOutcome =>
+  verifySnapshotRecovery(
+    answer.evidence,
+    answer.snapshot_seeds,
+    answer.analysis.evidence_snapshot_ids,
+    store,
+    expected,
+  );
 
 export type AiRespondSuccess = {
   readonly ok: true;

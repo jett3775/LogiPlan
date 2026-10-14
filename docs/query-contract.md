@@ -286,7 +286,7 @@ interface ManagementAnalysis {
     feasibility_status: "NOT_VALIDATED" | "PARTIALLY_VALIDATED" | "VALIDATED";
   }>;
   limitations: RichSection;
-  evidence_snapshot_id: string;
+  evidence_snapshot_ids: string[];
   evaluation_question_ids: string[];
 }
 
@@ -296,6 +296,8 @@ interface RichSection {
   status_labels?: string[];
 }
 ```
+
+`evidence_snapshot_ids` 是本回答引用的**全部**不可变证据快照 ID（D-191）：去重、稳定排序，至少 1 条、至多 10 条。回答的每条 `evidence_ids` 引用都必须能在这批快照中解析——一个回答可能同时引用分属 `country` / `bridge` / `diagnostics` / `drilldown` 多个查询结果的证据，故该字段是**集合**而非单值。
 
 首期固定示例引用 `E01`、`E05`—`E10` 和 `E20` 的已校验结果。建议一律标记 `scenario_validation_status = "NOT_RUN"`，不得给出未经情景计算支持的节省金额。
 

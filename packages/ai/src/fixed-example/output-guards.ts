@@ -133,7 +133,7 @@ export const collectStrings = (value: unknown, into: string[] = []): string[] =>
 /**
  * 对整个回答对象跑守卫。
  *
- * 例外：`evidence_ids`、`evidence_snapshot_id`、`answer_id`、`evaluation_question_ids`
+ * 例外：`evidence_ids`、`evidence_snapshot_ids`、`answer_id`、`evaluation_question_ids`
  * 是标识符而非陈述，扫描标识符只会制造噪音；五区块正文与建议正文才是可能编造
  * 数字或承诺节省的地方，因此只扫描这些陈述字段。
  */

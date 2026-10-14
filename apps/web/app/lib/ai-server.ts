@@ -2,12 +2,12 @@ import "server-only";
 
 import { buildFixedExampleAnalysis } from "@logiplan/ai";
 import { attributionFactorSchema } from "@logiplan/contracts";
-import type { AttributionFactor, EvidenceObject } from "@logiplan/contracts";
+import type { AttributionFactor } from "@logiplan/contracts";
 
 import {
   AI_RESPOND_STATUS_ZH,
-  PRIMARY_EVIDENCE_ID,
   bindAnswerToRealSnapshot,
+  buildAnswerSnapshotSeeds,
   buildEvidenceWhitelist,
   type AiAnswerBlock,
   type AiRespondStatusCode,
@@ -75,11 +75,10 @@ export const answerManagementQuestion = async (pageAddress: string): Promise<AiA
   if (!binding.ok) {
     return discarded(`回答引用了 ${binding.missing.length} 条不在证据白名单内的内容`);
   }
-  const primary: EvidenceObject | undefined = data.country.evidence.find(
-    (item) => item.evidence_id === PRIMARY_EVIDENCE_ID,
-  );
-  if (primary === undefined || primary.evidence_snapshot_id === undefined) {
-    return discarded("主证据对象缺失或未绑定真实快照");
+  // 每个被引用的族各一份快照种子（D-191）；任一族载荷缺失即整体失败关闭。
+  const seeds = buildAnswerSnapshotSeeds(binding.cited, data);
+  if (seeds === null) {
+    return discarded("回答引用的证据族快照载荷缺失");
   }
   const fixed = binding.analysis;
   return {
@@ -89,12 +88,8 @@ export const answerManagementQuestion = async (pageAddress: string): Promise<AiA
       answer_type: fixed.answer_type,
       analysis: fixed,
       evidence: binding.cited,
-      // 快照载荷取主证据所属的那次确定性结果，与 `evidence_snapshot_id` 的绑定来源同源。
-      snapshot_seed: {
-        query_intent: data.country.query_intent,
-        deterministic_result: data.country,
-        evidence: [primary],
-      },
+      // 种子按族多份，与 `analysis.evidence_snapshot_ids` 一一对应（数量与取值都相等）。
+      snapshot_seeds: seeds,
     },
   };
 };

@@ -393,7 +393,7 @@ export type InfrastructureError = z.infer<typeof infrastructureErrorSchema>;
  * ------------------------------------------------------------------------- */
 
 /** 闸门二 AI 输出模式的独立版本标识（与 query contract V1.0/V1.1 无关）。 */
-export const AI_OUTPUT_SCHEMA_VERSION = "G2_ANSWER_V1_0";
+export const AI_OUTPUT_SCHEMA_VERSION = "G2_ANSWER_V2_0";
 
 export const aiOutputSchemaVersionSchema = z.literal(AI_OUTPUT_SCHEMA_VERSION);
 
@@ -431,6 +431,19 @@ export const aiEvidenceSnapshotIdSchema = z
   .max(120)
   .refine((value) => value.trim().length > 0, "AI 快照 ID 不得为空白字符串");
 
+/**
+ * 回答引用的**全部**不可变证据快照 ID（D-191）。
+ *
+ * 一个回答可能同时引用分属 `country` / `bridge` / `diagnostics` / `drilldown` 多个查询
+ * 结果的证据，故这是**集合**而非单值。要求去重后逐项合格，且至少 1 条、至多 10 条：
+ * 下限保证「回答至少绑定一份快照」，上限与归因页的证据族数量同量级，防止无界增长。
+ */
+export const aiEvidenceSnapshotIdsSchema = z
+  .array(aiEvidenceSnapshotIdSchema)
+  .min(1)
+  .max(10)
+  .refine((ids) => new Set(ids).size === ids.length, "AI 快照 ID 列表不得包含重复项");
+
 export const richSectionSchema = z
   .object({
     text: aiText(2_000),
@@ -458,7 +471,7 @@ export const managementAnalysisSchema = z
     impact: richSectionSchema,
     recommendations: z.array(managementRecommendationSchema).min(1).max(20),
     limitations: richSectionSchema,
-    evidence_snapshot_id: aiEvidenceSnapshotIdSchema,
+    evidence_snapshot_ids: aiEvidenceSnapshotIdsSchema,
     evaluation_question_ids: z
       .array(z.string().regex(/^E(0[1-9]|1[0-9]|20)$/, "评估题 ID 必须形如 E01—E20"))
       .min(1)

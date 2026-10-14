@@ -55,7 +55,7 @@ describe("提示词 / 输出模式版本注册表（协调项 4）", () => {
   });
 
   it("管理分析输出模式由公共 Zod 模式生成，含十个顶层字段（不手抄，避免漂移）", () => {
-    const schema = resolveOutputSchema("G2_ANSWER_V1_0");
+    const schema = resolveOutputSchema("G2_ANSWER_V2_0");
     const properties = (schema as { readonly properties?: Record<string, unknown> }).properties;
     expect(properties).toBeDefined();
     expect(Object.keys(properties ?? {}).sort()).toEqual(
@@ -65,7 +65,7 @@ describe("提示词 / 输出模式版本注册表（协调项 4）", () => {
         "conclusion",
         "evaluation_question_ids",
         "evidence",
-        "evidence_snapshot_id",
+        "evidence_snapshot_ids",
         "impact",
         "limitations",
         "recommendations",

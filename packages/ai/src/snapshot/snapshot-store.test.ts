@@ -71,7 +71,7 @@ const VERSIONS: SnapshotVersions = {
   provider: "PROVIDER_A",
   model: "MODEL_A",
   prompt_version: "PROMPT_V1",
-  output_schema_version: "G2_ANSWER_V1_0",
+  output_schema_version: "G2_ANSWER_V2_0",
 };
 
 const snapshot = (snapshotId: string, filler = ""): EvidenceSnapshot => ({
@@ -590,7 +590,7 @@ describe("恢复失败时回落固定示例", () => {
         },
       ],
       limitations: { text: "固定示例", evidence_ids: ["E01-country"] },
-      evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1",
+      evidence_snapshot_ids: ["SNAPSHOT_GB_2026_08_V1"],
       evaluation_question_ids: ["E01"],
     };
     expect(decision.answerType).toBe("FIXED_EXAMPLE");

@@ -24,7 +24,7 @@ const AUDIT: AiAuditMetadata = {
   model: "MODEL_A",
   adapter_version: "ADAPTER_V1",
   system_prompt_version: "PROMPT_V1",
-  output_schema_version: "G2_ANSWER_V1_0",
+  output_schema_version: "G2_ANSWER_V2_0",
   price_version: "PRICE_2026_V1",
   input_tokens: 1_200,
   output_tokens: 400,

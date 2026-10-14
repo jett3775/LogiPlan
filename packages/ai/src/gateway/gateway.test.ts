@@ -79,7 +79,7 @@ describe("成功路径：路由 → 适配器 → 三检 → 中文输出与审�
     expect(audit.provider).toBe("openai");
     expect(audit.model).toBe("gpt-5.6-terra");
     expect(audit.system_prompt_version).toBe("analysis-v1");
-    expect(audit.output_schema_version).toBe("G2_ANSWER_V1_0");
+    expect(audit.output_schema_version).toBe("G2_ANSWER_V2_0");
     expect(audit.price_version).toBe("PRICE_2026_V1");
     expect(audit.input_tokens).toBe(111);
     expect(audit.output_tokens).toBe(55);

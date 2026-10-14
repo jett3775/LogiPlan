@@ -119,6 +119,15 @@ export {
   type SnapshotStoreOptions,
   type SnapshotWriteResult,
 } from "./snapshot/snapshot-store";
+export {
+  SNAPSHOT_RECOVERY_FAILURE_REASONS,
+  distinctSnapshotIds,
+  verifySnapshotRecovery,
+  type EvidenceSnapshotSeed,
+  type SnapshotEvidenceReference,
+  type SnapshotRecoveryFailureReason,
+  type SnapshotRecoveryOutcome,
+} from "./snapshot/snapshot-recovery";
 
 /* ---------------------------------------------------------------------------
  * 切片 2：成本包围（匿名标识 / 限流 / 费用 / 两级熔断 / 可观测性）

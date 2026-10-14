@@ -49,10 +49,11 @@ type AiRespondBody = {
     answer_type: string;
     analysis: {
       answer_type: string;
-      evidence_snapshot_id: string;
+      evidence_snapshot_ids: string[];
       limitations: { text: string; evidence_ids: string[]; status_labels?: string[] };
     };
     evidence: Array<{ evidence_id: string; evidence_snapshot_id: string; scope: unknown }>;
+    snapshot_seeds: Array<{ family: string; evidence_snapshot_id: string }>;
   };
   request_id: string;
 };
@@ -208,7 +209,17 @@ test("AC1.9 服务端拒绝供应商名、模型名、任意证据 ID 与供应�
   expect(body.ok).toBe(true);
   expect(body.status).toBe("FIXED_EXAMPLE");
   expect(body.answer?.analysis.answer_type).toBe("FIXED_EXAMPLE");
-  expect(body.answer?.analysis.evidence_snapshot_id).toMatch(/^ES-/u);
+  // D-191：回答绑定**全部**被引用快照（多族），而不是单一主证据的快照。
+  const snapshotIds = body.answer?.analysis.evidence_snapshot_ids ?? [];
+  expect(snapshotIds.length).toBeGreaterThan(0);
+  for (const id of snapshotIds) expect(id).toMatch(/^ES-/u);
+  expect(new Set(snapshotIds).size).toBe(snapshotIds.length);
+  // 每条引用证据的快照 ID 都必须在集合内，且集合与种子一一对应（页面恢复可解析）。
+  for (const item of body.answer?.evidence ?? []) {
+    expect(snapshotIds).toContain(item.evidence_snapshot_id);
+  }
+  const seedIds = (body.answer?.snapshot_seeds ?? []).map((seed) => seed.evidence_snapshot_id);
+  expect([...seedIds].sort()).toEqual([...snapshotIds].sort());
   expect(body.answer?.evidence.map((item) => item.evidence_id).sort()).toEqual(
     [...CITED_EVIDENCE_IDS].sort(),
   );

@@ -16,7 +16,7 @@ const STORED: SnapshotVersions = {
   provider: "PROVIDER_A",
   model: "MODEL_A",
   prompt_version: "PROMPT_V1",
-  output_schema_version: "G2_ANSWER_V1_0",
+  output_schema_version: "G2_ANSWER_V2_0",
 };
 
 const expected = (field: (typeof SNAPSHOT_VERSION_FIELDS)[number]): SnapshotVersions => ({

@@ -4,6 +4,7 @@ import {
   AI_OUTPUT_SCHEMA_VERSION,
   aiAnswerTypeSchema,
   aiEvidenceSnapshotIdSchema,
+  aiEvidenceSnapshotIdsSchema,
   aiFeasibilityStatusSchema,
   aiOutputSchemaVersionSchema,
   aiScenarioValidationStatusSchema,
@@ -42,7 +43,7 @@ const VALID_ANALYSIS = {
   impact: RICH_SECTION,
   recommendations: [RECOMMENDATION],
   limitations: RICH_SECTION,
-  evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1",
+  evidence_snapshot_ids: ["SNAPSHOT_GB_2026_08_V1"],
   evaluation_question_ids: ["E01", "E05", "E06", "E07", "E08", "E09", "E10", "E20"],
 } as const;
 
@@ -61,9 +62,9 @@ describe("ManagementAnalysis 合法样例", () => {
   });
 
   it("输出模式独立版本化，不吸收 V1.0/V1.1 契约版本字段", () => {
-    expect(AI_OUTPUT_SCHEMA_VERSION).toBe("G2_ANSWER_V1_0");
-    expect(aiOutputSchemaVersionSchema.safeParse("G2_ANSWER_V1_0").success).toBe(true);
-    for (const wrong of ["V1.0", "V1.1", "G2_ANSWER_V1_1", "", null, 1]) {
+    expect(AI_OUTPUT_SCHEMA_VERSION).toBe("G2_ANSWER_V2_0");
+    expect(aiOutputSchemaVersionSchema.safeParse("G2_ANSWER_V2_0").success).toBe(true);
+    for (const wrong of ["V1.0", "V1.1", "G2_ANSWER_V1_0", "G2_ANSWER_V2_1", "", null, 1]) {
       expect(aiOutputSchemaVersionSchema.safeParse(wrong).success).toBe(false);
     }
     const parsed = managementAnalysisSchema.parse(VALID_ANALYSIS);
@@ -174,7 +175,8 @@ describe("ManagementAnalysis 拒绝空字符串与空白字符串", () => {
         false,
       );
       expect(
-        managementAnalysisSchema.safeParse(analysisWith({ evidence_snapshot_id: value })).success,
+        managementAnalysisSchema.safeParse(analysisWith({ evidence_snapshot_ids: [value] }))
+          .success,
       ).toBe(false);
       expect(richSectionSchema.safeParse({ ...RICH_SECTION, status_labels: [value] }).success).toBe(
         false,
@@ -215,7 +217,7 @@ describe("ManagementAnalysis 拒绝超长字符串与超量集合", () => {
       managementAnalysisSchema.safeParse(analysisWith({ answer_id: "x".repeat(121) })).success,
     ).toBe(false);
     expect(
-      managementAnalysisSchema.safeParse(analysisWith({ evidence_snapshot_id: "x".repeat(121) }))
+      managementAnalysisSchema.safeParse(analysisWith({ evidence_snapshot_ids: ["x".repeat(121)] }))
         .success,
     ).toBe(false);
     expect(
@@ -281,5 +283,36 @@ describe("ManagementAnalysis 拒绝超长字符串与超量集合", () => {
       managementAnalysisSchema.safeParse(analysisWith({ evaluation_question_ids: ["E01", "E20"] }))
         .success,
     ).toBe(true);
+  });
+});
+
+describe("ManagementAnalysis 的多快照 ID 列表（D-191）", () => {
+  it("接受去重后的多份快照 ID，覆盖多族证据", () => {
+    const ids = [
+      "ES-11111111-1111-4111-8111-111111111111",
+      "ES-22222222-2222-4222-8222-222222222222",
+    ];
+    expect(aiEvidenceSnapshotIdsSchema.safeParse(ids).success).toBe(true);
+    expect(
+      managementAnalysisSchema.safeParse(analysisWith({ evidence_snapshot_ids: ids })).success,
+    ).toBe(true);
+  });
+
+  it("拒绝空列表、超过 10 项与重复项", () => {
+    expect(aiEvidenceSnapshotIdsSchema.safeParse([]).success).toBe(false);
+    expect(
+      aiEvidenceSnapshotIdsSchema.safeParse(
+        Array.from({ length: 11 }, (_unused, index) => `ES-${index}`),
+      ).success,
+    ).toBe(false);
+    expect(aiEvidenceSnapshotIdsSchema.safeParse(["ES-a", "ES-a"]).success).toBe(false);
+  });
+
+  it("单值标量不再被接受（破坏性变更，输出模式版本升为 G2_ANSWER_V2_0）", () => {
+    expect(
+      managementAnalysisSchema.safeParse(
+        analysisWith({ evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1" }),
+      ).success,
+    ).toBe(false);
   });
 });

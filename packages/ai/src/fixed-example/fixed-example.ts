@@ -210,7 +210,7 @@ export const buildFixedExampleAnalysis = (): ManagementAnalysis => {
         ORDER_GRAIN_LABEL_ZH,
       ],
     },
-    evidence_snapshot_id: "SNAPSHOT_GB_2026_08_V1",
+    evidence_snapshot_ids: ["SNAPSHOT_GB_2026_08_V1"],
     evaluation_question_ids: [...FIXED_EXAMPLE_EVALUATION_IDS],
   };
   return managementAnalysisSchema.parse(analysis);

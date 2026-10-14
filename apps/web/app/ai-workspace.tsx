@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { managementAnalysisSchema } from "@logiplan/contracts";
-import type { ManagementAnalysis, RichSection } from "@logiplan/contracts";
+import type { RichSection } from "@logiplan/contracts";
 import {
   EvidenceSnapshotStore,
   FEASIBILITY_STATUS_ZH,
@@ -18,6 +18,7 @@ import {
   FIXED_EXAMPLE_SNAPSHOT_VERSIONS,
   aiPageAddressFromLocation,
   bindAiEvidenceAddress,
+  verifyAnswerRecovery,
   type AiAnswerBlock,
   type AiRespondBody,
   type AiRespondStatusCode,
@@ -80,7 +81,7 @@ export function AiWorkspace() {
       setAnswer({ ...body.answer, analysis: parsed.data });
       setStatus("FIXED_EXAMPLE");
       setDetail(null);
-      setSnapshotNote(writeAnswerSnapshot(body.answer, parsed.data));
+      setSnapshotNote(writeAnswerSnapshot(body.answer));
     } catch {
       setAnswer(null);
       setStatus("DETERMINISTIC_SOURCE_UNAVAILABLE");
@@ -245,35 +246,56 @@ function EvidenceLinks({
 }
 
 /**
- * 把回答绑定的确定性结果写成**本页不可变快照**（`gate2-design.md` §4.1、D-190 决策四）。
+ * 把回答绑定的确定性结果写成**本页不可变快照**（`gate2-design.md` §4.1、D-190 决策四、D-191）。
  *
  * 键名是 `logiplan.ai.snapshot.<snapshot_id>`，而 `snapshot_id` 就是服务端用真实确定性结果
  * 绑定进来的 `ES-<uuid>`；因此这份快照是数据库快照在本标签页的不可变副本，两者同源。
+ * **每个被引用的族各一份**（D-191）：回答跨族引用证据，单一快照无法覆盖全部引用。
  *
  * ## 失败态一律统一处理（交接要点 3）
  *
  * `SnapshotWriteResult` 有五个失败态：`rejected_too_large`、`rejected_reserved_id`、
  * `rejected_invalid_id`、`storage_unavailable`，以及写入本身不成立的情形。逐个列举会让
  * 新增失败态静默漏处理，所以这里只判一次 `status !== "written"`：非 `written` 即回落
- * 固定示例（当前渲染的本来就是固定示例），并且**不**声称快照可用。
+ * 固定示例（当前渲染的本来就是固定示例），并且**不**声称快照可用。**任一份**写入失败即
+ * 整体回落，不做部分可用。
+ *
+ * 写完后跑 `verifyAnswerRecovery`：逐份恢复（六项版本校验）并断言**每条**引用证据都能
+ * 解析（D-191 决策四）。这是「页面恢复能力成立」的机械判据。
+ *
+ * 任一步失败都**清掉本次已写入的种子**再回落：不留半套快照，也不做部分可用。
  */
-function writeAnswerSnapshot(answer: AiAnswerBlock, analysis: ManagementAnalysis): string {
+function writeAnswerSnapshot(answer: AiAnswerBlock): string {
   try {
     const store = new EvidenceSnapshotStore({
       storage: window.sessionStorage,
       clock: { now: () => Date.now() },
     });
-    const snapshot: EvidenceSnapshot = {
-      snapshot_id: analysis.evidence_snapshot_id,
-      captured_at: new Date().toISOString(),
-      versions: FIXED_EXAMPLE_SNAPSHOT_VERSIONS,
-      payload: answer.snapshot_seed,
+    const capturedAt = new Date().toISOString();
+    const writtenIds: string[] = [];
+    const rollback = (): void => {
+      for (const snapshotId of writtenIds) store.discard(snapshotId);
     };
-    const written = store.write(snapshot);
-    if (written.status !== "written") return "本页证据快照未能保存，已按固定示例呈现。";
-    const restored = store.restore(snapshot.snapshot_id, FIXED_EXAMPLE_SNAPSHOT_VERSIONS);
-    if (restored.status !== "restored") return "本页证据快照校验未通过，已按固定示例呈现。";
-    return "本页证据快照已保存在本标签页并通过版本校验。";
+    for (const seed of answer.snapshot_seeds) {
+      const snapshot: EvidenceSnapshot = {
+        snapshot_id: seed.evidence_snapshot_id,
+        captured_at: capturedAt,
+        versions: FIXED_EXAMPLE_SNAPSHOT_VERSIONS,
+        payload: seed.payload,
+      };
+      const written = store.write(snapshot);
+      if (written.status !== "written") {
+        rollback();
+        return "本页证据快照未能保存，已按固定示例呈现。";
+      }
+      writtenIds.push(seed.evidence_snapshot_id);
+    }
+    const recovery = verifyAnswerRecovery(answer, store, FIXED_EXAMPLE_SNAPSHOT_VERSIONS);
+    if (!recovery.ok) {
+      rollback();
+      return "本页证据快照校验未通过，已按固定示例呈现。";
+    }
+    return `本页证据快照已保存 ${recovery.resolved_snapshot_ids.length} 份，全部通过版本校验且每条引用证据均可解析。`;
   } catch {
     return "本页证据快照不可用，已按固定示例呈现。";
   }

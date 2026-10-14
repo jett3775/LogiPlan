@@ -3,7 +3,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["packages/**/*.test.ts", "apps/web/tests/playwright-config.test.ts"],
+    include: [
+      "packages/**/*.test.ts",
+      "apps/web/tests/playwright-config.test.ts",
+      // D-191：AI 回答的多快照装配（bindAnswerToRealSnapshot / buildAnswerSnapshotSeeds /
+      // verifyAnswerRecovery）此前只有 Playwright 覆盖（需真实数据库，不在默认测试集内）。
+      // 该性质是本次关闭 P1 缺口的直接依据，必须在默认测试集内可验证。
+      "apps/web/tests/ai-model.test.ts",
+    ],
     passWithNoTests: false,
     sequence: {
       shuffle: false,
