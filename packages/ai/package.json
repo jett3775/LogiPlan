@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./server": "./src/control-plane/server.ts"
+    "./server": "./src/control-plane/server.ts",
+    "./test-doubles": "./src/control-plane/test-doubles.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -6,13 +6,17 @@ import type {
   ManagementAnalysis,
 } from "@logiplan/contracts";
 import {
+  CONTROL_PLANE_ENV_KEYS,
   EvidenceSnapshotStore,
   FIXED_EXAMPLE_DATA_RELEASE_ID,
   FIXED_EXAMPLE_OUTPUT_SCHEMA_VERSION,
   GATEWAY_ERROR_STATUS_ZH,
+  collectStrings,
+  deriveAnonymousId,
   distinctSnapshotIds,
   verifySnapshotRecovery,
   type EvidenceSnapshotSeed,
+  type EvidenceWhitelist,
   type SnapshotRecoveryOutcome,
   type SnapshotVersions,
 } from "@logiplan/ai";
@@ -287,6 +291,7 @@ export const ANSWER_TYPE_ZH: Readonly<Record<AiAnswerType, string>> = {
 /** `/api/v1/ai/respond` 的状态码；页面只显示 `status_label_zh`，不显示内部错误码。 */
 export const AI_RESPOND_STATUS_CODES = [
   "FIXED_EXAMPLE",
+  "LIVE_GENERATED",
   "INPUT_REJECTED",
   "EVIDENCE_WHITELIST_VIOLATION",
   "DETERMINISTIC_SOURCE_UNAVAILABLE",
@@ -302,6 +307,7 @@ export type AiRespondStatusCode = (typeof AI_RESPOND_STATUS_CODES)[number];
  */
 export const AI_RESPOND_STATUS_ZH: Readonly<Record<AiRespondStatusCode, string>> = {
   FIXED_EXAMPLE: ANSWER_TYPE_ZH.FIXED_EXAMPLE,
+  LIVE_GENERATED: ANSWER_TYPE_ZH.LIVE_GENERATED,
   INPUT_REJECTED: GATEWAY_ERROR_STATUS_ZH.INPUT_REJECTED,
   EVIDENCE_WHITELIST_VIOLATION: GATEWAY_ERROR_STATUS_ZH.EVIDENCE_WHITELIST_VIOLATION,
   DETERMINISTIC_SOURCE_UNAVAILABLE:
@@ -392,6 +398,95 @@ export const buildEvidenceWhitelist = (data: AttributionData): AiEvidenceWhiteli
     entries,
     duplicated: [...seen.entries()].filter(([, count]) => count > 1).map(([id]) => id),
   };
+};
+
+/* ---------------------------------------------------------------------------
+ * 中立证据白名单（网关输入；D-192 的「证据范围」接线位置）
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 范围的**规范化**标识（锚点）。
+ *
+ * `factor_id` 被显式剔除：它只影响下钻排序与行级证据的 `:FACTOR:` 后缀，不属于证据范围；
+ * 若把它算进锚点，「页面选了因素」与「没选因素」会被判成两个范围，而四个结果集里只有
+ * `drilldown` 带 `factor_id`（`model.ts` 的 `attributionIntents`），结果是**只要选了因素，
+ * 白名单必然被判成多范围、真实输出必然回落**。
+ *
+ * 键按字典序展开，保证同一范围对象无论字面顺序如何都得到同一锚点。
+ */
+const canonicalJsonOf = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJsonOf).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJsonOf(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+};
+
+export const canonicalScopeAnchor = (scope: AnalysisScope): string => {
+  const rest: Record<string, unknown> = { ...scope };
+  delete rest["factor_id"];
+  return canonicalJsonOf(rest);
+};
+
+/**
+ * 由四个确定性结果组装**中立层**的证据白名单（网关的唯一确定性事实入口）。
+ *
+ * 四个结果集必须属于**同一范围**（锚点逐字相等），否则返回 `null` 由调用方失败关闭——
+ * 网关的数值回指检要求单范围白名单（`gate2-design.md` §4.3 的 2026-10-05 注）。
+ *
+ * `numbers` 取该结果集内出现的全部字符串（业务载荷与证据值），供输出三检的数值回指使用；
+ * `supportedFormsOf` 会把非数值字符串过滤掉，故这里是「该结果集支持的数字宇宙」。
+ */
+export const buildNeutralEvidenceWhitelist = (data: AttributionData): EvidenceWhitelist | null => {
+  const results: readonly DeterministicResult<unknown>[] = [
+    data.country,
+    data.bridge,
+    data.diagnostics,
+    data.drilldown,
+  ];
+  const anchors = results.map((result) => canonicalScopeAnchor(result.query_intent.scope));
+  const anchor = anchors[0];
+  if (anchor === undefined || anchors.some((candidate) => candidate !== anchor)) return null;
+  return {
+    scope_anchor: anchor,
+    result_sets: results.map((result) => ({
+      result_id: result.result_id,
+      scope_anchor: anchor,
+      evidence_ids: result.evidence.map((item) => item.evidence_id),
+      numbers: collectStrings(result),
+    })),
+  };
+};
+
+/**
+ * 匿名标识接线位置（D-192 第 2 条）。
+ *
+ * 适配器的 `safety_identifier` **只能**取本函数的返回值：它是主密钥下的不可逆派生值，
+ * 不含原始 IP / User-Agent。控制面在 `evaluateControlPlane` 内按**同一组输入**自行派生
+ * （同一天得到同一值），因此两处标识一致（本文件的测试锁定该性质）。
+ *
+ * 放在本模块（纯逻辑、无 I/O）而不是 `ai-server.ts`，是为了让它进入**默认测试集**：
+ * `ai-server.ts` 带 `server-only`，在 Node 测试环境下不可导入。
+ */
+export const deriveSafetyIdentifier = async (input: {
+  readonly environment: Record<string, string | undefined>;
+  readonly rawIp: string;
+  readonly userAgent: string;
+  readonly nowMs: number;
+}): Promise<string | null> => {
+  const secret = input.environment[CONTROL_PLANE_ENV_KEYS.secret];
+  if (secret === undefined || secret.length === 0) return null;
+  return deriveAnonymousId({
+    rawIp: input.rawIp,
+    userAgent: input.userAgent,
+    secret,
+    nowMs: input.nowMs,
+  });
 };
 
 /** 固定示例引用到的全部证据 ID（五个区块去重）。 */
@@ -588,7 +683,7 @@ export const verifyAnswerRecovery = (
 
 export type AiRespondSuccess = {
   readonly ok: true;
-  readonly status: "FIXED_EXAMPLE";
+  readonly status: "FIXED_EXAMPLE" | "LIVE_GENERATED";
   readonly status_label_zh: string;
   readonly answer: AiAnswerBlock;
   readonly request_id: string;
@@ -596,7 +691,7 @@ export type AiRespondSuccess = {
 
 export type AiRespondFailure = {
   readonly ok: false;
-  readonly status: Exclude<AiRespondStatusCode, "FIXED_EXAMPLE">;
+  readonly status: Exclude<AiRespondStatusCode, "FIXED_EXAMPLE" | "LIVE_GENERATED">;
   readonly status_label_zh: string;
   readonly message_zh: string;
   readonly request_id: string;

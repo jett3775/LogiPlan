@@ -300,4 +300,15 @@ export {
   type GatewayOutcome,
   type GatewayPreflight,
   type GatewayRequest,
+  type ProviderSpendReport,
 } from "./gateway/gateway";
+export {
+  GATEWAY_SESSION_RECORDS,
+  GATEWAY_SESSION_SETTLEMENTS,
+  runGatewaySession,
+  type GatewaySessionDeps,
+  type GatewaySessionOutcome,
+  type GatewaySessionRecord,
+  type GatewaySessionRequest,
+  type GatewaySessionSettlement,
+} from "./gateway/gateway-session";

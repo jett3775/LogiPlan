@@ -2202,3 +2202,29 @@
 - 决策四（验收口径）：本决策把「页面恢复能力成立」定义为可机械判定的性质——**回答引用的每一条证据 ID 都能在本次写入的某一份快照中解析**：`evidence_id` 命中该快照的 `payload.evidence`，且快照内证据对象自带的 `evidence_snapshot_id`（V1.1 有、V1.0 无）与快照键一致。范围一致性**不在恢复验证里重复实现**——`EVIDENCE_LOOKUP` 的范围校验由查询服务负责（范围不一致返回 `INVALID_FILTER`）。该性质须有测试锁定，且必须覆盖全部四族；只断言「主证据可解析」**不算**关闭本缺口。测试须落在**默认测试集**内（不得只由需真实数据库的 Playwright 覆盖），否则本机无法验证。
 - 保留约束：① 不改变任何已冻结边界——浏览器仍不得提交供应商名 / 模型名 / 证据 ID / 供应商参数（D-174、切片 1b 的参数白名单不变）；证据白名单仍**范围锚定**（`gate2-design.md` §4.3 的 2026-10-05 注）；输出三检、失败关闭、单份 2 MB 与每标签页 20 份上限（D-190 决策四）全部不变。② `packages/contracts` 的 V1.0 / V1.1 **查询**契约（`EvidenceObject.evidence_snapshot_id`、`QueryIntentV11.evidence_snapshot_id`）**不受影响**，本决策只改 AI 输出模式（`ManagementAnalysis`），不改查询契约。③ 逐条打开证据的地址契约（`docs/query-contract.md` §11 的 `evidence_id` + `evidence_snapshot_id` + `evidence_scope`）不变。
 - 影响：`packages/contracts/src/index.ts`（模式与版本常量）、`docs/query-contract.md` §10、`packages/ai` 的固定示例与输出守卫、`apps/web` 的 `ai-model.ts` / `ai-server.ts` / `ai-workspace.tsx` 与 Playwright 用例同步更新。**`packages/contracts` 在执行闭包内** ⇒ 下次 `neon-baseline --write` 前须重新锚定工具 SHA 并独立批准（与切片 3 的 `pnpm-lock.yaml` 变化同批）。
+
+## D-192：网页 / 控制面 / 网关 / 适配器的装配边界与端到端接线
+
+- 状态：已确认
+- 日期：2026-10-15
+- 背景：切片 1b 只把「固定示例」接到 HTTP；切片 2 在路由里留了一个**被丢弃**的成本包围接缝（`applyCostGuard` 的结论不参与响应构造）；切片 3 建好了网关、会话与适配器契约，但没有装配点。结果：**四层之间没有真正的接线**，且切片 2 的接缝含一处真实缺陷——它在**每个请求**上调用 `evaluateControlPlane`，而后者会**预留预算**（`reserveBudget`），却从不结算；由于结论被丢弃，行为上看不出来，但账本会被无意义地推高，最终触达 L2 阈值。本决策固定四层的装配边界并完成接线。
+- 决策一（四层边界）：
+  - `apps/web`（装配层，`app/lib/ai-server.ts`）：确定性查询、证据白名单（中立 + 页面）、页面地址校验、控制面装配、适配器注入、HTTP 形状。**不做**角色路由、输出三检、成本判定。
+  - `packages/ai` 控制面：匿名派生、限流、预算预留、两级熔断。**不**接触 HTTP、**不**查库。
+  - `packages/ai` 网关与会话（`gateway/gateway.ts`、`gateway/gateway-session.ts`）：角色路由 → 能力门 → 预检消费 → 适配器 → 重试 → 三检 → 记录 → 结算编排。**不**派生匿名、**不**查库、**不**构造适配器。
+  - `packages/ai-provider-*`：供应商协议与错误映射、成本估算。不含业务规则。
+- 决策二（四条接线位置，均为显式函数而非约定）：
+  1. **证据范围**：`buildNeutralEvidenceWhitelist(data)`（`ai-model.ts`）产出网关唯一的事实入口——`scope_anchor` + 4 个 `result_sets{evidence_ids, numbers}`。锚点是**规范化 JSON 并剔除 `factor_id`**：它只影响下钻排序，若计入则「选了因素」与「没选因素」会成为两个范围，而四族里只有 `drilldown` 带 `factor_id` ⇒ 只要选了因素真实输出必然回落。四族锚点不一致 ⇒ 返回 `null` ⇒ 失败关闭。
+  2. **匿名标识**：`deriveSafetyIdentifier(...)`（`ai-model.ts`）——适配器的 `safety_identifier` **只能**取它的返回值；控制面按同一组输入自行派生，两处值一致（有测试锁定）。原始 IP / User-Agent 不落盘、不入日志、不进审计。
+  3. **预算预留**：`runGatewaySession` 内的 `evaluateControlPlane`（限流 → L2 → 原子预留 → L1）。
+  4. **预算结算**：`runGatewaySession` 内、且**仅当收到供应商响应**时把预留替换为实际成本（USD → CNY 用控制面配置的汇率版本）。
+- 决策三（适配器边界与门 C）：**本轮不装配任何真实适配器**——装配层的 `adapter` 恒为 `null`。`null` 时装配层**完全不进入会话**（不预检、不预留、不写账本、不写限流窗口），直接回落固定示例 ⇒ **零真实调用、零付费**。`LOGIPLAN_AI_LIVE_CALLS` 是门 C 的显式开关；门 C 开启时在此处用 `deriveSafetyIdentifier` 的返回值装配 `packages/ai-provider-openai` 的适配器。这样「本部署没有真实调用路径」是**构造性**事实，而不是配置约定。
+- 决策四（失败方向，逐条）：
+  - 预检不放行 ⇒ 未调用、未预留 ⇒ 不记录、不结算。
+  - 预检放行 ⇒ 一定发生过一次预留 ⇒ **一定**尝试结算。
+  - 收到响应 ⇒ 结算为实际成本；**未**收到响应（超时 / 供应商错误）⇒ **不结算**，保留预留额（实际花费未知时宁可多计、不可少计）。
+  - 结算 / L1 记录**本身失败** ⇒ 记录失败标记但**不丢弃**已生成的回答：预留额仍在账本上（方向保守），丢弃一次已经付费的回答既不省钱、又让用户看不到结果。
+- 决策五（网关必须回报实际成本）：`GatewayOutcome` 两个分支都携带 `spend: { responded, input_tokens, output_tokens, cost_usd, latency_ms }`。**输出三检未过但供应商已响应**时必须回报真实成本而不是 0——否则结算会把预留释放成 0，使月度账本**少报**真实支出，让 L2 上限可被击穿（D-181 的失败关闭要求）。`responded=false` 明确表示「未响应」而非「确定没花钱」。
+- 决策六（`server-only` 与可测性）：装配层 `ai-server.ts` **不写** `import "server-only"`，因为它必须能在 Node 测试环境下被导入（`apps/web/tests/ai-assembly.test.ts` 用 `vi.mock` 替换数据库客户端）。服务端边界由**传递依赖**强制：`./query-server` 带 `server-only`。`packages/ai` 新增 `./test-doubles` 子路径导出，供装配层集成测试注入内存 Redis 替身。
+- 保留约束：① 浏览器仍不得提交供应商名 / 模型名 / 证据 ID / 供应商参数（D-174）；② 证据白名单仍**范围锚定**；③ 输出三检、失败关闭、快照容量与 LRU（D-190 决策四）不变；④ 查询契约 V1.0 / V1.1 不变；⑤ 不改变任何已冻结边界。
+- 影响：`packages/ai/src/gateway/gateway.ts`（`spend`）、**新增** `packages/ai/src/gateway/gateway-session.ts` 与 `gateway-session.test.ts`、`packages/ai/src/no-live-call.test.ts`（AC2.12 白名单 + 会话模块不构造适配器的新断言）、`packages/ai/package.json`（`./test-doubles` 子路径）、`apps/web/app/lib/ai-model.ts`（中立白名单 / 锚点 / 匿名标识 / `LIVE_GENERATED` 状态）、`apps/web/app/lib/ai-server.ts`（装配层）、`apps/web/app/api/v1/ai/respond/route.ts`、`apps/web/app/ai-workspace.tsx`、`apps/web/tests/ai-model.test.ts`、**新增** `apps/web/tests/ai-assembly.test.ts`、`vitest.config.ts`。`packages/contracts/src` 与 `pnpm-lock.yaml` **未改** ⇒ 不改变执行闭包。

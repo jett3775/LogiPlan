@@ -6,7 +6,7 @@ import type {
   MoneyValue,
   QueryIntent,
 } from "@logiplan/contracts";
-import { EvidenceSnapshotStore, type SessionStorageLike } from "@logiplan/ai";
+import { EvidenceSnapshotStore, deriveAnonymousId, type SessionStorageLike } from "@logiplan/ai";
 
 import {
   AI_EVIDENCE_FAMILIES,
@@ -14,6 +14,9 @@ import {
   bindAnswerToRealSnapshot,
   buildAnswerSnapshotSeeds,
   buildEvidenceWhitelist,
+  buildNeutralEvidenceWhitelist,
+  canonicalScopeAnchor,
+  deriveSafetyIdentifier,
   parseAiRespondRequest,
   verifyAnswerRecovery,
   type AiAnswerBlock,
@@ -311,5 +314,89 @@ describe("浏览器输入边界（D-174）", () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) throw new Error("应拒绝");
     expect(parsed.category).toBe("evidence_id");
+  });
+});
+
+describe("D-192 装配边界：中立证据白名单与匿名标识", () => {
+  it("范围锚点剔除 factor_id，且与键的书写顺序无关", () => {
+    const base = attributionData().country.query_intent.scope;
+    const withFactor = { ...base, factor_id: "MIX" as const };
+    expect(canonicalScopeAnchor(withFactor)).toBe(canonicalScopeAnchor(base));
+
+    // 同一范围的字段换个书写顺序，锚点不变（键按字典序规范化）。
+    const left = {
+      comparison: "ACTUAL_VS_BUDGET" as const,
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" as const },
+      budget_version_id: "BUDGET_2026_V1",
+      calculation_version: "D-092",
+    };
+    const right = {
+      calculation_version: "D-092",
+      budget_version_id: "BUDGET_2026_V1",
+      period: { from: "2026-08", to: "2026-08", grain: "MONTH" as const },
+      comparison: "ACTUAL_VS_BUDGET" as const,
+    };
+    expect(canonicalScopeAnchor(left)).toBe(canonicalScopeAnchor(right));
+  });
+
+  it("四族同范围 → 单范围白名单：锚点一致、四份结果集、证据与数字来自结果本身", () => {
+    const whitelist = buildNeutralEvidenceWhitelist(attributionData());
+    expect(whitelist).not.toBeNull();
+    const list = whitelist ?? { scope_anchor: "", result_sets: [] };
+    expect(list.result_sets).toHaveLength(4);
+    for (const set of list.result_sets) expect(set.scope_anchor).toBe(list.scope_anchor);
+    const ids = new Set(list.result_sets.flatMap((set) => set.evidence_ids));
+    for (const id of Object.values(EVIDENCE_IDS)) expect(ids.has(id)).toBe(true);
+    expect(list.result_sets.some((set) => set.numbers.includes("574474.2232"))).toBe(true);
+  });
+
+  it("drilldown 带 factor_id（页面选了因素）仍判为单范围——锚点剔除 factor_id 的直接效果", () => {
+    const base = attributionData();
+    const withFactor = {
+      ...base,
+      drilldown: {
+        ...base.drilldown,
+        query_intent: {
+          ...base.drilldown.query_intent,
+          scope: { ...base.drilldown.query_intent.scope, factor_id: "MIX" as const },
+        },
+      },
+    };
+    const whitelist = buildNeutralEvidenceWhitelist(withFactor as never);
+    expect(whitelist).not.toBeNull();
+    expect(whitelist?.result_sets).toHaveLength(4);
+    for (const set of whitelist?.result_sets ?? []) {
+      expect(set.scope_anchor).toBe(whitelist?.scope_anchor);
+    }
+  });
+
+  it("四族范围不一致 → 返回 null（失败关闭，不组装多范围白名单）", () => {
+    const base = attributionData();
+    const divergent = {
+      ...base,
+      diagnostics: {
+        ...base.diagnostics,
+        query_intent: {
+          ...base.diagnostics.query_intent,
+          scope: {
+            ...base.diagnostics.query_intent.scope,
+            period: { from: "2026-09", to: "2026-09", grain: "MONTH" as const },
+          },
+        },
+      },
+    };
+    expect(buildNeutralEvidenceWhitelist(divergent)).toBeNull();
+  });
+
+  it("匿名标识：缺主密钥 → null；有主密钥 → 与控制面按同组输入派生的值一致", async () => {
+    const inputs = { rawIp: "203.0.113.7", userAgent: "vitest/1.0", nowMs: 1_760_000_000_000 };
+    expect(await deriveSafetyIdentifier({ environment: {}, ...inputs })).toBeNull();
+    const derived = await deriveSafetyIdentifier({
+      environment: { LOGIPLAN_AI_ANON_SECRET: "test-secret" },
+      ...inputs,
+    });
+    const controlPlaneValue = await deriveAnonymousId({ ...inputs, secret: "test-secret" });
+    expect(derived).not.toBeNull();
+    expect(derived).toBe(controlPlaneValue);
   });
 });

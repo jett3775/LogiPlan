@@ -79,7 +79,8 @@ export function AiWorkspace() {
         return;
       }
       setAnswer({ ...body.answer, analysis: parsed.data });
-      setStatus("FIXED_EXAMPLE");
+      // 本部署恒为 FIXED_EXAMPLE（门 C 未开启）；如实显示服务端返回的状态。
+      setStatus(body.status);
       setDetail(null);
       setSnapshotNote(writeAnswerSnapshot(body.answer));
     } catch {

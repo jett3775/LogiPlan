@@ -65,11 +65,29 @@ describe("无真实模型调用路径（AC2.12）", () => {
   it("ProviderAdapter 只作为契约声明 / 注入端口出现，无任何实现被导入或装配", () => {
     // 切片 3b 新增 `gateway/gateway.ts`：它只把 `ProviderAdapter` 当作**注入端口类型**使用，
     // 不 import 任何具体适配器实现（`@logiplan/ai-provider-*` 的导入断言见下一条）。
-    const allowed = new Set(["adapter/adapter-contract.ts", "gateway/gateway.ts", "index.ts"]);
+    // 切片 3c 新增 `gateway/gateway-session.ts`：同样只用端口**类型**（`deps.adapter` 必填），
+    // 且**不构造任何适配器对象**——「本部署没有适配器」由调用方在进入会话前处理。
+    const allowed = new Set([
+      "adapter/adapter-contract.ts",
+      "gateway/gateway.ts",
+      "gateway/gateway-session.ts",
+      "index.ts",
+    ]);
     const offenders = productionSources
       .filter((source) => /ProviderAdapter/u.test(source.text) && !allowed.has(source.file))
       .map((source) => source.file);
     expect(offenders).toEqual([]);
+  });
+
+  it("会话编排模块不构造任何适配器对象（只消费注入的端口）", () => {
+    const session = productionSources.find((source) =>
+      source.file.endsWith("gateway/gateway-session.ts"),
+    );
+    expect(session).toBeDefined();
+    // 出现 `invoke:` 或 `capabilities:` 字面量就意味着这里装配了适配器实现。
+    expect(session?.text).not.toContain("invoke:");
+    expect(session?.text).not.toContain("capabilities:");
+    expect(session?.text).not.toContain("adapterVersion:");
   });
 
   it("不导入任何供应商适配器包（packages/ai-provider-*）", () => {

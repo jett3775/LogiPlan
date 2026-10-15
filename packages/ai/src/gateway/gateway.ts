@@ -88,16 +88,39 @@ export interface GatewayRequest {
   readonly preflight: GatewayPreflight;
 }
 
+/**
+ * 供应商花费报告。
+ *
+ * `responded = false` 表示**没有收到供应商响应**（未调用、或调用超时 / 失败）——此时
+ * `cost_usd` 为 0，但那是「未知」而不是「确定没花钱」，结算方据此**保留**预留额
+ * （宁可多计、不可少计，D-181）。
+ */
+export interface ProviderSpendReport {
+  readonly responded: boolean;
+  readonly input_tokens: number;
+  readonly output_tokens: number;
+  readonly cost_usd: number;
+  readonly latency_ms: number;
+}
+
 export type GatewayOutcome =
   | {
       readonly kind: "live";
       readonly analysis: ManagementAnalysis;
+      /** 本次调用的实际花费；结算方据此把预留替换为实际值。 */
+      readonly spend: ProviderSpendReport;
       readonly audit: AiAuditMetadata;
     }
   | {
       readonly kind: "fallback";
       readonly analysis: ManagementAnalysis;
       readonly errorCode: GatewayErrorCode;
+      /**
+       * 已经发生的花费。**输出三检未过但供应商已响应**时 `responded=true` 且带真实成本——
+       * 否则结算会把预留释放成 0，使月度账本**少报**真实支出、让 L2 上限可被击穿。
+       * 路由 / 能力门 / 预检失败（未调用）时为 `responded=false, cost_usd=0`。
+       */
+      readonly spend: ProviderSpendReport;
       /** 面向用户的受控中文状态；页面不得只显示内部错误码。 */
       readonly statusZh: string;
       readonly audit: AiAuditMetadata;
@@ -183,25 +206,37 @@ const buildAudit = (input: AuditInput, outcome: AuditOutcomeFields): AiAuditMeta
   fell_back_to_fixed_example: input.errorCode !== null,
 });
 
+/** 未发起任何供应商调用时的花费报告。 */
+const NO_SPEND: ProviderSpendReport = {
+  responded: false,
+  input_tokens: 0,
+  output_tokens: 0,
+  cost_usd: 0,
+  latency_ms: 0,
+};
+
 const fallback = (
   base: AuditBase,
   route: RoleRouteConfig | null,
   errorCode: GatewayErrorCode,
   latencyMs: number,
+  spend: ProviderSpendReport = NO_SPEND,
 ): GatewayOutcome => ({
   kind: "fallback",
   analysis: buildFixedExampleAnalysis(),
   errorCode,
+  spend,
   statusZh: GATEWAY_ERROR_STATUS_ZH[errorCode],
   audit: buildAudit(
     { ...base, route, errorCode },
     {
       provider: route?.provider ?? "unresolved",
       model: route?.model ?? "unresolved",
-      inputTokens: 0,
-      outputTokens: 0,
-      latencyMs,
-      costUsd: 0,
+      inputTokens: spend.input_tokens,
+      outputTokens: spend.output_tokens,
+      // 已响应时用供应商报告的真实延迟；未响应时用本网关的墙钟。
+      latencyMs: spend.latency_ms > 0 ? spend.latency_ms : latencyMs,
+      costUsd: spend.cost_usd,
     },
   ),
 });
@@ -281,12 +316,26 @@ export const runGateway = async (
     expectedScopeAnchor: request.scope_anchor,
   });
   if (!checks.ok) {
-    return fallback(auditBase, route, checks.failure.code, elapsed());
+    // 响应已收到 ⇒ 供应商已计费。此处必须回报**真实**花费，否则结算会释放预留、少报支出。
+    return fallback(auditBase, route, checks.failure.code, elapsed(), {
+      responded: true,
+      input_tokens: outcome.result.usage.inputTokens,
+      output_tokens: outcome.result.usage.outputTokens,
+      cost_usd: outcome.result.costEstimate.amount,
+      latency_ms: outcome.result.latencyMs,
+    });
   }
 
   return {
     kind: "live",
     analysis: checks.analysis,
+    spend: {
+      responded: true,
+      input_tokens: outcome.result.usage.inputTokens,
+      output_tokens: outcome.result.usage.outputTokens,
+      cost_usd: outcome.result.costEstimate.amount,
+      latency_ms: outcome.result.latencyMs,
+    },
     audit: buildAudit(
       { ...auditBase, route, errorCode: null },
       {

@@ -10,6 +10,9 @@ export default defineConfig({
       // verifyAnswerRecovery）此前只有 Playwright 覆盖（需真实数据库，不在默认测试集内）。
       // 该性质是本次关闭 P1 缺口的直接依据，必须在默认测试集内可验证。
       "apps/web/tests/ai-model.test.ts",
+      // D-192：服务端装配层（网页 → 控制面 → 网关 → 适配器）的集成测试。用 `vi.mock`
+      // 替换数据库客户端、用内存 Redis 替身驱动控制面，**不触库、不联网、零真实调用**。
+      "apps/web/tests/ai-assembly.test.ts",
     ],
     passWithNoTests: false,
     sequence: {
