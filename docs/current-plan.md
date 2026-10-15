@@ -743,3 +743,8 @@ ai:acceptance`（脚本自带服务生命周期）。**验收判据**：`status 
   走 D-180 的角色配置修订流程。
 - **⚠️ 执行闭包**：新增 `scripts/ai-live-acceptance.mjs` 与根 `package.json` ⇒ 闭包内容变化（与切片 3 的
   `pnpm-lock.yaml` 同批）；`pnpm-lock.yaml` 本轮**无净变化**。
+
+**阶段 2 装配的 CI 证据**：提交 `3ea14de0`（`feat(ai)`）。CI run **`38696981143`**（head `3ea14de0`）
+**全绿**——`CodeQL`、`Gate 1 deterministic validation`（含 `Test with coverage` 与 ubuntu 上的 isolated
+Gate 1 validation）、`Cross-platform checks`（ubuntu / windows / macOS 三矩阵）；
+`Pull request dependency review` 按设计 skipped。
