@@ -5,6 +5,7 @@ import {
   L1CircuitBreaker,
   allCapabilitiesGranted,
   buildFixedExampleAnalysis,
+  deriveAnonymousId,
   deriveBudgetThreshold,
   FX_VERSION_V1,
   PRICE_VERSION_V1,
@@ -45,7 +46,7 @@ vi.mock("../app/lib/query-server", () => ({
   },
 }));
 
-const { answerManagementQuestion } = await import("../app/lib/ai-server");
+const { answerManagementQuestion, createProviderAdapter } = await import("../app/lib/ai-server");
 
 const CLOCK_MS = 1_760_000_000_000;
 
@@ -170,7 +171,6 @@ const runtimeFor = (redis: InMemoryRedisLike) => ({
 
 const options = (overrides: Record<string, unknown> = {}) => ({
   environment: { NODE_ENV: "test" } as Record<string, string | undefined>,
-  adapter: null as unknown,
   rawIp: "203.0.113.7",
   userAgent: "vitest/1.0",
   ...overrides,
@@ -216,7 +216,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       QUESTION,
       "req-2",
       options({
-        adapter: fakeAdapter(liveOutput()),
+        createAdapter: async () => fakeAdapter(liveOutput()),
         createRuntime: async () => runtimeFor(redis) as never,
       }) as never,
     );
@@ -249,7 +249,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       QUESTION,
       "req-3",
       options({
-        adapter: fakeAdapter(liveOutput()),
+        createAdapter: async () => fakeAdapter(liveOutput()),
         createRuntime: async () => runtime as never,
       }) as never,
     );
@@ -274,7 +274,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       QUESTION,
       "req-4",
       options({
-        adapter: fakeAdapter(bogus),
+        createAdapter: async () => fakeAdapter(bogus),
         createRuntime: async () => runtimeFor(redis) as never,
       }) as never,
     );
@@ -299,7 +299,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       QUESTION,
       "req-5",
       options({
-        adapter: fakeAdapter(liveOutput()),
+        createAdapter: async () => fakeAdapter(liveOutput()),
         createRuntime: async () => runtimeFor(new InMemoryRedisLike()) as never,
       }) as never,
     );
@@ -317,7 +317,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       QUESTION,
       "req-6",
       options({
-        adapter: fakeAdapter(liveOutput()),
+        createAdapter: async () => fakeAdapter(liveOutput()),
         createRuntime: async () => {
           runtimeCalls += 1;
           return runtimeFor(new InMemoryRedisLike()) as never;
@@ -336,5 +336,143 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
     const whitelist: EvidenceWhitelist | null = buildNeutralEvidenceWhitelist(buildData() as never);
     expect(whitelist).not.toBeNull();
     expect(whitelist?.result_sets).toHaveLength(4);
+  });
+});
+
+describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
+  it("匿名派生值**实际传入**适配器工厂，且与控制面按同组输入派生的值一致", async () => {
+    state.data = buildData();
+    const redis = new InMemoryRedisLike();
+    const seen: string[] = [];
+    const outcome = await answerManagementQuestion(
+      PAGE,
+      QUESTION,
+      "req-anon",
+      options({
+        environment: {
+          NODE_ENV: "test",
+          LOGIPLAN_AI_ANON_SECRET: "test-secret",
+        } as Record<string, string | undefined>,
+        now: () => CLOCK_MS,
+        createAdapter: async (input: { resolveSafetyIdentifier: () => Promise<string | null> }) => {
+          const value = await input.resolveSafetyIdentifier();
+          if (value !== null) seen.push(value);
+          return fakeAdapter(liveOutput());
+        },
+        createRuntime: async () => runtimeFor(redis) as never,
+      }) as never,
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error(outcome.message_zh);
+    expect(outcome.status).toBe("LIVE_GENERATED");
+    // 工厂拿到的是**匿名派生值**，不是原始 IP / User-Agent。
+    expect(seen).toHaveLength(1);
+    const expected = await deriveAnonymousId({
+      rawIp: "203.0.113.7",
+      userAgent: "vitest/1.0",
+      secret: "test-secret",
+      nowMs: CLOCK_MS,
+    });
+    expect(seen[0]).toBe(expected);
+    expect(seen[0]).not.toContain("203.0.113.7");
+    expect(seen[0]).not.toContain("vitest/1.0");
+  });
+
+  it("缺主密钥 ⇒ 工厂拿不到匿名标识 ⇒ 装配层不进入会话（回落固定示例）", async () => {
+    state.data = buildData();
+    let runtimeCalls = 0;
+    const outcome = await answerManagementQuestion(
+      PAGE,
+      QUESTION,
+      "req-anon-missing",
+      options({
+        createAdapter: async (input: { resolveSafetyIdentifier: () => Promise<string | null> }) => {
+          expect(await input.resolveSafetyIdentifier()).toBeNull();
+          return null;
+        },
+        createRuntime: async () => {
+          runtimeCalls += 1;
+          return runtimeFor(new InMemoryRedisLike()) as never;
+        },
+      }) as never,
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error(outcome.message_zh);
+    expect(outcome.status).toBe("FIXED_EXAMPLE");
+    expect(runtimeCalls).toBe(0);
+  });
+
+  it('关闭开关：默认工厂在 `LOGIPLAN_AI_LIVE_CALLS` 非 "1" 时返回 null 且**不派生**匿名标识；**即使为 "1"** 本轮仍返回 null（真实客户端未接入）', async () => {
+    let derived = 0;
+    const factoryInput = (environment: Record<string, string | undefined>) => ({
+      environment,
+      resolveSafetyIdentifier: async () => {
+        derived += 1;
+        return "anon-value";
+      },
+      priceVersion: PRICE_VERSION_V1,
+    });
+
+    expect(await createProviderAdapter(factoryInput({}))).toBeNull();
+    expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "0" }))).toBeNull();
+    // 开关关闭时**连派生都不发生**——这才是开关的可观测效应（否则删掉检查也不会有用例失败）。
+    expect(derived).toBe(0);
+
+    // 授权位打开，但真实客户端尚未接入 ⇒ 仍然失败关闭（构造性零真实调用）。
+    expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "1" }))).toBeNull();
+    expect(derived).toBe(1);
+  });
+
+  it("关闭开关：开关关闭时装配层不进入会话（回落固定示例）", async () => {
+    state.data = buildData();
+    let runtimeCalls = 0;
+    let factoryCalls = 0;
+    const outcome = await answerManagementQuestion(
+      PAGE,
+      QUESTION,
+      "req-switch-off",
+      options({
+        createAdapter: async () => {
+          factoryCalls += 1;
+          return null;
+        },
+        createRuntime: async () => {
+          runtimeCalls += 1;
+          return runtimeFor(new InMemoryRedisLike()) as never;
+        },
+      }) as never,
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error(outcome.message_zh);
+    expect(outcome.status).toBe("FIXED_EXAMPLE");
+    expect(runtimeCalls).toBe(0);
+    expect(factoryCalls).toBe(1);
+  });
+
+  it("适配器工厂抛错 → 失败关闭（回落固定示例，不逃逸到请求处理链）", async () => {
+    state.data = buildData();
+    let runtimeCalls = 0;
+    const outcome = await answerManagementQuestion(
+      PAGE,
+      QUESTION,
+      "req-factory-throws",
+      options({
+        createAdapter: async () => {
+          throw new Error("client construction failed");
+        },
+        createRuntime: async () => {
+          runtimeCalls += 1;
+          return runtimeFor(new InMemoryRedisLike()) as never;
+        },
+      }) as never,
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) throw new Error(outcome.message_zh);
+    expect(outcome.status).toBe("FIXED_EXAMPLE");
+    expect(runtimeCalls).toBe(0);
   });
 });

@@ -299,6 +299,91 @@ class CircuitWriteFailingRedis extends InMemoryRedisLike {
   }
 }
 
+describe("重试与费用未知（D-192 决策四 / 五）", () => {
+  it("单次尝试且成功 → 成本完整 ⇒ 结算为实际成本", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    const result = await runGatewaySession(
+      {
+        config: gatewayConfig(),
+        runtime,
+        adapter: adapterReturning(liveAnalysis()),
+        retryHooks: deterministicRetryHooks(),
+      },
+      sessionRequest(),
+    );
+
+    expect(result.outcome.spend.attempts).toBe(1);
+    expect(result.outcome.spend.cost_complete).toBe(true);
+    expect(result.settlement).toBe("settled");
+  });
+
+  it("重试后成功 → 成本**不完整**（首次尝试可能已被计费）⇒ 不结算，保留预留", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    let calls = 0;
+    const flaky = fakeAdapter(async (request) => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("rate limited"), { code: "PROVIDER_RATE_LIMITED" });
+      }
+      return {
+        provider: "openai",
+        model: request.model,
+        providerRequestId: "resp_retry_ok",
+        structuredOutput: liveAnalysis(),
+        usage: { inputTokens: 111, outputTokens: 55 },
+        finishReason: "stop",
+        latencyMs: 12,
+        costEstimate: { currency: "USD", amount: 0.00042, priceVersion: PRICE_VERSION_V1 },
+      };
+    });
+    const result = await runGatewaySession(
+      { config: gatewayConfig(), runtime, adapter: flaky, retryHooks: deterministicRetryHooks() },
+      sessionRequest(),
+    );
+
+    expect(result.outcome.kind).toBe("live");
+    expect(calls).toBe(2);
+    expect(result.outcome.spend.attempts).toBe(2);
+    expect(result.outcome.spend.responded).toBe(true);
+    expect(result.outcome.spend.cost_complete).toBe(false);
+    // 按末次金额结算会少记首次尝试的支出 ⇒ 必须**不**结算，让预留额留在账本上。
+    expect(result.settlement).toBe("not_attempted");
+    expect(redis.calls.budgetSettle).toBe(0);
+  });
+
+  it("适配器自报成本非有限（未知价格）→ 不结算，保留预留", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    const unknownCost = fakeAdapter(async (request) => ({
+      provider: "openai",
+      model: request.model,
+      providerRequestId: "resp_nan_cost",
+      structuredOutput: liveAnalysis(),
+      usage: { inputTokens: 111, outputTokens: 55 },
+      finishReason: "stop",
+      latencyMs: 12,
+      costEstimate: { currency: "USD", amount: Number.NaN, priceVersion: PRICE_VERSION_V1 },
+    }));
+    const result = await runGatewaySession(
+      {
+        config: gatewayConfig(),
+        runtime,
+        adapter: unknownCost,
+        retryHooks: deterministicRetryHooks(),
+      },
+      sessionRequest(),
+    );
+
+    expect(result.outcome.kind).toBe("live");
+    expect(result.outcome.spend.cost_complete).toBe(true);
+    expect(Number.isFinite(result.outcome.spend.cost_usd)).toBe(false);
+    expect(result.settlement).toBe("not_attempted");
+    expect(redis.calls.budgetSettle).toBe(0);
+  });
+});
+
 describe("结算与记录的失败方向", () => {
   it("供应商已响应但自报成本非正 → **不**结算，保留预留（不得释放成 0 而少报支出）", async () => {
     const redis = new InMemoryRedisLike();

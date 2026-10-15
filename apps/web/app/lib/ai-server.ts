@@ -1,5 +1,6 @@
 import {
   AI_ROLE_ROUTES,
+  PRICE_VERSION_V1,
   buildFixedExampleAnalysis,
   runGatewaySession,
   type ProviderAdapter,
@@ -20,6 +21,7 @@ import {
   buildAnswerSnapshotSeeds,
   buildEvidenceWhitelist,
   buildNeutralEvidenceWhitelist,
+  deriveSafetyIdentifier,
   type AiAnswerBlock,
 } from "./ai-model";
 import { loadAttributionData } from "./query-server";
@@ -43,13 +45,14 @@ import { loadAttributionData } from "./query-server";
  * 2. **匿名标识**：`deriveSafetyIdentifier`——适配器的 `safety_identifier` 只能取它的返回值；
  *    原始 IP / User-Agent 不落盘、不入日志、不进审计（D-138 / D-181）。
  * 3. **预算预留**：`runGatewaySession` 内的 `evaluateControlPlane`（限流 → L2 → 原子预留 → L1）。
- * 4. **预算结算**：`runGatewaySession` 内、且**仅当收到供应商响应时**才把预留替换为实际成本。
+ * 4. **预算结算**：`runGatewaySession` 内、且**仅当成本完整且为正**（`spend.cost_complete && cost_usd > 0`）
+ *    时才把预留替换为实际成本；**发生过重试**时成本不完整（首次尝试可能已被计费）⇒ 保留预留额。
  *
  * ## 本部署不发起任何真实调用
  *
- * 适配器由 `options.adapter` 注入；本轮**恒为 `null`**（门 C 未开启）。`null` 时装配层
- * **完全不进入会话**（不预检、不预留、不写账本、不写限流窗口），直接回落固定示例 ⇒
- * **零真实调用、零付费**，线上与本机行为不变。
+ * 适配器由 `options.createAdapter`（默认 `createProviderAdapter`）产出；本轮**恒为 `null`**
+ * （门 C 未开启）。`null` 时装配层**完全不进入会话**（不预检、不预留、不写账本、不写限流窗口），
+ * 直接回落固定示例 ⇒ **零真实调用、零付费**，线上与本机行为不变。
  *
  * ## 服务端边界
  *
@@ -71,10 +74,52 @@ const MANAGEMENT_ANALYSIS_ROLE = "management_analysis" as const;
  */
 export const LIVE_CALLS_ENV_KEY = "LOGIPLAN_AI_LIVE_CALLS";
 
+/**
+ * 真实客户端装配接缝（门 C）：装配层把「**按需派生匿名标识**」的能力交给工厂，
+ * 工厂只有在确实要装配适配器时才调用它。
+ *
+ * 为什么是「按需」而不是直接传值：本部署（门 C 未开启）恒不装配适配器，按需派生
+ * 可避免每个请求都做一次无用的 HMAC 派生。
+ */
+export type ProviderAdapterFactory = (input: {
+  readonly environment: Record<string, string | undefined>;
+  /** 按需派生匿名标识；适配器的 `safety_identifier` **只能**取它的返回值。 */
+  readonly resolveSafetyIdentifier: () => Promise<string | null>;
+  readonly priceVersion: string;
+}) => ProviderAdapter | null | Promise<ProviderAdapter | null>;
+
+/**
+ * 默认的适配器工厂——**门 C 的显式开关**。
+ *
+ * 两个条件都满足才会有适配器：
+ * 1. `LOGIPLAN_AI_LIVE_CALLS === "1"`（授权位；即使环境里放了 `OPENAI_API_KEY`，缺这个开关也不装配）；
+ * 2. 真实客户端已接入。
+ *
+ * **本轮条件 2 未满足**（真实客户端的装配属门 C 轮次），因此本函数**恒返回 `null`** ⇒
+ * 装配层完全不进入会话 ⇒ **构造性地零真实调用**。门 C 开启时在此处接入
+ * `packages/ai-provider-openai`：
+ * `createOpenAiAdapter({ client: new OpenAI({ apiKey, maxRetries: 0 }), safetyIdentifier: await resolveSafetyIdentifier(), priceVersion, ... })`。
+ *
+ * ⚠️ **门 C 接线时必须同时设 `maxRetries: 0`**：SDK 自带重试（默认 2 次）发生在适配器**内部**，
+ * 中立层看不到那几次尝试，`cost_complete` 会误判为「成本完整」而少记支出。重试的唯一归属是
+ * `packages/ai` 的 `retry-policy`（切片 3b 协调项 2）。
+ *
+ * ⚠️ **门 C 验收时必须确认工厂真的返回了适配器**：开关打开但客户端未接入时本函数静默返回
+ * `null`、装配层静默回落固定示例——不会报错。因此「以为开了其实没开」只能靠**核对响应
+ * `status` 是否为 `LIVE_GENERATED`** 来排除（已记为遗留 P2）。
+ */
+export const createProviderAdapter: ProviderAdapterFactory = async (input) => {
+  if (input.environment[LIVE_CALLS_ENV_KEY] !== "1") return null;
+  const safetyIdentifier = await input.resolveSafetyIdentifier();
+  if (safetyIdentifier === null) return null;
+  // 条件 2：真实客户端装配（门 C）。本轮未接入 ⇒ 保持失败关闭。
+  return null;
+};
+
 export interface AiAssemblyOptions {
   readonly environment: Record<string, string | undefined>;
-  /** 供应商适配器；`null` = 本部署没有真实调用路径（门 C 未开启）。 */
-  readonly adapter: ProviderAdapter | null;
+  /** 适配器工厂；默认 `createProviderAdapter`（门 C 未开启时恒返回 `null`）。 */
+  readonly createAdapter?: ProviderAdapterFactory;
   /** 原始 IP / User-Agent **只**用于匿名派生；不落盘、不入日志。 */
   readonly rawIp: string;
   readonly userAgent: string;
@@ -165,10 +210,32 @@ export const answerManagementQuestion = async (
   let analysis: ManagementAnalysis;
   let status: "FIXED_EXAMPLE" | "LIVE_GENERATED" = "FIXED_EXAMPLE";
 
-  // ③ 本部署没有供应商适配器（门 C 未开启）⇒ **完全不进入会话**：不预检、不预留、不写
-  //    账本、不写限流窗口，直接回落固定示例。（切片 2 的接缝曾在**每个请求**上预留预算
-  //    却从不结算——那条路径已随本次装配改造消失。）
-  if (options.adapter === null) {
+  // ③ 匿名标识 + 适配器装配（门 C 接缝）。工厂**按需**派生匿名标识——本部署恒不装配
+  //    适配器，故连派生都不会发生。原始 IP / User-Agent 只在这一条闭包里流动。
+  //
+  // 工厂抛错（真实客户端构造失败等）⇒ **失败关闭**：不得逃逸到请求处理链（P1 修复）。
+  const createAdapter = options.createAdapter ?? createProviderAdapter;
+  let adapter: ProviderAdapter | null;
+  try {
+    adapter = await createAdapter({
+      environment: options.environment,
+      resolveSafetyIdentifier: () =>
+        deriveSafetyIdentifier({
+          environment: options.environment,
+          rawIp: options.rawIp,
+          userAgent: options.userAgent,
+          nowMs: now(),
+        }),
+      priceVersion: PRICE_VERSION_V1,
+    });
+  } catch {
+    adapter = null;
+  }
+
+  // ④ 没有适配器（门 C 未开启）⇒ **完全不进入会话**：不预检、不预留、不写账本、不写限流
+  //    窗口，直接回落固定示例。（切片 2 的接缝曾在**每个请求**上预留预算却从不结算——
+  //    那条路径已随本次装配改造消失。）
+  if (adapter === null) {
     analysis = buildFixedExampleAnalysis();
   } else {
     const createRuntime = options.createRuntime ?? createControlPlaneFromEnvironment;
@@ -189,7 +256,7 @@ export const answerManagementQuestion = async (
             routes: AI_ROLE_ROUTES,
           },
           runtime,
-          adapter: options.adapter,
+          adapter,
           ...(options.now === undefined ? {} : { now: options.now }),
         },
         {

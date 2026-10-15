@@ -30,9 +30,10 @@ import type { RetryHooks } from "./retry-policy";
  *
  * - 预检不放行 ⇒ **未**发起调用、**未**预留 ⇒ 不记录、不结算。
  * - 预检放行 ⇒ 一定发生过一次预留 ⇒ **一定**尝试结算。
- *   - 收到供应商响应（`spend.responded` 且 `cost_usd > 0`）⇒ 结算为**实际**成本
+ *   - **成本完整且为正**（`spend.cost_complete && cost_usd > 0`）⇒ 结算为**实际**成本
  *     （真实支出被如实记账）。
- *   - 未收到响应（超时 / 供应商错误），或适配器自报成本非正 ⇒ **不结算**，保留预留额：
+ *   - **发生过重试**（`cost_complete=false`：失败的那次尝试可能已被计费但用量未知）、
+ *     未收到响应（超时 / 供应商错误），或适配器自报成本非正 ⇒ **不结算**，保留预留额：
  *     实际花费未知或不可信时宁可多计、不可少计（D-181「宁可回落固定示例，也不越过预算」）。
  *   - 结算 / 记录本身失败 ⇒ **记录失败但不丢弃已生成的回答**：预留额仍在账本上（方向保守），
  *     丢弃一次已经付费的回答既不省钱、又让用户看不到结果。
@@ -142,15 +143,17 @@ export const runGatewaySession = async (
     record = "record_failed";
   }
 
-  // ④ 结算：把预留替换为实际。只有**收到供应商响应且成本为正**时才可信。
+  // ④ 结算：把预留替换为实际。只有**成本完整且为正**时才可信。
   //
-  // 为什么要求 `cost_usd > 0`：`settleBudget(0)` 会把预留**释放**掉。若适配器自报 0
-  // （未知价格、计量缺失等），释放就会让账本少报真实支出、使 L2 上限可被击穿。
-  // 不确定时**保留**预留——宁可多计、不可少计（D-181）。
+  // `cost_complete` 由网关给出，含义是「这份金额覆盖了本次调用的**全部**尝试」：
+  // 发生过重试时（前一次尝试可能已被供应商计费但适配器不携带用量）它为 false。
+  // 此时按末次金额结算会**少记**真实支出、使 L2 上限可被击穿，故**保留预留额**。
+  // 同理，金额非正或非有限（适配器自报 0 / 未知价格）也不结算——宁可多计、不可少计（D-181）。
   let settlement: GatewaySessionSettlement = "not_attempted";
   let settleAmountCny = 0;
-  if (outcome.spend.responded && outcome.spend.cost_usd > 0) {
-    const actualCny = usdToCny(outcome.spend.cost_usd, deps.runtime.config.currentFxVersion);
+  const spend = outcome.spend;
+  if (spend.cost_complete && Number.isFinite(spend.cost_usd) && spend.cost_usd > 0) {
+    const actualCny = usdToCny(spend.cost_usd, deps.runtime.config.currentFxVersion);
     if (!Number.isFinite(actualCny) || actualCny <= 0) {
       settlement = "settle_failed";
     } else {

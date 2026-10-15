@@ -82,9 +82,9 @@ export async function POST(request: Request) {
 
   const outcome = await answerManagementQuestion(parsed.pageAddress, parsed.question, requestId, {
     environment: process.env,
-    // 门 C 未开启：本部署**不装配**任何供应商适配器（`LOGIPLAN_AI_LIVE_CALLS` 未开启），
-    // 会话因此跳过预检与结算、直接回落固定示例——零真实调用、零付费。
-    adapter: null,
+    // 适配器走默认工厂 `createProviderAdapter`：门 C 未开启（`LOGIPLAN_AI_LIVE_CALLS` 非 "1"，
+    // 且真实客户端尚未接入）⇒ 恒返回 `null` ⇒ 装配层不进入会话、直接回落固定示例，
+    // **零真实调用、零付费**。
     // 只把原始 IP 交给匿名派生；派生值不可逆，原始 IP 不落盘、不入日志（D-181/D-138）。
     rawIp: (request.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "",
     userAgent: request.headers.get("user-agent") ?? "",

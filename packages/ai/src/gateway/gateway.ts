@@ -91,12 +91,26 @@ export interface GatewayRequest {
 /**
  * 供应商花费报告。
  *
+ * ## 为什么需要 `cost_complete`（重试的费用处理）
+ *
+ * 429 / 5xx 会触发**恰好一次重试**（`retry-policy.ts`）。失败的那次尝试可能已经到达供应商
+ * 并被计费，但适配器抛错时**不携带用量**，因此那一次的成本**未知**。若只按最后一次尝试的
+ * 成本结算，账本就会**少记**真实支出，使月度上限可被击穿（D-181）。
+ *
+ * 因此本报告不只给金额，还给「这份金额是否覆盖了全部尝试」：
+ * - `cost_complete = responded && attempts === 1`——只有「一次尝试且收到响应」时，
+ *   报告的成本才等于本次调用的全部花费；
+ * - 有任何一次尝试未计入（重试、超时、供应商错误）⇒ `cost_complete = false`，
+ *   结算方据此**保留预留额**（宁可多计、不可少计）。
+ *
  * `responded = false` 表示**没有收到供应商响应**（未调用、或调用超时 / 失败）——此时
- * `cost_usd` 为 0，但那是「未知」而不是「确定没花钱」，结算方据此**保留**预留额
- * （宁可多计、不可少计，D-181）。
+ * `cost_usd` 为 0，但那是「未知」而不是「确定没花钱」。
  */
 export interface ProviderSpendReport {
   readonly responded: boolean;
+  readonly cost_complete: boolean;
+  /** 实际尝试次数（含重试）；路由 / 能力门 / 预检失败为 0。 */
+  readonly attempts: number;
   readonly input_tokens: number;
   readonly output_tokens: number;
   readonly cost_usd: number;
@@ -209,11 +223,30 @@ const buildAudit = (input: AuditInput, outcome: AuditOutcomeFields): AiAuditMeta
 /** 未发起任何供应商调用时的花费报告。 */
 const NO_SPEND: ProviderSpendReport = {
   responded: false,
+  cost_complete: false,
+  attempts: 0,
   input_tokens: 0,
   output_tokens: 0,
   cost_usd: 0,
   latency_ms: 0,
 };
+
+/** 一次（或多次）尝试结束后的花费报告：只有单次尝试才可能「成本完整」。 */
+const spendOf = (
+  responded: boolean,
+  attempts: number,
+  usage: { readonly inputTokens: number; readonly outputTokens: number },
+  costUsd: number,
+  latencyMs: number,
+): ProviderSpendReport => ({
+  responded,
+  cost_complete: responded && attempts === 1,
+  attempts,
+  input_tokens: usage.inputTokens,
+  output_tokens: usage.outputTokens,
+  cost_usd: costUsd,
+  latency_ms: latencyMs,
+});
 
 const fallback = (
   base: AuditBase,
@@ -294,7 +327,9 @@ export const runGateway = async (
     timeoutMs: HARD_TIMEOUT_MS,
   };
 
+  let attempts = 0;
   const attemptFn = async (): Promise<AttemptOutcome> => {
+    attempts += 1;
     try {
       const result = await deps.adapter.invoke(adapterRequest);
       return { kind: "result", result };
@@ -307,8 +342,22 @@ export const runGateway = async (
   const outcome = await invokeWithRetry(attemptFn, hooks);
 
   if (outcome.kind === "error") {
-    return fallback(auditBase, route, outcome.errorCode, elapsed());
+    // 尝试过但没拿到响应 ⇒ 成本**未知**：明确回报 `responded:false, cost_complete:false`，
+    // 由结算方保留预留额，不得按 0 结算。
+    return fallback(auditBase, route, outcome.errorCode, elapsed(), {
+      ...NO_SPEND,
+      attempts,
+      latency_ms: elapsed(),
+    });
   }
+
+  const spend = spendOf(
+    true,
+    attempts,
+    outcome.result.usage,
+    outcome.result.costEstimate.amount,
+    outcome.result.latencyMs,
+  );
 
   const checks = runOutputChecks({
     output: outcome.result.structuredOutput,
@@ -317,25 +366,13 @@ export const runGateway = async (
   });
   if (!checks.ok) {
     // 响应已收到 ⇒ 供应商已计费。此处必须回报**真实**花费，否则结算会释放预留、少报支出。
-    return fallback(auditBase, route, checks.failure.code, elapsed(), {
-      responded: true,
-      input_tokens: outcome.result.usage.inputTokens,
-      output_tokens: outcome.result.usage.outputTokens,
-      cost_usd: outcome.result.costEstimate.amount,
-      latency_ms: outcome.result.latencyMs,
-    });
+    return fallback(auditBase, route, checks.failure.code, elapsed(), spend);
   }
 
   return {
     kind: "live",
     analysis: checks.analysis,
-    spend: {
-      responded: true,
-      input_tokens: outcome.result.usage.inputTokens,
-      output_tokens: outcome.result.usage.outputTokens,
-      cost_usd: outcome.result.costEstimate.amount,
-      latency_ms: outcome.result.latencyMs,
-    },
+    spend,
     audit: buildAudit(
       { ...auditBase, route, errorCode: null },
       {
