@@ -679,8 +679,8 @@ D-188）；`pnpm build`（本机被安全删除守卫拦截；**CI 的 `Gate 1` 
 
 ### 14.7 提交与 CI 证据
 
-- 提交 **`14a99d62`**（`feat(ai)`：装配边界与端到端接线）与 **`<docs-sha>`**（`docs`：D-192、
+- 提交 **`14a99d62`**（`feat(ai)`：装配边界与端到端接线）与 **`a5ee20a2`**（`docs`：D-192、
   闸门二实施计划 §5.2、本文件 §14）。
-- CI run **`<run-id>`**（head `<docs-sha>`）：**全绿**——`CodeQL`、`Gate 1 deterministic validation`
+- CI run **`38686685784`**（head `a5ee20a2`）：**全绿**——`CodeQL`、`Gate 1 deterministic validation`
   （含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
   （ubuntu / windows / macOS 三矩阵）；`Pull request dependency review` 按设计 skipped。
