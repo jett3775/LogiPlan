@@ -91,8 +91,13 @@ describe("无真实模型调用路径（AC2.12）", () => {
   });
 
   it("不导入任何供应商适配器包（packages/ai-provider-*）", () => {
+    // 门 C（D-192 阶段 2）：`provider/assembly.ts` 是**唯一**允许导入适配器包的模块——
+    // 它是 `packages/ai` 里的供应商客户端装配入口，**不在**主 barrel 里（下方可达性断言锁死），
+    // 因此不会把供应商 SDK 带进浏览器包。适配器包自身的边界断言「只被 packages/ai 依赖」由此成立。
+    const allowed = new Set(["provider/assembly.ts"]);
     const offenders: string[] = [];
     for (const source of productionSources) {
+      if (allowed.has(source.file)) continue;
       for (const specifier of extractImportSpecifiers(source.text)) {
         if (specifier.includes("ai-provider")) offenders.push(`${source.file} → ${specifier}`);
       }

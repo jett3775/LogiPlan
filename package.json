@@ -16,7 +16,7 @@
     "dev": "pnpm --filter @logiplan/web dev",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint apps packages scripts/run-db-integration-tests.mjs scripts/verify-gate1-isolated.mjs scripts/verify-gate1-isolated.test.mjs scripts/wait-for-server.mjs scripts/neon-baseline.mjs scripts/neon-baseline.test.mjs scripts/neon-permission-audit.mjs scripts/neon-permission-audit.test.mjs eslint.config.mjs prettier.config.mjs vitest.config.ts --max-warnings 0",
+    "lint": "eslint apps packages scripts/run-db-integration-tests.mjs scripts/verify-gate1-isolated.mjs scripts/verify-gate1-isolated.test.mjs scripts/wait-for-server.mjs scripts/neon-baseline.mjs scripts/neon-baseline.test.mjs scripts/neon-permission-audit.mjs scripts/neon-permission-audit.test.mjs scripts/ai-live-acceptance.mjs eslint.config.mjs prettier.config.mjs vitest.config.ts --max-warnings 0",
     "neon:baseline": "node scripts/neon-baseline.mjs",
     "neon:permission-audit": "node scripts/neon-permission-audit.mjs",
     "test": "vitest run",
@@ -31,7 +31,8 @@
     "db:activate-release": "pnpm --filter @logiplan/db run activate-release",
     "db:publish": "pnpm --filter @logiplan/db run publish",
     "db:verify-release": "pnpm --filter @logiplan/db run verify-release",
-    "db:verify-plans": "pnpm --filter @logiplan/db run verify-plans"
+    "db:verify-plans": "pnpm --filter @logiplan/db run verify-plans",
+    "ai:acceptance": "node --env-file-if-exists=.env scripts/ai-live-acceptance.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

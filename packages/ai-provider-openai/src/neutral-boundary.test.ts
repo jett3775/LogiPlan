@@ -49,12 +49,20 @@ const offendingFiles = (predicate: (text: string) => boolean): string[] =>
   productionSources.filter((source) => predicate(stripComments(source.text))).map((s) => s.file);
 
 describe("供应商中立与零密钥（源码级）", () => {
-  it("非测试源码不导入供应商 SDK（openai）", () => {
+  /**
+   * 门 C（D-192 阶段 2）新增 `from-api-key.ts`：真实客户端必须由**持有 SDK 的包**构造
+   * （AC3.3 指定本包为唯一允许持有供应商 SDK 的地方），故它是唯一允许 `import "openai"`
+   * 的非测试源码。该文件仍满足本 describe 的其余全部约束：不读环境变量（密钥由调用方传入）、
+   * 不含原始 IP/UA、不发起网络请求、不依赖 `@logiplan/ai`。
+   */
+  const SDK_IMPORT_ALLOWED = new Set(["from-api-key.ts"]);
+
+  it("非测试源码不导入供应商 SDK（openai）——唯一例外是门 C 的真实客户端装配文件", () => {
     expect(
       offendingFiles(
         (text) =>
           /\bfrom\s+["']openai["']/u.test(text) || /\brequire\(\s*["']openai["']/u.test(text),
-      ),
+      ).filter((file) => !SDK_IMPORT_ALLOWED.has(file)),
     ).toEqual([]);
   });
 

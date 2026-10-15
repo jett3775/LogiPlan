@@ -71,12 +71,23 @@ describe("供应商中立", () => {
     // 切片 2 经门 A（2026-10-08）授权新增 `@upstash/redis`——它是 D-182/§10 明确允许的
     // **中立层**依赖（限流与费用存储），不是供应商 SDK。除它之外不得新增任何外部依赖。
     const allowed = new Set(["./", "../", "@logiplan/contracts", "zod", "@upstash/redis"]);
+    /**
+     * 门 C（D-192 阶段 2）：`provider/assembly.ts` 是**唯一**允许导入供应商适配器包的模块。
+     * 它是 `packages/ai` 里的供应商客户端装配入口（**不在**主 barrel 里，`no-live-call.test.ts`
+     * 的可达性断言锁死这一点）；适配器包自身只依赖 `openai`，且 AC3.3 指定它为唯一允许持有
+     * 供应商 SDK 的地方。
+     */
+    const PROVIDER_ASSEMBLY = new Set(["provider/assembly.ts"]);
     const imports: string[] = [];
     for (const source of productionSources) {
       for (const match of source.text.matchAll(IMPORT_SPECIFIER)) {
         const specifier = match[1] ?? "";
         const isRelative = specifier.startsWith(".");
-        if (!isRelative && !allowed.has(specifier)) imports.push(`${source.file} → ${specifier}`);
+        if (isRelative || allowed.has(specifier)) continue;
+        if (PROVIDER_ASSEMBLY.has(source.file) && specifier === "@logiplan/ai-provider-openai") {
+          continue;
+        }
+        imports.push(`${source.file} → ${specifier}`);
       }
     }
     expect(imports).toEqual([]);
@@ -103,7 +114,12 @@ describe("供应商中立", () => {
     const otherVendors =
       /azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
     const offenders = productionSources
-      .filter((source) => source.file !== "config/role-config.ts")
+      // 门 C（D-192 阶段 2）：`provider/assembly.ts` 合法地出现适配器包名（含 `openai` 字样），
+      // 它是唯一的供应商客户端装配入口；该模块不在主 barrel 里。
+      .filter(
+        (source) =>
+          source.file !== "config/role-config.ts" && source.file !== "provider/assembly.ts",
+      )
       .filter((source) => providerIdentifier.test(source.text) || otherVendors.test(source.text))
       .map((source) => source.file);
     expect(offenders).toEqual([]);

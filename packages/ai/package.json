@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./server": "./src/control-plane/server.ts",
-    "./test-doubles": "./src/control-plane/test-doubles.ts"
+    "./test-doubles": "./src/control-plane/test-doubles.ts",
+    "./provider": "./src/provider/assembly.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",

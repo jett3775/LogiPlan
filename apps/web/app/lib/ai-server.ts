@@ -2,6 +2,9 @@ import {
   AI_ROLE_ROUTES,
   PRICE_VERSION_V1,
   buildFixedExampleAnalysis,
+  estimateCostUsd,
+  resolveOutputSchema,
+  resolveSystemPrompt,
   runGatewaySession,
   type ProviderAdapter,
 } from "@logiplan/ai";
@@ -74,6 +77,9 @@ const MANAGEMENT_ANALYSIS_ROLE = "management_analysis" as const;
  */
 export const LIVE_CALLS_ENV_KEY = "LOGIPLAN_AI_LIVE_CALLS";
 
+/** 供应商密钥的环境变量名；只由服务端环境读出并直接交给适配器包，不落盘、不入日志（D-177）。 */
+export const OPENAI_API_KEY_ENV_KEY = "OPENAI_API_KEY";
+
 /**
  * 真实客户端装配接缝（门 C）：装配层把「**按需派生匿名标识**」的能力交给工厂，
  * 工厂只有在确实要装配适配器时才调用它。
@@ -91,29 +97,38 @@ export type ProviderAdapterFactory = (input: {
 /**
  * 默认的适配器工厂——**门 C 的显式开关**。
  *
- * 两个条件都满足才会有适配器：
+ * 三个条件都满足才会有适配器：
  * 1. `LOGIPLAN_AI_LIVE_CALLS === "1"`（授权位；即使环境里放了 `OPENAI_API_KEY`，缺这个开关也不装配）；
- * 2. 真实客户端已接入。
+ * 2. `OPENAI_API_KEY` 非空（密钥只走服务端环境变量，不进构建产物）；
+ * 3. 能派生出匿名标识（缺主密钥即失败关闭——适配器必须有 `safety_identifier`）。
  *
- * **本轮条件 2 未满足**（真实客户端的装配属门 C 轮次），因此本函数**恒返回 `null`** ⇒
- * 装配层完全不进入会话 ⇒ **构造性地零真实调用**。门 C 开启时在此处接入
- * `packages/ai-provider-openai`：
- * `createOpenAiAdapter({ client: new OpenAI({ apiKey, maxRetries: 0 }), safetyIdentifier: await resolveSafetyIdentifier(), priceVersion, ... })`。
+ * 三者缺一即返回 `null` ⇒ 装配层完全不进入会话 ⇒ **零真实调用**。本函数**动态**导入
+ * `@logiplan/ai/provider`（`packages/ai` 的子路径，内含供应商 SDK），因此开关关闭时连
+ * 供应商 SDK 都不会被加载。
  *
- * ⚠️ **门 C 接线时必须同时设 `maxRetries: 0`**：SDK 自带重试（默认 2 次）发生在适配器**内部**，
- * 中立层看不到那几次尝试，`cost_complete` 会误判为「成本完整」而少记支出。重试的唯一归属是
- * `packages/ai` 的 `retry-policy`（切片 3b 协调项 2）。
- *
- * ⚠️ **门 C 验收时必须确认工厂真的返回了适配器**：开关打开但客户端未接入时本函数静默返回
- * `null`、装配层静默回落固定示例——不会报错。因此「以为开了其实没开」只能靠**核对响应
- * `status` 是否为 `LIVE_GENERATED`** 来排除（已记为遗留 P2）。
+ * ⚠️ **门 C 验收时必须确认真的拿到了适配器**：任一条件不满足都只是静默回落固定示例、
+ * **不会报错**。判据是响应 `status === "LIVE_GENERATED"`（已记为遗留 P2）。
  */
 export const createProviderAdapter: ProviderAdapterFactory = async (input) => {
   if (input.environment[LIVE_CALLS_ENV_KEY] !== "1") return null;
+  const apiKey = input.environment[OPENAI_API_KEY_ENV_KEY];
+  if (apiKey === undefined || apiKey.length === 0) return null;
   const safetyIdentifier = await input.resolveSafetyIdentifier();
   if (safetyIdentifier === null) return null;
-  // 条件 2：真实客户端装配（门 C）。本轮未接入 ⇒ 保持失败关闭。
-  return null;
+
+  // 只有真正要装配时才加载供应商 SDK。`apps/web` **不**导入供应商 SDK（AC3.3），也**不**
+  // 直接导入适配器包（那会破坏「适配器包只被 `packages/ai` 依赖」的边界）；只走
+  // `@logiplan/ai/provider` 这个**子路径**——它是 `packages/ai` 里唯一的调用方。
+  const { createOpenAiAdapterFromApiKey } = await import("@logiplan/ai/provider");
+  return createOpenAiAdapterFromApiKey({
+    apiKey,
+    safetyIdentifier,
+    priceVersion: input.priceVersion,
+    // 价格表单一来源：`packages/ai` 的 `pricing.ts`（未知模型 / 版本 → `Infinity`，失败关闭）。
+    costLookup: estimateCostUsd,
+    resolveSystemPrompt,
+    resolveOutputSchema,
+  });
 };
 
 export interface AiAssemblyOptions {

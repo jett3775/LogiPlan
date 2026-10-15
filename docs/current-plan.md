@@ -716,3 +716,30 @@ resolveSafetyIdentifier, priceVersion})`；工厂**按需**派生匿名标识，
 **`38689798545`**（head `f8cc0bc8`）**全绿**——`CodeQL`、`Gate 1 deterministic validation`（含
 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
 （ubuntu / windows / macOS 三矩阵）；`Pull request dependency review` 按设计 skipped。
+
+### 14.9 阶段 2 装配（门 C 已获批，密钥待提供）
+
+**用户 2026-10-15 批准门 C**，并选择「密钥稍后给」⇒ 本轮**只完成装配、零真实调用**。
+
+- **真实客户端**：`packages/ai-provider-openai/src/from-api-key.ts` 的
+  `createOpenAiAdapterFromApiKey(...)`（唯一允许 `import "openai"` 的非测试源码，**`maxRetries: 0`**）。
+- **新增子路径 `@logiplan/ai/provider`**：AC3.3 禁止 `apps/web`/`packages/ai` 导入供应商 SDK，适配器包又
+  「只被 `packages/ai` 依赖」，故由 `packages/ai/src/provider/assembly.ts` 做唯一调用方；`apps/web`
+  仅在开关打开时**动态**导入。四处守卫各加一条**具名**例外并写明理由。
+- **开关**：`LOGIPLAN_AI_LIVE_CALLS==="1"` **且** `OPENAI_API_KEY` 非空 **且** 能派生匿名标识；
+  缺一即 `null` ⇒ 构造性零调用。工厂抛错 ⇒ 失败关闭。
+- **验收脚本** `scripts/ai-live-acceptance.mjs`（`pnpm ai:acceptance`）：走**正式 HTTP 路径**、自起
+  `next start`（须注入仓库根 `.env`，否则确定性查询失败）；预检 = 密钥 / API 可达 / **模型在账号内** /
+  账本基线；断言 = 状态、三检、多快照、限制标签、**账本增量**。
+- **本机实测（开关关闭，零花费）**：脚本 **PASS**（`FIXED_EXAMPLE`、4 份快照种子、`Δused_cny=0`）；
+  `pnpm test` **520/21 skipped（541）**；`typecheck` / `lint` / `format:check` / `test:coverage` /
+  `build` 全 0；客户端包搜 `ai-provider` / `api.openai.com` / `Authorization` / `safety_identifier` /
+  `upstash` **全部零命中**。
+- **预检事实**：价格表覆盖两个配置模型；单次最坏预留 **≈0.0309 CNY** ⇒ 30 元池 ≈969 次；API 经
+  VPN 代理**可达**（401）。
+- **待用户提供密钥后的执行**：`pnpm build` → `LOGIPLAN_AI_LIVE_CALLS=1 OPENAI_API_KEY=... pnpm
+ai:acceptance`（脚本自带服务生命周期）。**验收判据**：`status === "LIVE_GENERATED"`、三检通过、
+  `Δused_cny > 0`。若模型在账号内不存在，将得到 `PROVIDER_REQUEST_INVALID` → 回落固定示例，届时须
+  走 D-180 的角色配置修订流程。
+- **⚠️ 执行闭包**：新增 `scripts/ai-live-acceptance.mjs` 与根 `package.json` ⇒ 闭包内容变化（与切片 3 的
+  `pnpm-lock.yaml` 同批）；`pnpm-lock.yaml` 本轮**无净变化**。

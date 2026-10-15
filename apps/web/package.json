@@ -10,13 +10,13 @@
     "typecheck": "next typegen && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@logiplan/ai": "workspace:*",
     "@logiplan/contracts": "workspace:*",
+    "@logiplan/db": "workspace:*",
     "@logiplan/domain": "workspace:*",
     "next": "16.3.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "@logiplan/db": "workspace:*",
-    "@logiplan/ai": "workspace:*"
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@testing-library/dom": "10.4.1",

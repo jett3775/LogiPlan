@@ -65,6 +65,7 @@ export {
   type OpenAiAdapterHooks,
   type OpenAiAdapterOptions,
 } from "./adapter";
+export { createOpenAiAdapterFromApiKey, type OpenAiAdapterFromApiKeyOptions } from "./from-api-key";
 export type {
   AdapterReasoningEffort,
   OpenAiModerationCreateParams,

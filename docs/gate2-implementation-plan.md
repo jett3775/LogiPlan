@@ -27,12 +27,16 @@ D-190 把月度上限定在 30 元。若适配器先于限流/费用/熔断落�
 
 ## 1. 授权门状态
 
-| 门       | 位置      | 内容                                                           | 状态                                  |
-| -------- | --------- | -------------------------------------------------------------- | ------------------------------------- |
-| —        | 切片 1    | 新增 `packages/ai` workspace 包，**必然修改 `pnpm-lock.yaml`** | ✅ **已授权（2026-10-04，用户明示）** |
-| **门 A** | 切片 2 前 | 新增 `@upstash/redis` 依赖                                     | ✅ **已授权（2026-10-08，用户明示）** |
-| **门 B** | 切片 3 前 | 新增 `openai` 依赖                                             | ✅ **已授权（2026-10-14，用户明示）** |
-| **门 C** | 切片 3 内 | **首次真实付费调用**                                           | ⛔ 未开启（D-190 明确不授权）         |
+| 门       | 位置      | 内容                                                           | 状态                                                  |
+| -------- | --------- | -------------------------------------------------------------- | ----------------------------------------------------- |
+| —        | 切片 1    | 新增 `packages/ai` workspace 包，**必然修改 `pnpm-lock.yaml`** | ✅ **已授权（2026-10-04，用户明示）**                 |
+| **门 A** | 切片 2 前 | 新增 `@upstash/redis` 依赖                                     | ✅ **已授权（2026-10-08，用户明示）**                 |
+| **门 B** | 切片 3 前 | 新增 `openai` 依赖                                             | ✅ **已授权（2026-10-14，用户明示）**                 |
+| **门 C** | 切片 3 内 | **首次真实付费调用**                                           | ✅ **已授权（2026-10-15，用户明示）**；密钥待用户提供 |
+
+**门 C 授权的边界（2026-10-15）**：用户批准门 C 并指示「密钥稍后给」。因此本轮**只完成装配**
+（真实客户端接线 + 预检/验收脚本），**不发起任何真实调用**——`LOGIPLAN_AI_LIVE_CALLS` 未设、
+`OPENAI_API_KEY` 未配置，两者缺一即构造性零调用（见 §5.3）。真实调用验收待密钥到位后执行。
 
 **切片 1 锁文件改动的实测依据**：`pnpm-workspace.yaml` 的 `packages/*` glob 已覆盖新包，**该文件无需修改**；但 `pnpm-lock.yaml` 的 `importers` 段会由 5 条增至 6 条（仓库外副本以 `pnpm install --lockfile-only --offline` 实测确认，即使新包零外部依赖亦会写入 `packages/ai: {}`）。`pnpm-lock.yaml` 属 `executionClosurePaths`，故切片 1 会改变执行闭包内容——**这是预期结果，不需修复**；工具 SHA 只在真正执行远程 `--write` 前才锚定（见 `docs/neon-vercel-baseline-runbook.md` §1.1）。
 
@@ -406,6 +410,39 @@ resolveSafetyIdentifier, priceVersion})`；工厂**按需**派生匿名标识，
 - **本机实测（退出码全 0）**：`pnpm test` **520 passed / 21 skipped（541）**；`typecheck` / `lint` /
   `format:check` / `test:coverage` / `build` 全 0；`packages/ai/src` 覆盖率
   **95.05 / 93.22 / 87.59 / 91.21**（阈值 89/86/80/83）。**零真实调用、零付费。**
+
+### 5.3 阶段 2 装配（门 C，2026-10-15）
+
+**门 C 已获批（密钥待提供）**，本轮完成**装配**、不发起任何真实调用。
+
+- **真实客户端装配落在适配器包内**：`packages/ai-provider-openai/src/from-api-key.ts` 的
+  `createOpenAiAdapterFromApiKey({apiKey, safetyIdentifier, priceVersion, costLookup,
+resolveSystemPrompt, resolveOutputSchema})` —— 它是**唯一**允许 `import "openai"` 的非测试源码，
+  并以 **`maxRetries: 0`** 构造客户端（SDK 内部重试会绕过 `cost_complete` 判定而少记支出）。
+- **依赖方向被两条既有边界逼出一个新子路径**：AC3.3 禁止 `apps/web` / `packages/ai` 导入供应商 SDK，
+  而适配器包的边界自证要求「**只被 `packages/ai` 依赖**」且「不得从 barrel 导出」。因此新增
+  `@logiplan/ai/provider`（`packages/ai/src/provider/assembly.ts`）作为**唯一**调用方；
+  `apps/web` 只在开关打开时**动态**导入它。三处守卫各加一条**具名**例外并写明理由：
+  `packages/ai/src/neutral-boundary.test.ts`（×2）、`packages/ai/src/no-live-call.test.ts`、
+  `packages/ai-provider-openai/src/neutral-boundary.test.ts`。
+- **开关条件（三者缺一即 `null`）**：`LOGIPLAN_AI_LIVE_CALLS === "1"`、`OPENAI_API_KEY` 非空、
+  能派生出匿名标识。工厂抛错 ⇒ 失败关闭。
+- **验收脚本** `scripts/ai-live-acceptance.mjs`（`pnpm ai:acceptance`）：走**正式 HTTP 路径**
+  （`/api/v1/ai/respond`），自起 `next start`（Next 只在 `apps/web` 找 `.env`，仓库根的 `.env`
+  必须由脚本以 `--env-file-if-exists` 注入，否则确定性查询失败）；预检 = 密钥存在 / API 可达 /
+  **角色配置模型在账号模型表内** / 账本基线可读；断言 = 响应状态、输出三检、多快照绑定、强制限制标签、
+  **账本增量**。开关关闭时断言 `FIXED_EXAMPLE` 且**账本零变化**（零花费验证装置本身）。
+- **本机实测（开关关闭，零花费）**：脚本 **PASS** —— `FIXED_EXAMPLE`、4 份快照种子、
+  `Δused_cny=0`；`pnpm test` **520 passed / 21 skipped（541）**；`typecheck` / `lint` /
+  `format:check` / `test:coverage` / `build` 全 0；客户端 `.next/static` 搜 `ai-provider` /
+  `api.openai.com` / `Authorization` / `safety_identifier` / `upstash` **全部零命中**。
+- **顺带核对的预检事实**：`PRICE_TABLES[PRICE_2026_V1]` 覆盖 `gpt-5.6-luna` / `gpt-5.6-terra`；
+  单次 `management_analysis` 最坏预留 **≈0.0309 CNY** ⇒ 30 元池可容 **≈969 次**（20 题评估最坏
+  ≈0.6 CNY，与真实调用同池不冲突）。**API 可达性已实测**：经 VPN 代理 `127.0.0.1:7897` 返回 401
+  （缺 bearer = 通）。
+- **⚠️ 执行闭包影响**：新增 `scripts/ai-live-acceptance.mjs` 与根 `package.json`（`ai:acceptance`
+  脚本 + lint 清单）⇒ 执行闭包内容变化，与切片 3 的 `pnpm-lock.yaml` 变化**同批**，下次
+  `neon-baseline --write` 前须重新锚定工具 SHA 并独立批准。`pnpm-lock.yaml` 本轮**无净变化**。
 
 ---
 

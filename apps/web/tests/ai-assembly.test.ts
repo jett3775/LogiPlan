@@ -404,7 +404,7 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
     expect(runtimeCalls).toBe(0);
   });
 
-  it('关闭开关：默认工厂在 `LOGIPLAN_AI_LIVE_CALLS` 非 "1" 时返回 null 且**不派生**匿名标识；**即使为 "1"** 本轮仍返回 null（真实客户端未接入）', async () => {
+  it('关闭开关：默认工厂需「开关 = "1"」且「密钥非空」才装配；缺任一都返回 null 且**不派生**匿名标识', async () => {
     let derived = 0;
     const factoryInput = (environment: Record<string, string | undefined>) => ({
       environment,
@@ -415,13 +415,24 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
       priceVersion: PRICE_VERSION_V1,
     });
 
+    // 条件 1 未满足（开关关闭）⇒ null，且**连派生都不发生**（这才是开关的可观测效应）。
     expect(await createProviderAdapter(factoryInput({}))).toBeNull();
     expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "0" }))).toBeNull();
-    // 开关关闭时**连派生都不发生**——这才是开关的可观测效应（否则删掉检查也不会有用例失败）。
     expect(derived).toBe(0);
 
-    // 授权位打开，但真实客户端尚未接入 ⇒ 仍然失败关闭（构造性零真实调用）。
+    // 条件 2 未满足（开关开但无密钥）⇒ 仍在派生之前返回 null。
     expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "1" }))).toBeNull();
+    expect(derived).toBe(0);
+
+    // 三个条件齐备 ⇒ **真的装配出适配器**（构造 SDK 客户端不发任何网络请求）。
+    const adapter = await createProviderAdapter(
+      factoryInput({
+        LOGIPLAN_AI_LIVE_CALLS: "1",
+        OPENAI_API_KEY: "sk-test-not-a-real-key",
+      }),
+    );
+    expect(adapter).not.toBeNull();
+    expect(typeof adapter?.invoke).toBe("function");
     expect(derived).toBe(1);
   });
 
