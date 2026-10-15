@@ -344,6 +344,44 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 
 **提交与 CI 证据**：提交 `c41adf79`（`feat(ai)`：新包 + 中立层，41 文件）与 `89218341`（`docs`：本节与 `docs/current-plan.md` §12、路线图 §0，3 文件 +98/−4）。CI run **`38503268885`**（head `89218341`）**全绿**——`Gate 1 deterministic validation`（含 `Test with coverage`，即**新包的覆盖率阈值在 CI 上通过**，以及 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`（ubuntu / macOS / Windows 三矩阵）、`CodeQL` 全 success；`Pull request dependency review` 按设计 skipped。
 
+### 5.2 装配边界与端到端接线（D-192，2026-10-15）
+
+**关闭切片 3 的「没有装配点」缺口，并修掉切片 2 遗留的账本泄漏。** 设计见 `docs/decisions.md` D-192。
+
+- **缺口一（无装配点）**：切片 1b 只把固定示例接到 HTTP，切片 2 在路由里留了一个**被丢弃**的
+  成本包围接缝，切片 3 建好了网关与会话但没有装配点 ⇒ 四层之间没有真正的接线。
+- **缺口二（账本泄漏，真实缺陷）**：切片 2 的 `applyCostGuard` 在**每个请求**上调用
+  `evaluateControlPlane`，而后者会 `reserveBudget` **预留预算**，却**从不结算**；结论被丢弃故行为上
+  看不出来，但账本会被无意义地推高（可达 L2 阈值）。本轮随装配改造消除。
+- **四层边界**：`apps/web`（装配：查库、证据白名单、控制面装配、适配器注入、HTTP 形状）/
+  `packages/ai` 控制面（匿名派生、限流、预算预留、两级熔断）/ `packages/ai` 网关与会话
+  （路由 → 能力门 → 预检消费 → 适配器 → 重试 → 三检 → 记录 → 结算）/ `packages/ai-provider-*`。
+- **四条接线位置**（均为显式函数）：① 证据范围 `buildNeutralEvidenceWhitelist`（锚点**剔除
+  `factor_id`**，否则选因素时四族锚点不一致、真实输出必然回落）；② 匿名标识
+  `deriveSafetyIdentifier`（与控制面同源派生，有测试锁定）；③ 预算预留（会话内预检）；
+  ④ 预算结算（会话内，**仅当收到响应且成本为正**时把预留替换为实际）。
+- **新增** `packages/ai/src/gateway/gateway-session.ts`（+ 13 用例）：六种结局
+  （成功 / 预算不足 / 限流 / 超时 / 输出越界 / 固定示例回退）全部用替身验证，**零真实调用**。
+- **网关回报实际成本**：`GatewayOutcome` 两分支新增 `spend`；输出三检未过但供应商已响应时必须
+  回报真实成本（否则结算释放预留 ⇒ 少报支出 ⇒ L2 可被击穿）。
+- **适配器边界（门 C）**：本轮 `adapter` **恒为 `null`** ⇒ 装配层完全不进入会话（不预检、不预留、
+  不写账本、不写限流窗口），**构造性**地保证零真实调用。`LOGIPLAN_AI_LIVE_CALLS` 为门 C 的显式开关。
+- **新增** `apps/web/tests/ai-assembly.test.ts`（7 用例，已入 `vitest.config.ts`）：用 `vi.mock`
+  替换数据库客户端 + 内存 Redis 替身，覆盖装配层六种结局。
+- **本机实测（退出码全 0）**：`pnpm test` **512 passed / 21 skipped（533）**；`typecheck` / web 非增量
+  `tsc` / `lint` / `format:check` / `test:coverage` 全 0；`packages/ai/src` 覆盖率
+  **95.02 / 93.18 / 87.55 / 90.91**（阈值 89/86/80/83）。**`pnpm build` 退出码 0**（本轮成功）。
+  浏览器产物复核：客户端 `.next/static` 搜 `upstash` / `circuit:` / `ai-provider` / `budgetSettle`
+  **零命中**；搜 `openai` **有命中**，经核查**不是 SDK 泄漏**（无 `api.openai.com` / `Authorization` /
+  `responses` / `safety_identifier`），来源是主 barrel 再导出的**受版本控制角色配置常量**
+  （`AI_ROLE_ROUTES` 的 `provider`/`model` 取值），**自切片 3b（`c41adf79`）起即存在**，本轮未新增暴露面
+  （记为 P2）。
+- **独立审查**：**PASS / 无 P0/P1**（3 条 P2）→ 据 P2 返工：① 结算加 `cost_usd > 0` 守卫
+  （适配器自报 0 时不得释放预留）；② 补「drilldown 带 `factor_id` 仍判单范围」的集成级用例。
+  ③ 重试时只上报最后一次尝试成本（有界，1 次重试）——**如实保留为 P2**。
+- **证据边界**：`packages/contracts/src` 与 `pnpm-lock.yaml` **未改** ⇒ **不改变执行闭包**；
+  本轮**零真实调用、零付费**；Playwright / `verify:gate1:isolated` 在 CI 上跑（D-188）。
+
 ---
 
 ## 6. 切片 4｜20 题评估与归档

@@ -1,6 +1,6 @@
 # LogiPlan 本周开发进度与计划
 
-最后更新：2026-10-14（**§6—§13 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
+最后更新：2026-10-15（**§6—§14 为执行结果**，正文其余部分为 2026-10-12 制定的本周计划）。适用窗口：**2026-10-12（周一）至 2026-10-18（周日）**，按上海日期；主要工作安排在 10-12—10-16，周末预留，不设必须开发任务。
 
 **本次仅更新本文件，未执行下列代码任务。** A/B 修复工作流的净工时估算为 **8 小时**，包含回归、审查和必要返工，不计已完成的覆盖率配置任务，也不代表 40 小时周预算或完成承诺。历史交接保留在 [handoff-2026-10-09.md](handoff-2026-10-09.md)，本周状态以本文件为接续入口。
 
@@ -599,3 +599,88 @@ D-188）；`pnpm build`（本机被安全删除守卫拦截；**CI 的 `Gate 1` 
   （含 `Test with coverage`，即**新阈值在 CI 上通过**，以及 ubuntu 上的 isolated Gate 1 validation）、
   `Cross-platform checks`（ubuntu / windows / macOS 三矩阵）全 success；`Pull request dependency review`
   按设计 skipped。
+
+## 14. 2026-10-15 执行结果：装配边界与端到端接线（D-192）
+
+**用户 2026-10-15 给出本轮四项安排**：① 明确网页 / 控制面 / 网关 / 适配器的装配边界；
+② 完成服务端接线与集成测试（成功输出、预算不足、限流、超时、输出越界、固定示例回退，全程零真实调用）；
+③ L2 回归、覆盖率与浏览器验收；④ 独立审查、返工与收口。设计见 `docs/decisions.md` **D-192**。
+
+### 14.1 接线位置（第 1 项）
+
+| 层                                          | 拥有                                                                                   | 不拥有                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `apps/web`（装配层 `app/lib/ai-server.ts`） | 确定性查询、证据白名单（中立 + 页面）、页面地址校验、控制面装配、适配器注入、HTTP 形状 | 角色路由、输出三检、成本判定              |
+| `packages/ai` 控制面                        | 匿名派生、限流、预算预留、两级熔断                                                     | 不接触 HTTP、不查库                       |
+| `packages/ai` 网关与会话                    | 路由 → 能力门 → 预检消费 → 适配器 → 重试 → 三检 → 记录 → 结算                          | 不派生匿名、不查库、不构造适配器          |
+| `packages/ai-provider-*`                    | 供应商协议与错误映射、成本估算                                                         | 不含业务规则；**本轮不装配**（门 C 未开） |
+
+**四条接线位置**（均为显式函数，不是约定）：① **证据范围** = `buildNeutralEvidenceWhitelist`
+（`scope_anchor` + 4 个 `result_sets{evidence_ids, numbers}`；锚点为规范化 JSON 并**剔除
+`factor_id`**，否则选因素时四族锚点不一致、真实输出必然回落；四族不一致 ⇒ `null` ⇒ 失败关闭）；
+② **匿名标识** = `deriveSafetyIdentifier`（适配器 `safety_identifier` 只能取它；与控制面同源派生，
+有测试锁定；原始 IP/UA 不落盘、不入日志、不进审计）；③ **预算预留** = 会话内 `evaluateControlPlane`；
+④ **预算结算** = 会话内、**仅当收到响应且成本为正**时把预留替换为实际。
+
+### 14.2 顺带修掉的真实缺陷（切片 2 遗留）
+
+切片 2 的 `applyCostGuard` 在**每个请求**上调用 `evaluateControlPlane`——它会 `reserveBudget`
+**预留预算**，却**从不结算**；由于结论被丢弃，行为上看不出来，但账本会被无意义地推高，最终触达 L2。
+本轮装配改造后，`adapter === null` 时装配层**完全不进入会话**，该路径消失。
+
+### 14.3 交付（第 2 项）
+
+- **新增** `packages/ai/src/gateway/gateway-session.ts`：控制面预检 → 网关 → 记录尝试结局 → 结算。
+  **新增** `gateway-session.test.ts`（14 用例）覆盖六种结局，全部替身、**零真实调用**。
+- **`packages/ai/src/gateway/gateway.ts`**：`GatewayOutcome` 两分支新增
+  `spend: {responded, input_tokens, output_tokens, cost_usd, latency_ms}`；**输出三检未过但供应商
+  已响应**时必须回报真实成本（否则结算会释放预留 ⇒ 少报支出 ⇒ L2 可被击穿）。
+- **`apps/web`**：`ai-server.ts` 改写为装配层；`ai-model.ts` 增中立白名单 / 锚点 / 匿名标识 /
+  `LIVE_GENERATED` 状态；`route.ts` 消费装配层；`ai-workspace.tsx` 如实显示服务端状态。
+- **新增** `apps/web/tests/ai-assembly.test.ts`（7 用例，已入 `vitest.config.ts`）：`vi.mock` 替换
+  数据库客户端 + 内存 Redis 替身，覆盖装配层六种结局（含「无适配器时零账本写入」）。
+- **适配器边界（门 C）**：`adapter` **恒为 `null`** ⇒ 构造性地零真实调用；`LOGIPLAN_AI_LIVE_CALLS`
+  为门 C 的显式开关。
+
+### 14.4 L2 回归与浏览器验收（第 3 项，本机全部退出码 0）
+
+| 命令                                                             | 结果                                                                                                       |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `pnpm test`                                                      | 53 通过 / 2 跳过（55 文件）；**512 passed / 21 skipped（533）**                                            |
+| `pnpm typecheck` / web 非增量 `tsc --noEmit --incremental false` | 0 / 0                                                                                                      |
+| `pnpm lint` / `pnpm format:check`                                | 0 / 0                                                                                                      |
+| `pnpm test:coverage`                                             | 0（`packages/ai/src` **95.02 / 93.18 / 87.55 / 90.91**，阈值 89/86/80/83）                                 |
+| `pnpm build`                                                     | **0**（本轮成功；客户端 `.next/static` 搜 `upstash` / `circuit:` / `ai-provider` / `budgetSettle` 零命中） |
+
+**浏览器产物的一处如实记录**：客户端包里搜 `openai` **有命中**（一个 chunk 含
+`provider:"openai"` / `model:"gpt-5.6-terra"`），经核查**不是供应商 SDK 泄漏**——无
+`api.openai.com` / `Authorization` / `responses` / `safety_identifier` 等标记，来源是主 barrel
+再导出的**受版本控制角色配置常量**（`AI_ROLE_ROUTES`），**自切片 3b（`c41adf79`）起即存在**，
+本轮未新增暴露面。记为 P2（后续可把角色配置移出主 barrel）。
+
+**环境阻断项（如实记录，不表述为通过）**：Playwright / axe 与 `pnpm verify:gate1:isolated` 在
+**CI** 上跑（`spawnSync` 恒 `EBUSY`，D-188 权威证据）；真实供应商调用与 AC3.10 的真实结算证据
+**仍缺**（门 C 未开启）。
+
+### 14.5 独立审查与返工（第 4 项）
+
+独立只读审查 **PASS / 无 P0/P1**（3 条 P2）。据 P2 返工两项：① 结算加 `cost_usd > 0` 守卫
+（适配器自报成本非正时**不得**释放预留）；② 补「drilldown 带 `factor_id` 仍判单范围」的集成级用例。
+第 ③ 项（重试时只上报最后一次尝试的成本，有界，1 次重试）**如实保留为 P2**。
+
+### 14.6 仍未满足的条件（真实调用与 20 题评估）
+
+- **门 C（首次真实付费调用）未开启** ⇒ 无任何真实调用证据；`LIVE_GENERATED` 分支只有替身级证据。
+- 门 C 开启所需：① 用户批准门 C；② 提供 `OPENAI_API_KEY` 并显式设置 `LOGIPLAN_AI_LIVE_CALLS=1`；
+  ③ 在装配层接入 `packages/ai-provider-openai` 的真实客户端（用 `deriveSafetyIdentifier` 的返回值作
+  `safety_identifier`）；④ 真实 Upstash 凭据（本机 `.env` 已有，生产需在 Vercel 配置）。
+- **20 题评估（切片 4）**：须先满足门 C；脚本自动执行 + **人工语义复核**（「相关性是否被写成确定因果」
+  脚本做不到，D-190 决策三）；门槛 ≥18/20 且 E19/E20 全通过；固定示例答对计该题**不通过**。
+
+### 14.7 提交与 CI 证据
+
+- 提交 **`14a99d62`**（`feat(ai)`：装配边界与端到端接线）与 **`<docs-sha>`**（`docs`：D-192、
+  闸门二实施计划 §5.2、本文件 §14）。
+- CI run **`<run-id>`**（head `<docs-sha>`）：**全绿**——`CodeQL`、`Gate 1 deterministic validation`
+  （含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
+  （ubuntu / windows / macOS 三矩阵）；`Pull request dependency review` 按设计 skipped。
