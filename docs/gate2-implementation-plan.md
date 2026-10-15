@@ -382,6 +382,31 @@ P1 第二项的完整影响：逐条打开证据**不受影响**（`entries[].ev
 - **证据边界**：`packages/contracts/src` 与 `pnpm-lock.yaml` **未改** ⇒ **不改变执行闭包**；
   本轮**零真实调用、零付费**；Playwright / `verify:gate1:isolated` 在 CI 上跑（D-188）。
 
+**（2026-10-15 阶段 1「真实调用前收口」补充）** 用户要求先做阶段 1：补齐**重试费用处理**、验证
+**匿名派生值实际传入适配器**、准备**真实客户端装配接缝**。设计见 D-192 的「2026-10-15 补充」
+（决策七、八）。
+
+- **重试费用（决策七）**：429 / 5xx 会重试一次，失败的那次尝试可能已计费但**用量未知**；原实现
+  只回报末次成本 ⇒ 按它结算会**少记**支出 ⇒ 30 元上限可被击穿。`ProviderSpendReport` 增加
+  `cost_complete`（`= responded && attempts === 1`）与 `attempts`；结算条件收紧为
+  `cost_complete && Number.isFinite(cost_usd) && cost_usd > 0`，**发生过重试即不结算、保留预留额**。
+- **适配器装配接缝（决策八）**：装配层改收**工厂** `ProviderAdapterFactory({environment,
+resolveSafetyIdentifier, priceVersion})`；工厂**按需**派生匿名标识，`safety_identifier` 只能取它的
+  返回值。默认工厂 `createProviderAdapter` 需「`LOGIPLAN_AI_LIVE_CALLS === "1"`」**且**「真实客户端
+  已接入」；本轮第二个条件不满足 ⇒ 恒 `null` ⇒ 构造性零真实调用。
+- **测试（全部替身、零真实调用）**：多次尝试（重试后成功 ⇒ `cost_complete=false` ⇒ 不结算）、
+  费用未知（自报 0 / `NaN` ⇒ 不结算）、匿名标识传递（工厂收到派生值且与 `deriveAnonymousId` 同源、
+  不含原始 IP/UA）、关闭开关（非 "1" 时**连派生都不发生**；为 "1" 但客户端未接入仍为 `null`）、
+  工厂抛错 ⇒ 失败关闭。
+- **独立审查**：**PASS**，2 条 P1 已修复——① 适配器工厂的 `await` 未包 `try/catch`（真实客户端构造
+  失败会以 500 逃逸）⇒ 改为失败关闭；② 开关的可观测性不足（删掉环境变量检查也不会有用例失败）⇒
+  补「开关关闭时 `resolveSafetyIdentifier` 调用次数为 0」的断言。遗留 P2：门 C 接线时必须设
+  `maxRetries: 0`（SDK 内部重试会绕过 `cost_complete` 判定）；开关打开但客户端未接入时静默回落，
+  门 C 验收须核对响应 `status` 为 `LIVE_GENERATED`。
+- **本机实测（退出码全 0）**：`pnpm test` **520 passed / 21 skipped（541）**；`typecheck` / `lint` /
+  `format:check` / `test:coverage` / `build` 全 0；`packages/ai/src` 覆盖率
+  **95.05 / 93.22 / 87.59 / 91.21**（阈值 89/86/80/83）。**零真实调用、零付费。**
+
 ---
 
 ## 6. 切片 4｜20 题评估与归档

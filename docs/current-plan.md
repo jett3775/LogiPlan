@@ -684,3 +684,30 @@ D-188）；`pnpm build`（本机被安全删除守卫拦截；**CI 的 `Gate 1` 
 - CI run **`38686685784`**（head `a5ee20a2`）：**全绿**——`CodeQL`、`Gate 1 deterministic validation`
   （含 `Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
   （ubuntu / windows / macOS 三矩阵）；`Pull request dependency review` 按设计 skipped。
+
+### 14.8 阶段 1「真实调用前收口」（2026-10-15，用户指定的下一步）
+
+用户安排：**先做阶段 1**——补齐重试费用处理、验证匿名派生值实际传入适配器、准备真实客户端装配接缝。
+设计见 D-192 的「2026-10-15 补充」（决策七、八）。
+
+- **重试费用**：`ProviderSpendReport` 增加 `cost_complete`（`= responded && attempts === 1`）与
+  `attempts`。结算条件收紧为 `cost_complete && Number.isFinite(cost_usd) && cost_usd > 0`；
+  **发生过重试即不结算、保留预留额**——失败的那次尝试可能已被计费但用量未知，按末次金额结算会
+  **少记**支出、使 30 元上限可被击穿。真实调用与 20 题评估继续**共用同一个月度 30 元预算**，不分池。
+- **适配器装配接缝**：装配层改收**工厂** `ProviderAdapterFactory({environment,
+resolveSafetyIdentifier, priceVersion})`；工厂**按需**派生匿名标识，`safety_identifier` 只能取它的
+  返回值，原始 IP / UA 只在这一条闭包内流动。默认工厂 `createProviderAdapter` 需
+  「`LOGIPLAN_AI_LIVE_CALLS === "1"`」**且**「真实客户端已接入」；本轮第二个条件不满足 ⇒ 恒 `null`。
+- **替身测试**（四项要求全覆盖，零真实调用）：多次尝试、费用未知（自报 0 / `NaN`）、匿名标识传递
+  （与 `deriveAnonymousId` 同源且不含原始 IP/UA）、关闭开关（非 "1" 时连派生都不发生）。
+- **独立审查 PASS**，2 条 P1 已修：① 适配器工厂 `await` 未包 `try/catch`（构造失败会以 500 逃逸）
+  ⇒ 失败关闭；② 开关可观测性不足 ⇒ 补「开关关闭时派生次数为 0」断言。
+- **遗留 P2（门 C 必须处理）**：接线时**必须设 `maxRetries: 0`**（SDK 内部重试会绕过 `cost_complete`
+  判定而少记支出）；开关打开但客户端未接入时**静默**回落固定示例 ⇒ 门 C 验收须核对响应 `status`
+  为 `LIVE_GENERATED`；匿名标识按 UTC 日界分桶，控制面时钟与装配层 `now()` 跨日界时可能不一致。
+- **本机实测（退出码全 0）**：`pnpm test` **520 passed / 21 skipped（541）**；`typecheck` / `lint` /
+  `format:check` / `test:coverage` / `build` 全 0；`packages/ai/src` 覆盖率
+  **95.05 / 93.22 / 87.59 / 91.21**（阈值 89/86/80/83）。
+
+**后续阶段（按用户安排）**：阶段 2 小规模真实验收（**需门 C 获批**）；阶段 3 20 题评估；
+阶段 4 闸门二与发布准备（生产发布**单独审批**，不由测试通过自动推导）。
