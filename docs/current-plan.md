@@ -711,3 +711,8 @@ resolveSafetyIdentifier, priceVersion})`；工厂**按需**派生匿名标识，
 
 **后续阶段（按用户安排）**：阶段 2 小规模真实验收（**需门 C 获批**）；阶段 3 20 题评估；
 阶段 4 闸门二与发布准备（生产发布**单独审批**，不由测试通过自动推导）。
+
+**阶段 1 提交与 CI 证据**：提交 `122230fe`（`feat(ai)`）与 `f8cc0bc8`（`docs`）。CI run
+**`38689798545`**（head `f8cc0bc8`）**全绿**——`CodeQL`、`Gate 1 deterministic validation`（含
+`Test with coverage` 与 ubuntu 上的 isolated Gate 1 validation）、`Cross-platform checks`
+（ubuntu / windows / macOS 三矩阵）；`Pull request dependency review` 按设计 skipped。
