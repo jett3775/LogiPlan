@@ -29,6 +29,7 @@ export default defineConfig({
         "packages/db/src/query-service.ts",
         "packages/db/src/diagnostic-metrics.ts",
         "packages/ai/src/**/*.ts",
+        "packages/ai-provider-deepseek/src/**/*.ts",
         "packages/ai-provider-openai/src/**/*.ts",
         "apps/web/app/lib/ai-model.ts",
       ],
@@ -69,6 +70,12 @@ export default defineConfig({
           statements: 95,
           functions: 94,
           branches: 93,
+        },
+        "packages/ai-provider-deepseek/src/**/*.ts": {
+          lines: 95,
+          statements: 95,
+          functions: 90,
+          branches: 90,
         },
         "apps/web/app/lib/ai-model.ts": {
           lines: 100,

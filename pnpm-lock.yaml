@@ -109,6 +109,8 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  packages/ai-provider-deepseek: {}
+
   packages/ai-provider-openai:
     dependencies:
       openai:

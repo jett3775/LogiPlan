@@ -748,3 +748,46 @@ ai:acceptance`（脚本自带服务生命周期）。**验收判据**：`status 
 **全绿**——`CodeQL`、`Gate 1 deterministic validation`（含 `Test with coverage` 与 ubuntu 上的 isolated
 Gate 1 validation）、`Cross-platform checks`（ubuntu / windows / macOS 三矩阵）；
 `Pull request dependency review` 按设计 skipped。
+
+## 15. 2026-10-20 DeepSeek 未激活适配器
+
+本轮新增私有 ESM workspace `packages/ai-provider-deepseek`，只实现 DeepSeek Responses API 的注入式
+低层协议适配，**未修改 OpenAI 默认角色、装配、价格表或页面**。包内不读取环境变量或密钥，不创建
+HTTP 客户端，不含真实网络路径；本轮全部测试使用客户端替身，零真实调用、零付费。
+
+- 请求映射支持 `instructions`、`input`、`max_output_tokens`、`reasoning.effort` 与
+  `text.format=json_schema`；`minimal` / `low` 角色在 DeepSeek 协议侧保守映射为 `low`。不发送
+  `store`、`safety_identifier`、工具或流式字段。
+- 响应只接受 `completed`、模型一致、单一已完成 assistant message 且内容为 JSON 对象的结果；拒绝
+  incomplete / failed、空输出、reasoning-only、工具输出、拒绝内容、矛盾状态、坏 JSON 和异常用量。
+  推理 token 保留在供应商报告的 output token 内，不从正文或 reasoning item 提取回答。
+- 固定能力声明为 `structuredOutput=true`、`reasoningControl=true`，留存开关、安全标识和审核三项均为
+  `false`，且构造参数不能覆盖。现有三个角色仍要求全部五项能力；真实中立网关测试证明能力门会在
+  客户端调用前失败关闭（`attempts=0`）。低层 `invoke` 可用于协议测试，不代表满足正式角色安全条件。
+- 成本由调用方注入的版本化 `CostLookup` 取得；未知、异常、`NaN`、`Infinity` 或负价格统一为保守的
+  `Infinity`，使中立层保留预算预留，**不代表真实费用已结算**。本轮不内置未经验证的 DeepSeek 价格；
+  缓存 token、峰谷价格和价格变化留给未来版本化中立价格表。
+- 适配器只执行单次尝试；重试仍唯一归属中立网关。硬超时通过 `AbortSignal` 取消注入客户端并清理
+  定时器。供应商错误只映射到中立码值，错误 message 不包含响应正文、用户输入或密钥。
+
+本机 L2 自测全部退出码 0：`pnpm test:coverage` 为 **56 文件通过 / 2 跳过，727 passed / 21 skipped
+（748）**；`pnpm typecheck`、`pnpm lint`、`pnpm format:check`、`pnpm build` 均通过；
+新包覆盖率为 **statements 97.63%、branches 95.96%、functions 100%、lines
+100%**（门槛 95/90/90/95）。离线执行 `pnpm install --lockfile-only --offline --ignore-scripts` 只在
+锁文件新增空 workspace importer，无外部版本变化。
+
+新增 dormant 边界回归，检查生产源码、manifest 与空锁文件 importer，并在禁用全局 `fetch` 时验证
+只调用注入替身。扫描器使用仓库已冻结的 TypeScript 解析器统一提取静态 import/export、副作用
+import、动态 import、`import=require` 与 `require`，按源文件目录解析并拒绝包外逃逸、非字面量
+动态加载、外部包、伪造 Node builtin 及网络内置。三个正式角色逐一通过真实中立网关能力门用例，
+均返回 `PROVIDER_REQUEST_INVALID`、`attempts=0` 且客户端零调用。
+
+**独立审查结论（2026-10-21）：第二轮定向复查仍为 FAIL，尚未完成验收。** 唯一剩余阻断是边界
+测试允许 `process` / `node:process` 内置模块，而环境读取检查只识别名称为 `process` 的标识符，
+因此 `import proc from "node:process"; void proc.env;` 会漏报；当前生产源码未发现此类读取。
+按工作流两轮上限已停止自动返工。用户随后要求将当前改动推送至 GitHub；本轮保留该待修项，未进行
+第三轮修复，不将测试通过或推送成功表述为独立审查通过。
+
+未执行真实 DeepSeek / 付费 API、真实密钥、数据库、Playwright / axe、部署、发布和 20 题模型评估；
+这些不属于本轮未激活适配器验收。正式激活仍需版本化价格、受控角色配置与装配、完整评估、真实费用
+结算验证及独立发布审批，并先解决上述独立审查阻断。
