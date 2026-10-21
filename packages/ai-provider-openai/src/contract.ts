@@ -11,6 +11,7 @@
  */
 
 import type { ProviderCapabilities } from "./capabilities";
+import type { AdapterReasoningEffort } from "./client-types";
 import type { AdapterRole } from "./roles";
 
 /**
@@ -31,6 +32,8 @@ export interface AdapterRequest {
   readonly input: string;
   /** 服务端注入的证据 ID 白名单。 */
   readonly evidenceWhitelist: readonly string[];
+  /** 需求侧推理强度（D-180 / D-193）；本适配器按角色映射，与逐角色配置一致。 */
+  readonly reasoningEffort: AdapterReasoningEffort;
   readonly maxOutputTokens: number;
   readonly timeoutMs: number;
 }

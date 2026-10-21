@@ -21,6 +21,10 @@
  */
 
 export {
+  createDeepSeekAdapterFromApiKey,
+  type DeepSeekAdapterFromApiKeyOptions,
+} from "@logiplan/ai-provider-deepseek";
+export {
   createOpenAiAdapterFromApiKey,
   type OpenAiAdapterFromApiKeyOptions,
 } from "@logiplan/ai-provider-openai";

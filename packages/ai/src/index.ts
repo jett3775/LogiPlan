@@ -173,6 +173,7 @@ export {
   MAX_INPUT_TOKENS,
   MONTHLY_BUDGET_CNY,
   PRICE_VERSION_V1,
+  PRICE_VERSION_V2,
   priceTableFor,
   SAFETY_MARGIN,
   USD_CNY_RATE_V1,
@@ -258,9 +259,20 @@ export {
  * ------------------------------------------------------------------------- */
 
 export {
+  INPUT_MODERATION_RULES,
+  INPUT_MODERATION_RULES_VERSION,
+  LOCAL_INPUT_MODERATION,
+  MAX_INPUT_CHARACTERS,
+  moderateLocalRules,
+  type InputModerationDecision,
+  type InputModerationPort,
+  type InputModerationRule,
+} from "./moderation/input-moderation";
+export {
   AI_CONFIGURED_ROLES,
   AI_ROLE_CONFIG_VERSION,
   AI_ROLE_ROUTES,
+  REQUIRED_PROVIDER_CAPABILITIES,
   roleConfigFor,
 } from "./config/role-config";
 export {

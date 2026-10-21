@@ -1,6 +1,6 @@
 import {
   AI_ROLE_ROUTES,
-  PRICE_VERSION_V1,
+  PRICE_VERSION_V2,
   buildFixedExampleAnalysis,
   estimateCostUsd,
   resolveOutputSchema,
@@ -24,7 +24,6 @@ import {
   buildAnswerSnapshotSeeds,
   buildEvidenceWhitelist,
   buildNeutralEvidenceWhitelist,
-  deriveSafetyIdentifier,
   type AiAnswerBlock,
 } from "./ai-model";
 import { loadAttributionData } from "./query-server";
@@ -71,58 +70,50 @@ const MANAGEMENT_ANALYSIS_ROLE = "management_analysis" as const;
 /**
  * 供应商适配器接缝的显式开关（门 C）。
  *
- * 即使有人把 `OPENAI_API_KEY` 放进环境，只要本开关不是 `"1"`，装配层也**不会**构造真实
- * 适配器 ⇒ 不产生任何真实调用。门 C 开启时，真实客户端在此接入（用
- * `deriveSafetyIdentifier` 的返回值作为 `safety_identifier`）。
+ * 即使有人把 `DEEPSEEK_API_KEY` 放进环境，只要本开关不是 `"1"`，装配层也**不会**构造
+ * 真实适配器 ⇒ 不产生任何真实调用。
  */
 export const LIVE_CALLS_ENV_KEY = "LOGIPLAN_AI_LIVE_CALLS";
 
 /** 供应商密钥的环境变量名；只由服务端环境读出并直接交给适配器包，不落盘、不入日志（D-177）。 */
-export const OPENAI_API_KEY_ENV_KEY = "OPENAI_API_KEY";
+export const DEEPSEEK_API_KEY_ENV_KEY = "DEEPSEEK_API_KEY";
 
 /**
- * 真实客户端装配接缝（门 C）：装配层把「**按需派生匿名标识**」的能力交给工厂，
- * 工厂只有在确实要装配适配器时才调用它。
+ * 真实客户端装配接缝（门 C）。
  *
- * 为什么是「按需」而不是直接传值：本部署（门 C 未开启）恒不装配适配器，按需派生
- * 可避免每个请求都做一次无用的 HMAC 派生。
+ * 匿名标识由平台内部派生（控制面限流 / 审计 / 熔断），**不传给供应商**（D-193）：DeepSeek
+ * Responses API 不支持 `safety_identifier`，因此工厂无需按需派生。
  */
 export type ProviderAdapterFactory = (input: {
   readonly environment: Record<string, string | undefined>;
-  /** 按需派生匿名标识；适配器的 `safety_identifier` **只能**取它的返回值。 */
-  readonly resolveSafetyIdentifier: () => Promise<string | null>;
   readonly priceVersion: string;
 }) => ProviderAdapter | null | Promise<ProviderAdapter | null>;
 
 /**
  * 默认的适配器工厂——**门 C 的显式开关**。
  *
- * 三个条件都满足才会有适配器：
- * 1. `LOGIPLAN_AI_LIVE_CALLS === "1"`（授权位；即使环境里放了 `OPENAI_API_KEY`，缺这个开关也不装配）；
- * 2. `OPENAI_API_KEY` 非空（密钥只走服务端环境变量，不进构建产物）；
- * 3. 能派生出匿名标识（缺主密钥即失败关闭——适配器必须有 `safety_identifier`）。
+ * 两个条件都满足才会有适配器：
+ * 1. `LOGIPLAN_AI_LIVE_CALLS === "1"`（授权位；即使环境里放了 `DEEPSEEK_API_KEY`，缺这个开关也不装配）；
+ * 2. `DEEPSEEK_API_KEY` 非空（密钥只走服务端环境变量，不进构建产物）。
  *
- * 三者缺一即返回 `null` ⇒ 装配层完全不进入会话 ⇒ **零真实调用**。本函数**动态**导入
- * `@logiplan/ai/provider`（`packages/ai` 的子路径，内含供应商 SDK），因此开关关闭时连
- * 供应商 SDK 都不会被加载。
+ * 缺一即返回 `null` ⇒ 装配层完全不进入会话 ⇒ **零真实调用**。本函数**动态**导入
+ * `@logiplan/ai/provider`（`packages/ai` 的子路径，内含真实客户端），因此开关关闭时连
+ * 客户端代码都不会被加载。
  *
  * ⚠️ **门 C 验收时必须确认真的拿到了适配器**：任一条件不满足都只是静默回落固定示例、
  * **不会报错**。判据是响应 `status === "LIVE_GENERATED"`（已记为遗留 P2）。
  */
 export const createProviderAdapter: ProviderAdapterFactory = async (input) => {
   if (input.environment[LIVE_CALLS_ENV_KEY] !== "1") return null;
-  const apiKey = input.environment[OPENAI_API_KEY_ENV_KEY];
+  const apiKey = input.environment[DEEPSEEK_API_KEY_ENV_KEY];
   if (apiKey === undefined || apiKey.length === 0) return null;
-  const safetyIdentifier = await input.resolveSafetyIdentifier();
-  if (safetyIdentifier === null) return null;
 
-  // 只有真正要装配时才加载供应商 SDK。`apps/web` **不**导入供应商 SDK（AC3.3），也**不**
+  // 只有真正要装配时才加载客户端。`apps/web` **不**导入供应商实现（AC3.3），也**不**
   // 直接导入适配器包（那会破坏「适配器包只被 `packages/ai` 依赖」的边界）；只走
   // `@logiplan/ai/provider` 这个**子路径**——它是 `packages/ai` 里唯一的调用方。
-  const { createOpenAiAdapterFromApiKey } = await import("@logiplan/ai/provider");
-  return createOpenAiAdapterFromApiKey({
+  const { createDeepSeekAdapterFromApiKey } = await import("@logiplan/ai/provider");
+  return createDeepSeekAdapterFromApiKey({
     apiKey,
-    safetyIdentifier,
     priceVersion: input.priceVersion,
     // 价格表单一来源：`packages/ai` 的 `pricing.ts`（未知模型 / 版本 → `Infinity`，失败关闭）。
     costLookup: estimateCostUsd,
@@ -234,14 +225,7 @@ export const answerManagementQuestion = async (
   try {
     adapter = await createAdapter({
       environment: options.environment,
-      resolveSafetyIdentifier: () =>
-        deriveSafetyIdentifier({
-          environment: options.environment,
-          rawIp: options.rawIp,
-          userAgent: options.userAgent,
-          nowMs: now(),
-        }),
-      priceVersion: PRICE_VERSION_V1,
+      priceVersion: PRICE_VERSION_V2,
     });
   } catch {
     adapter = null;

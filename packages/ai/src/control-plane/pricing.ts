@@ -15,8 +15,10 @@ export interface ModelPrice {
   readonly output_usd_per_million: number;
 }
 
-/** 价格版本标识；进入阈值对象与审计记录。 */
+/** 价格版本标识；进入阈值对象与审计记录。`V1` 保留用于回退（D-193 决策一）。 */
 export const PRICE_VERSION_V1 = "PRICE_2026_V1";
+/** 当前价格版本：DeepSeek 峰值档（D-193 决策四）。 */
+export const PRICE_VERSION_V2 = "PRICE_2026_V2";
 /** 汇率版本标识；进入阈值对象与审计记录。 */
 export const FX_VERSION_V1 = "FX_2026_V1";
 
@@ -33,6 +35,12 @@ const PRICE_TABLES: Readonly<Record<string, Readonly<Record<string, ModelPrice>>
   [PRICE_VERSION_V1]: {
     "gpt-5.6-luna": { input_usd_per_million: 0.15, output_usd_per_million: 0.6 },
     "gpt-5.6-terra": { input_usd_per_million: 0.5, output_usd_per_million: 1.5 },
+  },
+  // D-193 决策四：DeepSeek 按峰值档冻结，取 cache miss 价格。
+  // 峰值时段 UTC 周一至周五 01:00–04:00、06:00–10:00；缓存命中价与峰谷切换不纳入本版本，
+  // 一律按峰值保守估算，宁可高估（D-181）。
+  [PRICE_VERSION_V2]: {
+    "deepseek-flash": { input_usd_per_million: 0.3, output_usd_per_million: 1.2 },
   },
 };
 

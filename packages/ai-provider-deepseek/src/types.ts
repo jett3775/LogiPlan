@@ -9,6 +9,9 @@ export interface ProviderCapabilities {
   readonly moderation: boolean;
 }
 
+/** 需求侧推理强度：本包只接收 D-180 冻结的两档（最低 / 低）。 */
+export type AdapterReasoningEffort = "minimal" | "low";
+
 export interface AdapterRequest {
   readonly role: AdapterRole;
   readonly model: string;
@@ -16,6 +19,8 @@ export interface AdapterRequest {
   readonly outputSchemaVersion: string;
   readonly input: string;
   readonly evidenceWhitelist: readonly string[];
+  /** 需求侧推理强度；本适配器映射为供应商档位（D-193）。 */
+  readonly reasoningEffort: AdapterReasoningEffort;
   readonly maxOutputTokens: number;
   readonly timeoutMs: number;
 }

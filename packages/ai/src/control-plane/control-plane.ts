@@ -32,11 +32,11 @@ export interface RoleCostProfile {
   readonly maxOutputTokens: number;
 }
 
-/** 角色成本档案；模型与输出上限取自 `gate2-design.md` §2 的冻结角色配置。 */
+/** 角色成本档案；模型与输出上限取自角色配置（D-180 冻结，D-193 切换为 DeepSeek）。 */
 export const DEFAULT_ROLE_COST_PROFILES: Readonly<Record<AiRole, RoleCostProfile>> = {
-  intent_parse: { model: "gpt-5.6-luna", maxOutputTokens: 400 },
-  management_analysis: { model: "gpt-5.6-terra", maxOutputTokens: 1200 },
-  fallback: { model: "gpt-5.6-luna", maxOutputTokens: 400 },
+  intent_parse: { model: "deepseek-flash", maxOutputTokens: 400 },
+  management_analysis: { model: "deepseek-flash", maxOutputTokens: 1200 },
+  fallback: { model: "deepseek-flash", maxOutputTokens: 400 },
 };
 
 export interface ControlPlaneConfig {

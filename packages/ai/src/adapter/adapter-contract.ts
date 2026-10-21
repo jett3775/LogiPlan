@@ -1,5 +1,5 @@
 import type { ProviderCapabilities } from "./provider-capabilities";
-import type { AiRole } from "../routing/role-routing";
+import type { AiRole, RoleReasoningEffort } from "../routing/role-routing";
 
 /**
  * 供应商适配器契约（docs/gate2-design.md §1.3）。
@@ -19,6 +19,10 @@ export interface AdapterRequest {
   readonly input: string;
   /** 服务端注入的证据 ID 白名单。 */
   readonly evidenceWhitelist: readonly string[];
+  /**
+   * 需求侧推理强度（D-180 / D-193）；由网关按角色路由透传，适配器负责映射到供应商档位。
+   */
+  readonly reasoningEffort: RoleReasoningEffort;
   readonly maxOutputTokens: number;
   readonly timeoutMs: number;
 }

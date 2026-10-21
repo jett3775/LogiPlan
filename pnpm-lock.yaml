@@ -96,6 +96,9 @@ importers:
 
   packages/ai:
     dependencies:
+      '@logiplan/ai-provider-deepseek':
+        specifier: workspace:*
+        version: link:../ai-provider-deepseek
       '@logiplan/ai-provider-openai':
         specifier: workspace:*
         version: link:../ai-provider-openai

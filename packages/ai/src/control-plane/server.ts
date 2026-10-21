@@ -6,7 +6,7 @@ import {
   type ControlPlaneRuntime,
   type CreateControlPlaneOptions,
 } from "./control-plane";
-import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V1 } from "./pricing";
+import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V2 } from "./pricing";
 import { RATE_LIMIT_MAX_PER_WINDOW, RATE_LIMIT_WINDOW_MS } from "./rate-limit";
 import type { RedisLike } from "./redis-like";
 import { createLazyUpstashRedisLike } from "./upstash-redis";
@@ -131,8 +131,8 @@ const buildRuntime = (
   config: {
     environment: options.environmentName ?? environment["NODE_ENV"] ?? "unknown",
     secret,
-    threshold: deriveBudgetThreshold(PRICE_VERSION_V1, FX_VERSION_V1),
-    currentPriceVersion: PRICE_VERSION_V1,
+    threshold: deriveBudgetThreshold(PRICE_VERSION_V2, FX_VERSION_V1),
+    currentPriceVersion: PRICE_VERSION_V2,
     currentFxVersion: FX_VERSION_V1,
     rateLimitWindowMs: RATE_LIMIT_WINDOW_MS,
     rateLimitLimit: RATE_LIMIT_MAX_PER_WINDOW,

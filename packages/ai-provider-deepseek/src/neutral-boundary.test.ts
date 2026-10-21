@@ -36,8 +36,15 @@ const productionSources = sourceFiles(SRC_DIR)
     text: readFileSync(file, "utf8"),
   }));
 
+/**
+ * 门 C 激活接缝：真实 HTTP 客户端是**唯一**允许出现鉴权头的文件。它仍然不得读取环境
+ * 变量、不得导入外部包或网络内置——网络能力由运行时的 `fetch` 注入。
+ */
+const ACTIVATION_SEAMS = new Set(["client.ts"]);
+
 const offendingFiles = (predicate: (text: string) => boolean): string[] =>
   productionSources
+    .filter((source) => !ACTIVATION_SEAMS.has(source.file))
     .filter((source) => predicate(stripComments(source.text)))
     .map((source) => source.file);
 
@@ -112,7 +119,22 @@ const invalidImportUses = (text: string, sourcePath: string): readonly string[] 
     return isAllowedBuiltin(use.specifier) ? [] : [`${use.kind}: external ${use.specifier}`];
   });
 
+const PROCESS_MODULE_SPECIFIERS = new Set(["process", "node:process"]);
+
+const isProcessModuleSpecifier = (specifier: string | null): boolean =>
+  specifier !== null && PROCESS_MODULE_SPECIFIERS.has(specifier);
+
+/**
+ * 检测对 Node `process` 全局的任何引用。
+ *
+ * 不能只匹配名称为 `process` 的标识符：`import proc from "node:process"` 会把全局
+ * 别名成任意名字，此时标识符不再叫 `process`，但环境读取能力等价。因此同时检查
+ * 静态 / 动态 / `require` / `import=` 四种导入形态的模块 specifier。
+ */
 const containsProcessReference = (text: string, file: string): boolean => {
+  if (importUses(text, file).some((use) => isProcessModuleSpecifier(use.specifier))) {
+    return true;
+  }
   let found = false;
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && node.text === "process") found = true;
@@ -141,6 +163,17 @@ describe("DeepSeek dormant 边界", () => {
         ),
       ),
     ).toEqual([]);
+  });
+
+  it("真实客户端接缝只接收注入密钥与网络能力，不读环境、不导入网络内置", () => {
+    const seam = productionSources.find((source) => source.file === "client.ts");
+    expect(seam).toBeDefined();
+    if (seam === undefined) return;
+    // 环境读取检测必须覆盖别名导入形态（`node:process`）。
+    expect(containsProcessReference(seam.text, seam.path)).toBe(false);
+    expect(stripComments(seam.text)).not.toContain("DEEPSEEK_API_KEY");
+    // 导入面仍受同一约束：只允许包内相对路径与 Node 内置，且不含网络内置。
+    expect(invalidImportUses(seam.text, seam.path)).toEqual([]);
   });
 
   it("生产导入仅限本包相对路径或 Node 内置，不反向跨包且不导入外部 SDK", () => {
@@ -183,12 +216,25 @@ describe("DeepSeek dormant 边界", () => {
     expect(invalidImportUses(code, join(SRC_DIR, "mock.ts"))).toEqual([]);
   });
 
-  it.each(["process.env.DEEPSEEK_API_KEY", 'process["env"].DEEPSEEK_API_KEY'])(
-    "扫描器拒绝常规 process 环境读取：%s",
-    (expression) => {
-      expect(containsProcessReference(`void ${expression};`, "mock.ts")).toBe(true);
-    },
-  );
+  it.each([
+    'void process.env.DEEPSEEK_API_KEY;',
+    'void process["env"].DEEPSEEK_API_KEY;',
+    'import proc from "node:process"; void proc.env;',
+    'import { env as e } from "process"; void e;',
+    'const p = await import("node:process"); void p;',
+    'const p = require("node:process"); void p;',
+    'import p = require("node:process"); void p;',
+    'export { env } from "node:process";',
+  ])("扫描器拒绝 process 读取及其全部导入形态：%s", (code) => {
+    expect(containsProcessReference(code, "mock.ts")).toBe(true);
+  });
+
+  it("扫描器不把其他 Node 内置误判为 process", () => {
+    expect(containsProcessReference('import path from "node:path"; void path;', "mock.ts")).toBe(
+      false,
+    );
+    expect(containsProcessReference("const value = 1; void value;", "mock.ts")).toBe(false);
+  });
 
   it("manifest 是无外部依赖的 private ESM，锁文件只有空 workspace importer", () => {
     const manifest = JSON.parse(readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")) as {
@@ -256,6 +302,7 @@ describe("DeepSeek dormant 边界", () => {
         outputSchemaVersion: "schema-v1",
         input: "test",
         evidenceWhitelist: [],
+        reasoningEffort: "low",
         maxOutputTokens: 32,
         timeoutMs: 1_000,
       });

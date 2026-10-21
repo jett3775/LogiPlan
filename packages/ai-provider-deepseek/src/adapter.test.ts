@@ -18,6 +18,7 @@ const request = (overrides: Partial<AdapterRequest> = {}): AdapterRequest => ({
   outputSchemaVersion: "schema-v1",
   input: "分析已注入的确定性证据。",
   evidenceWhitelist: ["E01"],
+  reasoningEffort: "low",
   maxOutputTokens: 1200,
   timeoutMs: 20_000,
   ...overrides,

@@ -4,6 +4,7 @@ import {
   type AdapterRequest,
   type AdapterResult,
   type AdapterUsage,
+  type DeepSeekReasoningEffort,
   type DeepSeekResponsesClient,
   type DeepSeekResponsesCreateParams,
   type JsonSchema,
@@ -78,9 +79,26 @@ const isTokenCount = (value: unknown): value is number =>
 const isAdapterRole = (value: unknown): boolean =>
   typeof value === "string" && (ADAPTER_ROLES as readonly string[]).includes(value);
 
+const ADAPTER_REASONING_EFFORTS = ["minimal", "low"] as const;
+
+const isAdapterReasoningEffort = (value: unknown): boolean =>
+  typeof value === "string" && (ADAPTER_REASONING_EFFORTS as readonly string[]).includes(value);
+
+/**
+ * 需求侧推理强度 → DeepSeek 档位（D-193）。
+ *
+ * DeepSeek 没有 `minimal`；把 `minimal` 映射为 `low` 会开启思考模式，而 `max_output_tokens`
+ * 同时包含可见输出与推理 token，400 token 的预算会被推理占用，导致结构化输出被
+ * 供应商以 `incomplete` 拒绝。因此 `minimal` 显式映射为 `none`（不思考），`low` 保持 `low`。
+ */
+const reasoningEffortForProvider = (
+  effort: AdapterRequest["reasoningEffort"],
+): DeepSeekReasoningEffort => (effort === "minimal" ? "none" : "low");
+
 const validateRequest = (request: AdapterRequest): void => {
   if (
     !isAdapterRole(request.role) ||
+    !isAdapterReasoningEffort(request.reasoningEffort) ||
     !isNonBlank(request.model) ||
     !isNonBlank(request.systemPromptVersion) ||
     !isNonBlank(request.outputSchemaVersion) ||
@@ -103,8 +121,7 @@ const buildRequest = (
   instructions: systemPrompt,
   input: request.input,
   max_output_tokens: request.maxOutputTokens,
-  // DeepSeek 不提供 `minimal`；当前冻结角色的 minimal/low 均保守映射为 low。
-  reasoning: { effort: "low" },
+  reasoning: { effort: reasoningEffortForProvider(request.reasoningEffort) },
   text: {
     format: {
       type: "json_schema",

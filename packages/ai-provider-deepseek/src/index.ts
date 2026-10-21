@@ -12,8 +12,20 @@ export {
   isProviderInvocationError,
   type AdapterEmittedErrorCode,
 } from "./errors";
+export {
+  createDeepSeekAdapterFromApiKey,
+  type DeepSeekAdapterFromApiKeyOptions,
+} from "./from-api-key";
+export {
+  createDeepSeekHttpClient,
+  DEEPSEEK_API_BASE_URL,
+  type DeepSeekFetch,
+  type DeepSeekHttpClientOptions,
+  type DeepSeekHttpResponse,
+} from "./client";
 export type {
   AdapterCostEstimate,
+  AdapterReasoningEffort,
   AdapterRequest,
   AdapterResult,
   AdapterRole,

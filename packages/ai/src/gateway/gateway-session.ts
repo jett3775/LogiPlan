@@ -1,4 +1,5 @@
 import type { ProviderAdapter } from "../adapter/adapter-contract";
+import { buildControlPlaneAuditRecord } from "../control-plane/audit-log";
 import { settleBudget } from "../control-plane/budget-ledger";
 import {
   evaluateControlPlane,
@@ -8,6 +9,11 @@ import {
   type ControlPlaneRuntime,
 } from "../control-plane/control-plane";
 import { usdToCny } from "../control-plane/pricing";
+import {
+  LOCAL_INPUT_MODERATION,
+  type InputModerationDecision,
+  type InputModerationPort,
+} from "../moderation/input-moderation";
 import type { AiRole } from "../routing/role-routing";
 import type { EvidenceWhitelist } from "./evidence-port";
 import { runGateway, type GatewayConfig, type GatewayOutcome } from "./gateway";
@@ -60,6 +66,11 @@ export interface GatewaySessionDeps {
    * 供应商实现的装配点（`no-live-call.test.ts` 的 AC2.12 断言）。
    */
   readonly adapter: ProviderAdapter;
+  /**
+   * 平台侧输入审核端口（D-193 决策三）。默认本地规则审核；注入替身便于定向测试。
+   * 审核异常同样失败关闭。
+   */
+  readonly moderation?: InputModerationPort;
   readonly retryHooks?: RetryHooks;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -96,6 +107,52 @@ export const runGatewaySession = async (
     ...(deps.now === undefined ? {} : { now: deps.now }),
     ...(deps.random === undefined ? {} : { random: deps.random }),
   };
+
+  // ⓪ 平台侧输入审核（D-193 决策三）：**先于**限流、L2 熔断检查与预算预留执行。
+  //    命中或审核异常 ⇒ 失败关闭、不重试、直接回落固定示例；不产生预留、不写账本、
+  //    不写限流窗口、不调用适配器。规则 id 不进入审计（审计字段受 D-138 白名单约束）。
+  const moderationPort = deps.moderation ?? LOCAL_INPUT_MODERATION;
+  let moderated: InputModerationDecision;
+  try {
+    moderated = await moderationPort.check(request.input);
+  } catch {
+    moderated = { ok: false, rule: "PORT_FAILURE" };
+  }
+  if (!moderated.ok) {
+    const rejectedAtMs = now();
+    const rejection: ControlPlaneDecision = {
+      liveCallPermitted: false,
+      errorCode: "INPUT_REJECTED",
+      audit: buildControlPlaneAuditRecord({
+        occurred_at: new Date(rejectedAtMs).toISOString(),
+        environment: deps.config.environment,
+        request_id: request.request_id,
+        role: request.role,
+        event: "DECISION",
+        error_code: "INPUT_REJECTED",
+        rate_limit_remaining: null,
+        budget_used_cny: null,
+        budget_cap_cny: null,
+        circuit_state: null,
+        fell_back_to_fixed_example: true,
+      }),
+    };
+    const outcome = await runGateway(deps.config, gatewayDeps, {
+      request_id: request.request_id,
+      role: request.role,
+      input: request.input,
+      scope_anchor: request.scope_anchor,
+      evidence: request.evidence,
+      preflight: { liveCallPermitted: false, errorCode: "INPUT_REJECTED" },
+    });
+    return {
+      outcome,
+      preflight: rejection,
+      settlement: "not_attempted",
+      record: "not_attempted",
+      settle_amount_cny: 0,
+    };
+  }
 
   // ① 控制面预检：限流 → L2 预算 → 原子预留 → L1 熔断。任何异常都在
   //    `evaluateControlPlane` 内收敛为 `CONTROL_PLANE_UNAVAILABLE` 的失败关闭。

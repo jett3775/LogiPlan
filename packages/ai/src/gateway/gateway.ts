@@ -3,7 +3,7 @@ import type { ManagementAnalysis } from "@logiplan/contracts";
 import type { AdapterRequest, ProviderAdapter } from "../adapter/adapter-contract";
 import type { AiAuditMetadata } from "../audit/audit-metadata";
 import { AI_ROLE_ROUTES } from "../config/role-config";
-import { PRICE_VERSION_V1 } from "../control-plane/pricing";
+import { PRICE_VERSION_V2 } from "../control-plane/pricing";
 import { buildFixedExampleAnalysis } from "../fixed-example/fixed-example";
 import { GATEWAY_ERROR_STATUS_ZH } from "../labels/zh-labels";
 import { resolveRoleRoute, type AiRole, type RoleRouteConfig } from "../routing/role-routing";
@@ -143,7 +143,7 @@ export type GatewayOutcome =
 /** 默认角色配置；调用方可用 `GatewayConfig.routes` 覆盖（测试注入替身路由）。 */
 export const defaultGatewayConfig = (environment: string): GatewayConfig => ({
   environment,
-  priceVersion: PRICE_VERSION_V1,
+  priceVersion: PRICE_VERSION_V2,
   routes: AI_ROLE_ROUTES,
 });
 
@@ -300,13 +300,9 @@ export const runGateway = async (
   }
   const route = routeResolution.route;
 
-  // 需求侧能力门：角色需要但适配器未声明的能力 → 失败关闭（不静默降级）。
-  const missing = route.requiredCapabilities.filter((name) => !deps.adapter.capabilities[name]);
-  if (missing.length > 0) {
-    return fallback(auditBase, route, "PROVIDER_REQUEST_INVALID", elapsed());
-  }
-
   // 控制面预检：限流 / 预算 / 熔断不通过即不调用（无结论已由类型系统拦在编译期）。
+  // 先于能力门判定：平台侧输入审核拒绝（`INPUT_REJECTED`）也是以「预检不放行」的形式进入，
+  // 必须原样返回该错误码，不能被能力门改写成请求参数错误。
   if (!request.preflight.liveCallPermitted) {
     return fallback(
       auditBase,
@@ -316,6 +312,12 @@ export const runGateway = async (
     );
   }
 
+  // 需求侧能力门：角色需要但适配器未声明的能力 → 失败关闭（不静默降级）。
+  const missing = route.requiredCapabilities.filter((name) => !deps.adapter.capabilities[name]);
+  if (missing.length > 0) {
+    return fallback(auditBase, route, "PROVIDER_REQUEST_INVALID", elapsed());
+  }
+
   const adapterRequest: AdapterRequest = {
     role: request.role,
     model: route.model,
@@ -323,6 +325,7 @@ export const runGateway = async (
     outputSchemaVersion: route.outputSchemaVersion,
     input: request.input,
     evidenceWhitelist: allWhitelistedEvidenceIds(request.evidence),
+    reasoningEffort: route.reasoningEffort,
     maxOutputTokens: route.maxOutputTokens,
     timeoutMs: HARD_TIMEOUT_MS,
   };
