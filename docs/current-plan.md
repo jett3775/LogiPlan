@@ -791,3 +791,32 @@ import、动态 import、`import=require` 与 `require`，按源文件目录解�
 未执行真实 DeepSeek / 付费 API、真实密钥、数据库、Playwright / axe、部署、发布和 20 题模型评估；
 这些不属于本轮未激活适配器验收。正式激活仍需版本化价格、受控角色配置与装配、完整评估、真实费用
 结算验证及独立发布审批，并先解决上述独立审查阻断。
+
+**（2026-10-21 更新：本节为 2026-10-20 的历史记录，其中「未修改 OpenAI 默认角色」「`minimal` /
+`low` 均映射为 `low`」「三个角色要求全部五项能力」「现有网关会失败关闭」已被 D-193 实施取代，
+现状见 §16。）**
+
+## 16. 2026-10-21 D-193 实施：三角色切换至 DeepSeek
+
+按 D-193 已确认决策实施，全部验证在替身与本地环境下完成，未执行真实调用。
+
+- **角色与能力**：三角色改为 `deepseek / deepseek-flash`，版本 `AI_ROLE_CONFIG_2026_V2`；
+  `requiredCapabilities` 收窄为 `structuredOutput` 与 `reasoningControl`，能力门仍逐项失败关闭。
+- **推理强度**：中立契约 `AdapterRequest` 新增 `reasoningEffort`，网关按角色路由透传；
+  DeepSeek 适配器映射 `minimal → "none"`、`low → "low"`，OpenAI 适配器保持原映射。
+- **平台侧审核**：新增 `packages/ai/src/moderation/input-moderation.ts`（规则版本
+  `INPUT_RULES_2026_V2`），会话链路在控制面预检之前执行；拒绝、端口抛错与端口返回畸形值
+  均失败关闭为 `INPUT_REJECTED`，不产生预留、不写账本、不写限流窗口、不调用适配器。
+- **价格与账本**：新增 `PRICE_2026_V2`（`deepseek-flash` 输入 0.30 / 输出 1.20 美元每百万 token），
+  阈值推导、控制面当前版本、装配层传入版本同批切换；`PRICE_2026_V1` 保留用于回退。
+- **装配与密钥**：门 C 装配改为 `packages/ai-provider-deepseek`，只读 `DEEPSEEK_API_KEY`；
+  移除向工厂传递匿名派生标识的签名，`safety_identifier` 不再传给供应商。
+- **边界测试**：dormant 边界同时检查四种导入形态的模块 specifier，`node:process` 别名不再漏报；
+  门 C 激活接缝 `client.ts` 以最小白名单豁免。
+- **验收脚本**：`scripts/ai-live-acceptance.mjs` 改用 `DEEPSEEK_API_KEY`、`deepseek-flash` 与
+  DeepSeek API 端点。
+- **依赖**：`packages/ai` 新增内部 workspace 链接 `@logiplan/ai-provider-deepseek`（已获用户授权）；
+  锁文件仅新增 3 行 importer 条目，无外部依赖与版本变化。
+- **本地验证**：`typecheck`、`lint`、`format:check` 全 0；测试 **57 文件通过 / 2 跳过，
+  748 passed / 21 skipped（769）**。
+- **未执行**：真实 DeepSeek 调用、付费 API、20 题评估、数据库 / Playwright 验收、构建与部署。

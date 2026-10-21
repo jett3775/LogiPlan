@@ -84,7 +84,11 @@ describe("供应商中立", () => {
         const specifier = match[1] ?? "";
         const isRelative = specifier.startsWith(".");
         if (isRelative || allowed.has(specifier)) continue;
-        if (PROVIDER_ASSEMBLY.has(source.file) && specifier === "@logiplan/ai-provider-openai") {
+        if (
+          PROVIDER_ASSEMBLY.has(source.file) &&
+          (specifier === "@logiplan/ai-provider-openai" ||
+            specifier === "@logiplan/ai-provider-deepseek")
+        ) {
           continue;
         }
         imports.push(`${source.file} → ${specifier}`);
@@ -106,26 +110,25 @@ describe("供应商中立", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("供应商专有标识只允许出现在受版本控制的角色配置（provider 标识）", () => {
-    // 切片 3b：D-180/D-190 要求 provider 标识写在 `packages/ai` 内**受版本控制的角色配置**里，
-    // 故 `config/role-config.ts` 合法地含有 `provider: "openai"`。其余生产文件不得出现任何
-    // 供应商 SDK 名或专有标识（含注释）。
+  it("供应商专有标识只允许出现在版本化配置与价格表（模型字符串）", () => {
+    // D-193：`config/role-config.ts` 持有 provider 标识与模型名；`control-plane/pricing.ts`
+    // 的价格表以模型名称为键。二者都是受版本控制的数据，不是供应商 SDK 或专有 API 结构。
     const providerIdentifier = /\bopenai\b/u;
     const otherVendors =
       /azure\/openai|langchain|dify|anthropic|cohere|gemini|google\/generativeai|mistralai|ollama|bedrock|qwen|deepseek/u;
+    const versionedConfig = new Set([
+      "config/role-config.ts",
+      "control-plane/pricing.ts",
+      "provider/assembly.ts",
+    ]);
     const offenders = productionSources
-      // 门 C（D-192 阶段 2）：`provider/assembly.ts` 合法地出现适配器包名（含 `openai` 字样），
-      // 它是唯一的供应商客户端装配入口；该模块不在主 barrel 里。
-      .filter(
-        (source) =>
-          source.file !== "config/role-config.ts" && source.file !== "provider/assembly.ts",
-      )
+      .filter((source) => !versionedConfig.has(source.file))
       .filter((source) => providerIdentifier.test(source.text) || otherVendors.test(source.text))
       .map((source) => source.file);
     expect(offenders).toEqual([]);
     // 正对照：role-config.ts 确实持有 provider 标识（否则上一条断言会因误判而恒真）。
     const roleConfig = productionSources.find((source) => source.file === "config/role-config.ts");
-    expect(roleConfig?.text).toContain('"openai"');
+    expect(roleConfig?.text).toContain('"deepseek"');
   });
 
   it("Upstash Redis 客户端只出现在指定的中立适配器文件", () => {

@@ -18,16 +18,16 @@ import {
 describe("角色配置（D-190 决策二）", () => {
   it("三个角色齐全、均标记为已验证、provider 标识为中立字符串", () => {
     expect(AI_ROLE_ROUTES).toHaveLength(3);
-    expect(AI_ROLE_CONFIG_VERSION.length).toBeGreaterThan(0);
+    expect(AI_ROLE_CONFIG_VERSION).toBe("AI_ROLE_CONFIG_2026_V2");
     for (const route of AI_ROLE_ROUTES) {
       expect(route.verified).toBe(true);
-      expect(route.provider).toBe("openai");
+      expect(route.provider).toBe("deepseek");
       expect(route.model.length).toBeGreaterThan(0);
     }
   });
 
   it("roleConfigFor：已知角色返回配置，未知角色失败关闭为 null", () => {
-    expect(roleConfigFor("management_analysis")?.model).toBe("gpt-5.6-terra");
+    expect(roleConfigFor("management_analysis")?.model).toBe("deepseek-flash");
     expect(roleConfigFor("nope" as never)).toBeNull();
   });
 

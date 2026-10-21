@@ -1,10 +1,14 @@
-import { createOpenAiAdapter, type OpenAiResponsesClient } from "@logiplan/ai-provider-openai";
+import {
+  createDeepSeekAdapter,
+  type DeepSeekResponsesClient,
+} from "@logiplan/ai-provider-deepseek";
 import { describe, expect, it } from "vitest";
 
 import type { AdapterRequest, AdapterResult } from "../adapter/adapter-contract";
 import { AI_AUDIT_FIELD_NAMES } from "../audit/audit-metadata";
 import { resolveOutputSchema, resolveSystemPrompt } from "../config/registry";
 import { AI_ROLE_ROUTES } from "../config/role-config";
+import { PRICE_VERSION_V2 } from "../control-plane/pricing";
 import { buildFixedExampleAnalysis } from "../fixed-example/fixed-example";
 import {
   defaultGatewayConfig,
@@ -76,11 +80,11 @@ describe("成功路径：路由 → 适配器 → 三检 → 中文输出与审�
     ]) {
       expect(value.length).toBeGreaterThan(0);
     }
-    expect(audit.provider).toBe("openai");
-    expect(audit.model).toBe("gpt-5.6-terra");
+    expect(audit.provider).toBe("deepseek");
+    expect(audit.model).toBe("deepseek-flash");
     expect(audit.system_prompt_version).toBe("analysis-v1");
     expect(audit.output_schema_version).toBe("G2_ANSWER_V2_0");
-    expect(audit.price_version).toBe("PRICE_2026_V1");
+    expect(audit.price_version).toBe(PRICE_VERSION_V2);
     expect(audit.input_tokens).toBe(111);
     expect(audit.output_tokens).toBe(55);
     expect(audit.error_code).toBeNull();
@@ -89,30 +93,36 @@ describe("成功路径：路由 → 适配器 → 三检 → 中文输出与审�
   });
 
   it("真实适配器 + 假客户端 + 真实注册表：链路端到端成立（协调项 4 接线）", async () => {
-    const client: OpenAiResponsesClient = {
+    const client: DeepSeekResponsesClient = {
       responses: {
         create: async () => ({
           id: "resp_integration_1",
+          model: "deepseek-flash",
           status: "completed",
           output: [
             {
               type: "message",
+              role: "assistant",
+              status: "completed",
               content: [{ type: "output_text", text: JSON.stringify(liveAnalysis()) }],
             },
           ],
-          usage: { input_tokens: 100, output_tokens: 50 },
+          usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
         }),
       },
-      moderations: { create: async () => ({ results: [{ flagged: false }] }) },
     };
-    const adapter = createOpenAiAdapter({
+    const adapter = createDeepSeekAdapter({
       client,
-      safetyIdentifier: "anon-integration",
-      priceVersion: "PRICE_2026_V1",
+      priceVersion: PRICE_VERSION_V2,
       costLookup: () => 0.0007,
       resolveSystemPrompt,
       resolveOutputSchema,
-      hooks: { withHardTimeout: async (task) => ({ timedOut: false, value: await task() }) },
+      hooks: {
+        withAbortTimeout: async (task) => ({
+          timedOut: false,
+          value: await task(new AbortController().signal),
+        }),
+      },
     });
     const outcome = await runGateway(
       gatewayConfig(),
@@ -120,7 +130,7 @@ describe("成功路径：路由 → 适配器 → 三检 → 中文输出与审�
       gatewayRequest(),
     );
     expect(outcome.kind).toBe("live");
-    if (outcome.kind === "live") expect(outcome.audit.provider).toBe("openai");
+    if (outcome.kind === "live") expect(outcome.audit.provider).toBe("deepseek");
   });
 });
 
@@ -384,6 +394,35 @@ describe("AC3.2 穷尽性：11 个 GatewayErrorCode 都有转换路径", () => {
     expect(calls).toBe(0);
     if (outcome.kind === "fallback") expect(outcome.errorCode).toBe("PROVIDER_REQUEST_INVALID");
   });
+
+  it("预检拒绝优先于能力门：缺能力时仍返回 INPUT_REJECTED，且零调用", async () => {
+    let calls = 0;
+    const outcome = await runGateway(
+      gatewayConfig(),
+      {
+        adapter: fakeAdapter(
+          async () => {
+            calls += 1;
+            throw new Error("should not be called");
+          },
+          {
+            capabilities: {
+              structuredOutput: false,
+              reasoningControl: false,
+              dataRetentionToggle: true,
+              safetyIdentifier: true,
+              moderation: true,
+            },
+          },
+        ),
+        retryHooks: deterministicRetryHooks(),
+      },
+      gatewayRequest({ preflight: { liveCallPermitted: false, errorCode: "INPUT_REJECTED" } }),
+    );
+    expect(calls).toBe(0);
+    expect(outcome.kind).toBe("fallback");
+    if (outcome.kind === "fallback") expect(outcome.errorCode).toBe("INPUT_REJECTED");
+  });
 });
 
 describe("中立错误码结构提取（不导入适配器包）", () => {
@@ -407,7 +446,7 @@ describe("默认装配（defaultGatewayConfig / defaultGatewayRetryHooks）", ()
   it("defaultGatewayConfig 取受版本控制的价格与角色配置", () => {
     const config = defaultGatewayConfig("production");
     expect(config.environment).toBe("production");
-    expect(config.priceVersion).toBe("PRICE_2026_V1");
+    expect(config.priceVersion).toBe(PRICE_VERSION_V2);
     expect(config.routes).toBe(AI_ROLE_ROUTES);
   });
 

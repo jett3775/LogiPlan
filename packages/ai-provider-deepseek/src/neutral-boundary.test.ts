@@ -217,7 +217,7 @@ describe("DeepSeek dormant 边界", () => {
   });
 
   it.each([
-    'void process.env.DEEPSEEK_API_KEY;',
+    "void process.env.DEEPSEEK_API_KEY;",
     'void process["env"].DEEPSEEK_API_KEY;',
     'import proc from "node:process"; void proc.env;',
     'import { env as e } from "process"; void e;',

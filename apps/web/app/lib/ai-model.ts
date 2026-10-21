@@ -464,14 +464,15 @@ export const buildNeutralEvidenceWhitelist = (data: AttributionData): EvidenceWh
 };
 
 /**
- * 匿名标识接线位置（D-192 第 2 条）。
+ * 匿名标识接线位置（D-192 第 2 条）。D-193 起 DeepSeek 路径不向供应商传该值，派生仍保留：
+ * 控制面按同一组输入自行派生，本函数是两处同源的校验点。
  *
  * 适配器的 `safety_identifier` **只能**取本函数的返回值：它是主密钥下的不可逆派生值，
  * 不含原始 IP / User-Agent。控制面在 `evaluateControlPlane` 内按**同一组输入**自行派生
  * （同一天得到同一值），因此两处标识一致（本文件的测试锁定该性质）。
  *
  * 放在本模块（纯逻辑、无 I/O）而不是 `ai-server.ts`，是为了让它进入**默认测试集**：
- * `ai-server.ts` 带 `server-only`，在 Node 测试环境下不可导入。
+ * `ai-server.ts` 通过 `./query-server` 传递 `server-only` 边界，在默认测试集中不可导入。
  */
 export const deriveSafetyIdentifier = async (input: {
   readonly environment: Record<string, string | undefined>;

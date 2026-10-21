@@ -5,10 +5,9 @@ import {
   L1CircuitBreaker,
   allCapabilitiesGranted,
   buildFixedExampleAnalysis,
-  deriveAnonymousId,
   deriveBudgetThreshold,
   FX_VERSION_V1,
-  PRICE_VERSION_V1,
+  PRICE_VERSION_V2,
   reserveBudget,
   type EvidenceWhitelist,
 } from "@logiplan/ai";
@@ -139,14 +138,14 @@ const fakeAdapter = (structuredOutput: unknown) => ({
   adapterVersion: "fake-adapter-1",
   capabilities: { ...allCapabilitiesGranted },
   invoke: async () => ({
-    provider: "openai",
-    model: "gpt-5.6-terra",
+    provider: "deepseek",
+    model: "deepseek-flash",
     providerRequestId: "resp_fake_1",
     structuredOutput,
     usage: { inputTokens: 111, outputTokens: 55 },
     finishReason: "stop",
     latencyMs: 12,
-    costEstimate: { currency: "USD" as const, amount: 0.00042, priceVersion: PRICE_VERSION_V1 },
+    costEstimate: { currency: "USD" as const, amount: 0.00042, priceVersion: PRICE_VERSION_V2 },
   }),
 });
 
@@ -155,16 +154,16 @@ const runtimeFor = (redis: InMemoryRedisLike) => ({
   config: {
     environment: "test",
     secret: "test-secret",
-    threshold: deriveBudgetThreshold(PRICE_VERSION_V1, FX_VERSION_V1),
-    currentPriceVersion: PRICE_VERSION_V1,
+    threshold: deriveBudgetThreshold(PRICE_VERSION_V2, FX_VERSION_V1),
+    currentPriceVersion: PRICE_VERSION_V2,
     currentFxVersion: FX_VERSION_V1,
     rateLimitWindowMs: 60_000,
     rateLimitLimit: 10,
     controlPlaneTimeoutMs: 2_000,
     roleCostProfiles: {
-      intent_parse: { model: "gpt-5.6-luna", maxOutputTokens: 400 },
-      management_analysis: { model: "gpt-5.6-terra", maxOutputTokens: 1200 },
-      fallback: { model: "gpt-5.6-luna", maxOutputTokens: 400 },
+      intent_parse: { model: "deepseek-flash", maxOutputTokens: 400 },
+      management_analysis: { model: "deepseek-flash", maxOutputTokens: 1200 },
+      fallback: { model: "deepseek-flash", maxOutputTokens: 400 },
     },
   },
 });
@@ -238,7 +237,7 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
       nowMs: CLOCK_MS,
       requestId: "seed",
       amountCny: runtime.config.threshold.monthly_budget_cny - 0.01,
-      currentPriceVersion: PRICE_VERSION_V1,
+      currentPriceVersion: PRICE_VERSION_V2,
       currentFxVersion: FX_VERSION_V1,
     });
     expect(seeded.ok).toBe(true);
@@ -339,11 +338,11 @@ describe("D-192 服务端装配：网页 → 控制面 → 网关 → 适配器"
   });
 });
 
-describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
-  it("匿名派生值**实际传入**适配器工厂，且与控制面按同组输入派生的值一致", async () => {
+describe("D-192 阶段 1：适配器工厂接缝与门 C 关闭开关", () => {
+  it("适配器工厂只收到环境与价格版本（匿名标识不传供应商，D-193）", async () => {
     state.data = buildData();
     const redis = new InMemoryRedisLike();
-    const seen: string[] = [];
+    const seen: { environment: Record<string, string | undefined>; priceVersion: string }[] = [];
     const outcome = await answerManagementQuestion(
       PAGE,
       QUESTION,
@@ -354,9 +353,11 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
           LOGIPLAN_AI_ANON_SECRET: "test-secret",
         } as Record<string, string | undefined>,
         now: () => CLOCK_MS,
-        createAdapter: async (input: { resolveSafetyIdentifier: () => Promise<string | null> }) => {
-          const value = await input.resolveSafetyIdentifier();
-          if (value !== null) seen.push(value);
+        createAdapter: async (input: {
+          environment: Record<string, string | undefined>;
+          priceVersion: string;
+        }) => {
+          seen.push({ environment: input.environment, priceVersion: input.priceVersion });
           return fakeAdapter(liveOutput());
         },
         createRuntime: async () => runtimeFor(redis) as never,
@@ -366,20 +367,14 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error(outcome.message_zh);
     expect(outcome.status).toBe("LIVE_GENERATED");
-    // 工厂拿到的是**匿名派生值**，不是原始 IP / User-Agent。
+    // DeepSeek Responses API 不支持 safety_identifier：工厂输入里不出现任何匿名派生回调。
     expect(seen).toHaveLength(1);
-    const expected = await deriveAnonymousId({
-      rawIp: "203.0.113.7",
-      userAgent: "vitest/1.0",
-      secret: "test-secret",
-      nowMs: CLOCK_MS,
-    });
-    expect(seen[0]).toBe(expected);
-    expect(seen[0]).not.toContain("203.0.113.7");
-    expect(seen[0]).not.toContain("vitest/1.0");
+    expect(Object.keys(seen[0] ?? {}).sort()).toEqual(["environment", "priceVersion"]);
+    expect(seen[0]?.priceVersion).toBe(PRICE_VERSION_V2);
+    expect(seen[0]?.environment["NODE_ENV"]).toBe("test");
   });
 
-  it("缺主密钥 ⇒ 工厂拿不到匿名标识 ⇒ 装配层不进入会话（回落固定示例）", async () => {
+  it("开关开但密钥缺失 ⇒ 默认工厂返回 null ⇒ 不进入会话", async () => {
     state.data = buildData();
     let runtimeCalls = 0;
     const outcome = await answerManagementQuestion(
@@ -387,10 +382,10 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
       QUESTION,
       "req-anon-missing",
       options({
-        createAdapter: async (input: { resolveSafetyIdentifier: () => Promise<string | null> }) => {
-          expect(await input.resolveSafetyIdentifier()).toBeNull();
-          return null;
-        },
+        environment: { NODE_ENV: "test", LOGIPLAN_AI_LIVE_CALLS: "1" } as Record<
+          string,
+          string | undefined
+        >,
         createRuntime: async () => {
           runtimeCalls += 1;
           return runtimeFor(new InMemoryRedisLike()) as never;
@@ -404,36 +399,28 @@ describe("D-192 阶段 1：匿名标识传递与门 C 关闭开关", () => {
     expect(runtimeCalls).toBe(0);
   });
 
-  it('关闭开关：默认工厂需「开关 = "1"」且「密钥非空」才装配；缺任一都返回 null 且**不派生**匿名标识', async () => {
-    let derived = 0;
+  it('默认工厂需「开关 = "1"」且「DEEPSEEK_API_KEY 非空」才装配；缺任一都返回 null', async () => {
     const factoryInput = (environment: Record<string, string | undefined>) => ({
       environment,
-      resolveSafetyIdentifier: async () => {
-        derived += 1;
-        return "anon-value";
-      },
-      priceVersion: PRICE_VERSION_V1,
+      priceVersion: PRICE_VERSION_V2,
     });
 
-    // 条件 1 未满足（开关关闭）⇒ null，且**连派生都不发生**（这才是开关的可观测效应）。
+    // 条件 1 未满足（开关关闭）⇒ null。
     expect(await createProviderAdapter(factoryInput({}))).toBeNull();
     expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "0" }))).toBeNull();
-    expect(derived).toBe(0);
 
-    // 条件 2 未满足（开关开但无密钥）⇒ 仍在派生之前返回 null。
+    // 条件 2 未满足（开关开但无密钥）⇒ 仍为 null。
     expect(await createProviderAdapter(factoryInput({ LOGIPLAN_AI_LIVE_CALLS: "1" }))).toBeNull();
-    expect(derived).toBe(0);
 
-    // 三个条件齐备 ⇒ **真的装配出适配器**（构造 SDK 客户端不发任何网络请求）。
+    // 两个条件齐备 ⇒ **真的装配出适配器**（构造客户端不发任何网络请求）。
     const adapter = await createProviderAdapter(
       factoryInput({
         LOGIPLAN_AI_LIVE_CALLS: "1",
-        OPENAI_API_KEY: "sk-test-not-a-real-key",
+        DEEPSEEK_API_KEY: "sk-test-not-a-real-key",
       }),
     );
     expect(adapter).not.toBeNull();
     expect(typeof adapter?.invoke).toBe("function");
-    expect(derived).toBe(1);
   });
 
   it("关闭开关：开关关闭时装配层不进入会话（回落固定示例）", async () => {

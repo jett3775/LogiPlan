@@ -1,10 +1,6 @@
 import { createDeepSeekAdapter, type CostLookup, type DeepSeekAdapterHooks } from "./adapter";
 import { createDeepSeekHttpClient, type DeepSeekFetch } from "./client";
-import type {
-  DeepSeekResponsesClient,
-  JsonSchema,
-  ProviderAdapter,
-} from "./types";
+import type { DeepSeekResponsesClient, JsonSchema, ProviderAdapter } from "./types";
 
 /**
  * 由 API key 装配真实 DeepSeek 适配器（门 C 激活入口）。

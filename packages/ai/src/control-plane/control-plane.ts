@@ -1,5 +1,6 @@
 import type { GatewayErrorCode } from "../gateway/gateway-error-code";
 import { runWithHardTimeout } from "../gateway/retry-policy";
+import { AI_ROLE_ROUTES } from "../config/role-config";
 import type { AiRole } from "../routing/role-routing";
 import { deriveAnonymousId } from "./anonymous-id";
 import {
@@ -32,12 +33,14 @@ export interface RoleCostProfile {
   readonly maxOutputTokens: number;
 }
 
-/** 角色成本档案；模型与输出上限取自角色配置（D-180 冻结，D-193 切换为 DeepSeek）。 */
-export const DEFAULT_ROLE_COST_PROFILES: Readonly<Record<AiRole, RoleCostProfile>> = {
-  intent_parse: { model: "deepseek-flash", maxOutputTokens: 400 },
-  management_analysis: { model: "deepseek-flash", maxOutputTokens: 1200 },
-  fallback: { model: "deepseek-flash", maxOutputTokens: 400 },
-};
+/** 角色成本档案；模型与输出上限直接取自角色配置，避免两处硬编码漂移。 */
+export const DEFAULT_ROLE_COST_PROFILES: Readonly<Record<AiRole, RoleCostProfile>> =
+  Object.fromEntries(
+    AI_ROLE_ROUTES.map((route) => [
+      route.role,
+      { model: route.model, maxOutputTokens: route.maxOutputTokens } satisfies RoleCostProfile,
+    ]),
+  ) as Readonly<Record<AiRole, RoleCostProfile>>;
 
 export interface ControlPlaneConfig {
   readonly environment: string;

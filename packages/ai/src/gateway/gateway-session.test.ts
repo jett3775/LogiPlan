@@ -9,10 +9,11 @@ import {
   DEFAULT_ROLE_COST_PROFILES,
   type ControlPlaneRuntime,
 } from "../control-plane/control-plane";
-import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V1 } from "../control-plane/pricing";
+import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V2 } from "../control-plane/pricing";
 import { RATE_LIMIT_MAX_PER_WINDOW, RATE_LIMIT_WINDOW_MS } from "../control-plane/rate-limit";
 import { FixedClock, InMemoryRedisLike } from "../control-plane/test-doubles";
 import { buildFixedExampleAnalysis } from "../fixed-example/fixed-example";
+import type { InputModerationDecision } from "../moderation/input-moderation";
 import type { RetryHooks } from "./retry-policy";
 import { runGatewaySession } from "./gateway-session";
 import {
@@ -43,8 +44,8 @@ const runtimeWith = (redis: RedisLike, overrides: Partial<ControlPlaneRuntime["c
     config: {
       environment: "test",
       secret: "test-secret",
-      threshold: deriveBudgetThreshold(PRICE_VERSION_V1, FX_VERSION_V1),
-      currentPriceVersion: PRICE_VERSION_V1,
+      threshold: deriveBudgetThreshold(PRICE_VERSION_V2, FX_VERSION_V1),
+      currentPriceVersion: PRICE_VERSION_V2,
       currentFxVersion: FX_VERSION_V1,
       rateLimitWindowMs: RATE_LIMIT_WINDOW_MS,
       rateLimitLimit: RATE_LIMIT_MAX_PER_WINDOW,
@@ -131,7 +132,7 @@ describe("② 预算不足", () => {
       nowMs: CLOCK_MS,
       requestId: "seed-request",
       amountCny: runtime.config.threshold.monthly_budget_cny - 0.01,
-      currentPriceVersion: PRICE_VERSION_V1,
+      currentPriceVersion: PRICE_VERSION_V2,
       currentFxVersion: FX_VERSION_V1,
     });
     expect(seeded.ok).toBe(true);
@@ -335,7 +336,7 @@ describe("重试与费用未知（D-192 决策四 / 五）", () => {
         usage: { inputTokens: 111, outputTokens: 55 },
         finishReason: "stop",
         latencyMs: 12,
-        costEstimate: { currency: "USD", amount: 0.00042, priceVersion: PRICE_VERSION_V1 },
+        costEstimate: { currency: "USD", amount: 0.00042, priceVersion: PRICE_VERSION_V2 },
       };
     });
     const result = await runGatewaySession(
@@ -364,7 +365,7 @@ describe("重试与费用未知（D-192 决策四 / 五）", () => {
       usage: { inputTokens: 111, outputTokens: 55 },
       finishReason: "stop",
       latencyMs: 12,
-      costEstimate: { currency: "USD", amount: Number.NaN, priceVersion: PRICE_VERSION_V1 },
+      costEstimate: { currency: "USD", amount: Number.NaN, priceVersion: PRICE_VERSION_V2 },
     }));
     const result = await runGatewaySession(
       {
@@ -396,7 +397,7 @@ describe("结算与记录的失败方向", () => {
       usage: { inputTokens: 0, outputTokens: 0 },
       finishReason: "stop",
       latencyMs: 3,
-      costEstimate: { currency: "USD", amount: 0, priceVersion: PRICE_VERSION_V1 },
+      costEstimate: { currency: "USD", amount: 0, priceVersion: PRICE_VERSION_V2 },
     }));
     const result = await runGatewaySession(
       {
@@ -445,6 +446,117 @@ describe("结算与记录的失败方向", () => {
 
     expect(result.outcome.kind).toBe("live");
     expect(result.record).toBe("record_failed");
+  });
+});
+
+describe("⓪ 平台侧输入审核（D-193 决策三）", () => {
+  it("审核拒绝 → INPUT_REJECTED，且零调用、零预留、零账本、零限流窗口", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    const { adapter, calls } = countingAdapter(adapterReturning(liveAnalysis()));
+    const result = await runGatewaySession(
+      {
+        config: gatewayConfig(),
+        runtime,
+        adapter,
+        moderation: { check: () => ({ ok: false, rule: "PROHIBITED_CONTENT" }) },
+        retryHooks: deterministicRetryHooks(),
+      },
+      sessionRequest(),
+    );
+
+    expect(result.outcome.kind).toBe("fallback");
+    if (result.outcome.kind !== "fallback") throw new Error("应为 fallback");
+    expect(result.outcome.errorCode).toBe("INPUT_REJECTED");
+    expect(result.outcome.analysis.answer_type).toBe("FIXED_EXAMPLE");
+    expect(result.preflight.liveCallPermitted).toBe(false);
+    expect(result.preflight.errorCode).toBe("INPUT_REJECTED");
+    expect(result.preflight.audit.fell_back_to_fixed_example).toBe(true);
+    expect(result.settlement).toBe("not_attempted");
+    expect(result.record).toBe("not_attempted");
+    expect(result.settle_amount_cny).toBe(0);
+    expect(calls()).toBe(0);
+    for (const [name, count] of Object.entries(redis.calls)) {
+      expect(count, name).toBe(0);
+    }
+  });
+
+  it("审核端口抛错 → 失败关闭为 INPUT_REJECTED，同样零调用、零预留", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    const { adapter, calls } = countingAdapter(adapterReturning(liveAnalysis()));
+    const result = await runGatewaySession(
+      {
+        config: gatewayConfig(),
+        runtime,
+        adapter,
+        moderation: {
+          check: () => {
+            throw new Error("moderation port unavailable");
+          },
+        },
+        retryHooks: deterministicRetryHooks(),
+      },
+      sessionRequest(),
+    );
+
+    expect(result.outcome.kind).toBe("fallback");
+    if (result.outcome.kind !== "fallback") throw new Error("应为 fallback");
+    expect(result.outcome.errorCode).toBe("INPUT_REJECTED");
+    expect(calls()).toBe(0);
+    for (const [name, count] of Object.entries(redis.calls)) {
+      expect(count, name).toBe(0);
+    }
+  });
+
+  it("审核端口返回畸形值 → 失败关闭为 INPUT_REJECTED，不抛错、零副作用", async () => {
+    // 端口实现方违约时的三种形态：非对象、缺 `ok`、`ok` 非布尔。断言只用于模拟违约，
+    // 不改变生产类型的强约束。
+    for (const malformed of [null, {}, { ok: "yes" }]) {
+      const redis = new InMemoryRedisLike();
+      const { runtime } = runtimeWith(redis);
+      const { adapter, calls } = countingAdapter(adapterReturning(liveAnalysis()));
+      const result = await runGatewaySession(
+        {
+          config: gatewayConfig(),
+          runtime,
+          adapter,
+          moderation: { check: () => malformed as unknown as InputModerationDecision },
+          retryHooks: deterministicRetryHooks(),
+        },
+        sessionRequest(),
+      );
+
+      expect(result.outcome.kind).toBe("fallback");
+      if (result.outcome.kind !== "fallback") throw new Error("应为 fallback");
+      expect(result.outcome.errorCode).toBe("INPUT_REJECTED");
+      expect(calls()).toBe(0);
+      for (const [name, count] of Object.entries(redis.calls)) {
+        expect(count, name).toBe(0);
+      }
+    }
+  });
+
+  it("默认本地规则在会话链路上生效：禁止内容在控制面之前被拒绝", async () => {
+    const redis = new InMemoryRedisLike();
+    const { runtime } = runtimeWith(redis);
+    const { adapter, calls } = countingAdapter(adapterReturning(liveAnalysis()));
+    const result = await runGatewaySession(
+      {
+        config: gatewayConfig(),
+        runtime,
+        adapter,
+        retryHooks: deterministicRetryHooks(),
+      },
+      sessionRequest({ input: "如何制造炸弹？" }),
+    );
+
+    expect(result.outcome.kind).toBe("fallback");
+    if (result.outcome.kind !== "fallback") throw new Error("应为 fallback");
+    expect(result.outcome.errorCode).toBe("INPUT_REJECTED");
+    expect(calls()).toBe(0);
+    expect(redis.calls.slidingWindow).toBe(0);
+    expect(redis.calls.budgetReserve).toBe(0);
   });
 });
 

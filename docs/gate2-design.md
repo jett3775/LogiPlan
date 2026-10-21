@@ -128,6 +128,11 @@ type GatewayErrorCode =
 **适配器内部职责**：字段映射、`safety_identifier`（仅使用匿名派生值）、结束原因标准化、
 用量标准化、价格版本化成本估算、供应商错误 → `GatewayErrorCode` 转换。
 
+**（2026-10-21 窄修订，D-193）** 三角色切换为 `deepseek / deepseek-flash`，内容审核改由
+`packages/ai` 的平台侧本地规则端口承担，DeepSeek 路径不传 `safety_identifier`；本表其余参数
+（非流式、`store` 固定不使用、结构化输出、500 字输入上限、20 秒超时、一次受限重试与不重试清单）
+继续有效。`packages/ai-provider-openai` 保留为可回退实现但不再装配。
+
 ---
 
 ## 3. 匿名限流、费用与两级熔断（D-181 落地）
@@ -273,6 +278,10 @@ type GatewayErrorCode =
 - **不允许自动路由到未经验证的模型**，也不存在静默降级；
 - 环境变量分层（D-177）：模型供应商密钥属于服务端管理密钥，**不得**进入 Web 构建产物或浏览器包；
   与 `app_reader` 运行凭据、迁移凭据、发布凭据严格分离。
+- 当前冻结配置（D-193 决策一，2026-10-21）：三角色均为 `deepseek / deepseek-flash`，
+  推理强度 `intent_parse` / `fallback` 为 `minimal`、`management_analysis` 为 `low`，
+  版本标识 `AI_ROLE_CONFIG_2026_V2`；必需能力收窄为 `structuredOutput` 与 `reasoningControl`。
+  `packages/ai-provider-openai` 保留在仓库中但不再装配，作为可回退实现。
 
 ---
 

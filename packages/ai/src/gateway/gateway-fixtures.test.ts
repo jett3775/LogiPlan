@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AdapterRequest, AdapterResult, ProviderAdapter } from "../adapter/adapter-contract";
 import { allCapabilitiesGranted } from "../adapter/provider-capabilities";
 import { AI_ROLE_ROUTES } from "../config/role-config";
+import { PRICE_VERSION_V2 } from "../control-plane/pricing";
 import { FIXED_EXAMPLE_SUPPORTED_NUMBERS } from "../fixed-example/evaluation-baseline";
 import { buildFixedExampleAnalysis } from "../fixed-example/fixed-example";
 import type { GatewayConfig, GatewayRequest } from "./gateway";
@@ -54,7 +55,7 @@ export const liveAnalysis = (overrides: Record<string, unknown> = {}): unknown =
 
 export const gatewayConfig = (overrides: Partial<GatewayConfig> = {}): GatewayConfig => ({
   environment: "test",
-  priceVersion: "PRICE_2026_V1",
+  priceVersion: PRICE_VERSION_V2,
   routes: AI_ROLE_ROUTES,
   ...overrides,
 });
@@ -90,14 +91,14 @@ export const fakeAdapter = (
 /** 返回固定结构化输出的假适配器。 */
 export const adapterReturning = (structuredOutput: unknown): ProviderAdapter =>
   fakeAdapter(async (request) => ({
-    provider: "openai",
+    provider: "deepseek",
     model: request.model,
     providerRequestId: "resp_fake_1",
     structuredOutput,
     usage: { inputTokens: 111, outputTokens: 55 },
     finishReason: "stop",
     latencyMs: 12,
-    costEstimate: { currency: "USD", amount: 0.00042, priceVersion: "PRICE_2026_V1" },
+    costEstimate: { currency: "USD", amount: 0.00042, priceVersion: PRICE_VERSION_V2 },
   }));
 
 /** 抛中立错误码的假适配器。 */

@@ -8,6 +8,8 @@ import {
   isThresholdCurrent,
   MONTHLY_BUDGET_CNY,
   PRICE_VERSION_V1,
+  PRICE_VERSION_V2,
+  priceTableFor,
   SAFETY_MARGIN,
   USD_CNY_RATE_V1,
   usdToCny,
@@ -68,6 +70,26 @@ describe("月预算阈值换算", () => {
   it("未知模型成本为 Infinity（预留必然超上限 → 失败关闭）", () => {
     expect(
       estimateCostUsd(PRICE_VERSION_V1, "unknown-model", { inputTokens: 1, outputTokens: 1 }),
+    ).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("PRICE_2026_V2 冻结 DeepSeek 峰值价并按同一版本推导阈值（D-193 决策四）", () => {
+    expect(priceTableFor(PRICE_VERSION_V2)?.["deepseek-flash"]).toEqual({
+      input_usd_per_million: 0.3,
+      output_usd_per_million: 1.2,
+    });
+    expect(
+      estimateCostUsd(PRICE_VERSION_V2, "deepseek-flash", {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBeCloseTo(1.5, 12);
+    expect(deriveBudgetThreshold(PRICE_VERSION_V2, FX_VERSION_V1).price_version).toBe(
+      PRICE_VERSION_V2,
+    );
+    // 回退到 V1 前必须为 OpenAI 条目增补 DeepSeek 价格，否则估算为 Infinity（D-193 决策一）。
+    expect(
+      estimateCostUsd(PRICE_VERSION_V1, "deepseek-flash", { inputTokens: 1, outputTokens: 1 }),
     ).toBe(Number.POSITIVE_INFINITY);
   });
 });

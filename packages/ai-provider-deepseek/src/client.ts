@@ -56,8 +56,7 @@ export const createDeepSeekHttpClient = (
     throw new Error("DeepSeek client requires a non-blank apiKey");
   }
   const fetchImpl =
-    options.fetchImpl ??
-    (globalThis.fetch.bind(globalThis) as unknown as DeepSeekFetch);
+    options.fetchImpl ?? (globalThis.fetch.bind(globalThis) as unknown as DeepSeekFetch);
   const baseUrl = options.baseUrl ?? DEEPSEEK_API_BASE_URL;
 
   return {

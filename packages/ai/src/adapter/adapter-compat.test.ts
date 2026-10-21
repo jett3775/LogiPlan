@@ -4,14 +4,17 @@ import {
   NEUTRAL_LAYER_ERROR_CODES,
   PROVIDER_CAPABILITY_NAMES,
   reasoningEffortForRole,
-  requiredCapabilitiesForRole,
   type AdapterRequest as ProviderAdapterRequest,
   type AdapterResult as ProviderAdapterResult,
   type ProviderAdapter as ProviderAdapterContract,
 } from "@logiplan/ai-provider-openai";
 import { describe, expect, it } from "vitest";
 
-import { AI_ROLE_ROUTES, roleConfigFor } from "../config/role-config";
+import {
+  AI_ROLE_ROUTES,
+  REQUIRED_PROVIDER_CAPABILITIES,
+  roleConfigFor,
+} from "../config/role-config";
 import { GATEWAY_ERROR_CODES } from "../gateway/gateway-error-code";
 import { ROLE_REASONING_EFFORTS } from "../routing/role-routing";
 import type {
@@ -49,12 +52,15 @@ describe("角色配置与适配器需求侧逐角色一致（协调项 1）", ()
     );
   });
 
-  it("每个角色的必需能力与适配器声明一致", () => {
+  it("每个角色的必需能力收窄为供应商必须提供的两项（D-193）", () => {
     for (const role of ADAPTER_ROLES) {
       const route = roleConfigFor(role);
       expect(route, role).not.toBeNull();
-      expect(route?.requiredCapabilities).toEqual(requiredCapabilitiesForRole(role));
-      expect(route?.requiredCapabilities).toEqual(PROVIDER_CAPABILITY_NAMES);
+      expect(route?.requiredCapabilities).toEqual(["structuredOutput", "reasoningControl"]);
+      expect(route?.requiredCapabilities).toEqual(REQUIRED_PROVIDER_CAPABILITIES);
+      for (const name of route?.requiredCapabilities ?? []) {
+        expect(PROVIDER_CAPABILITY_NAMES).toContain(name);
+      }
     }
   });
 
@@ -65,12 +71,12 @@ describe("角色配置与适配器需求侧逐角色一致（协调项 1）", ()
     }
   });
 
-  it("D-180 冻结的模型与输出上限", () => {
-    expect(roleConfigFor("intent_parse")?.model).toBe("gpt-5.6-luna");
+  it("D-193 切换后的模型与输出上限", () => {
+    expect(roleConfigFor("intent_parse")?.model).toBe("deepseek-flash");
     expect(roleConfigFor("intent_parse")?.maxOutputTokens).toBe(400);
-    expect(roleConfigFor("management_analysis")?.model).toBe("gpt-5.6-terra");
+    expect(roleConfigFor("management_analysis")?.model).toBe("deepseek-flash");
     expect(roleConfigFor("management_analysis")?.maxOutputTokens).toBe(1200);
-    expect(roleConfigFor("fallback")?.model).toBe("gpt-5.6-luna");
+    expect(roleConfigFor("fallback")?.model).toBe("deepseek-flash");
     expect(roleConfigFor("fallback")?.maxOutputTokens).toBe(400);
   });
 });

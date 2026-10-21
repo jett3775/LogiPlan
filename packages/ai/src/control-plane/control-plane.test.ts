@@ -11,7 +11,7 @@ import {
   type ControlPlaneRequest,
 } from "./control-plane";
 import { reserveBudget } from "./budget-ledger";
-import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V1 } from "./pricing";
+import { deriveBudgetThreshold, FX_VERSION_V1, PRICE_VERSION_V2 } from "./pricing";
 import { RATE_LIMIT_WINDOW_MS } from "./rate-limit";
 import {
   FailingRedisLike,
@@ -32,13 +32,13 @@ const T0 = Date.parse("2026-10-08T12:00:00.000Z");
 const RAW_IP = "203.0.113.7";
 const RAW_UA = "Mozilla/5.0 (Windows NT 10.0) LogiPlanTest/1.0";
 
-const threshold = deriveBudgetThreshold(PRICE_VERSION_V1, FX_VERSION_V1);
+const threshold = deriveBudgetThreshold(PRICE_VERSION_V2, FX_VERSION_V1);
 
 const makeConfig = (overrides: Partial<ControlPlaneConfig> = {}): ControlPlaneConfig => ({
   environment: "test",
   secret: "test-secret",
   threshold,
-  currentPriceVersion: PRICE_VERSION_V1,
+  currentPriceVersion: PRICE_VERSION_V2,
   currentFxVersion: FX_VERSION_V1,
   rateLimitWindowMs: RATE_LIMIT_WINDOW_MS,
   rateLimitLimit: 2,
@@ -111,7 +111,7 @@ describe("控制面失败关闭（AC2.3 / AC2.4）", () => {
       nowMs: T0,
       requestId: "seed",
       amountCny: 30,
-      currentPriceVersion: PRICE_VERSION_V1,
+      currentPriceVersion: PRICE_VERSION_V2,
       currentFxVersion: FX_VERSION_V1,
     });
     const deps = makeDeps(redis);

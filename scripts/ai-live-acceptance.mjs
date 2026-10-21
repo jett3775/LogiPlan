@@ -9,7 +9,7 @@
  *
  * ```bash
  * pnpm build
- * LOGIPLAN_AI_LIVE_CALLS=1 OPENAI_API_KEY=... node --env-file-if-exists=.env \
+ * LOGIPLAN_AI_LIVE_CALLS=1 DEEPSEEK_API_KEY=... node --env-file-if-exists=.env \
  *   scripts/ai-live-acceptance.mjs --base-url=http://127.0.0.1:4173
  * ```
  *
@@ -25,8 +25,8 @@
  *
  * ## 预检（不花钱）
  *
- * ① `OPENAI_API_KEY` 是否存在；② API 是否可达；③ **配置的角色模型是否在账号模型表内**
- * （`gpt-5.6-luna` / `gpt-5.6-terra`，D-180 冻结）；④ 控制面账本基线是否读得到。
+ * ① `DEEPSEEK_API_KEY` 是否存在（D-193 决策五）；② API 是否可达；③ **配置的角色模型是否在
+ * 账号模型表内**（`deepseek-flash`，D-193 决策一）；④ 控制面账本基线是否读得到。
  */
 
 import { spawn } from "node:child_process";
@@ -45,8 +45,8 @@ const REPO_ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:
 const PAGE_ADDRESS = "/attribution?destination=GB&period=2026-08";
 const QUESTION = "2026 年 8 月英国履约变动成本相对 Budget 偏差多少？";
 
-/** 冻结的角色配置（`packages/ai/src/config/role-config.ts`，D-180）。 */
-const CONFIGURED_MODELS = ["gpt-5.6-luna", "gpt-5.6-terra"];
+/** 冻结的角色配置（`packages/ai/src/config/role-config.ts`，D-193 决策一）。 */
+const CONFIGURED_MODELS = ["deepseek-flash"];
 
 const results = [];
 const record = (ok, label, detail = "") => {
@@ -173,17 +173,17 @@ const main = async () => {
 
 const runChecks = async () => {
   // ---- 预检（不花钱）----
-  const apiKey = process.env["OPENAI_API_KEY"];
+  const apiKey = process.env["DEEPSEEK_API_KEY"];
   record(
     LIVE ? typeof apiKey === "string" && apiKey.length > 0 : true,
-    "预检 ①：OPENAI_API_KEY",
+    "预检 ①：DEEPSEEK_API_KEY",
     LIVE ? (apiKey ? "已配置（值不打印）" : "**缺失**") : "开关关闭，跳过",
   );
 
   if (LIVE) {
     let reachable = false;
     try {
-      const probe = await fetch("https://api.openai.com/v1/models", {
+      const probe = await fetch("https://api.deepseek.com/models", {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(20_000),
       });

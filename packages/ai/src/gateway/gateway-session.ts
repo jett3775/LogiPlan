@@ -19,6 +19,12 @@ import type { EvidenceWhitelist } from "./evidence-port";
 import { runGateway, type GatewayConfig, type GatewayOutcome } from "./gateway";
 import type { RetryHooks } from "./retry-policy";
 
+/** 审核端口返回结构不合约定时按「审核异常」处理，失败关闭（D-193 决策三）。 */
+const isModerationDecision = (value: unknown): value is InputModerationDecision =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as { readonly ok?: unknown }).ok === "boolean";
+
 /**
  * 端到端会话编排：**控制面预检 → 网关编排 → 记录尝试结局 → 结算**。
  *
@@ -114,7 +120,8 @@ export const runGatewaySession = async (
   const moderationPort = deps.moderation ?? LOCAL_INPUT_MODERATION;
   let moderated: InputModerationDecision;
   try {
-    moderated = await moderationPort.check(request.input);
+    const decision: unknown = await moderationPort.check(request.input);
+    moderated = isModerationDecision(decision) ? decision : { ok: false, rule: "PORT_FAILURE" };
   } catch {
     moderated = { ok: false, rule: "PORT_FAILURE" };
   }

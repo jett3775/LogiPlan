@@ -144,6 +144,7 @@ export const sampleRequest = (overrides: Partial<AdapterRequest> = {}): AdapterR
   outputSchemaVersion: "intent-schema-v1",
   input: "上个月成本最高的目的国是哪个？",
   evidenceWhitelist: ["E01-country", "E04-total"],
+  reasoningEffort: "low",
   maxOutputTokens: 400,
   timeoutMs: 20_000,
   ...overrides,

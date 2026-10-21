@@ -2058,7 +2058,7 @@
 - 内容安全：使用 `omni-moderation-latest` 检查用户输入，命中或服务异常时返回受控中文状态并保留固定示例；模型不承担确定性查询、证据生成或内容权限判断。
 - 可靠性：单次供应商调用硬超时 20 秒，只对 429 或 5xx 最多重试一次，使用短随机退避；校验失败、内容拒绝、4xx 参数错误和预算熔断不重试。
 - 用量记录：只记录 D-138 允许的请求级元数据及标准化 token、模型、供应商、延迟和费用，不记录自然语言全文、完整回答或证据正文。
-- **（2026-10-21 窄修订，D-193）** 三角色 provider / model、推理强度、内容审核方式、`store:false` 判定与匿名标识传递由 D-193 修订；本条其余内容保留为历史记录。D-193 尚未实施，当前代码仍为 OpenAI 配置。
+- **（2026-10-21 窄修订，D-193）** 三角色 provider / model、推理强度、内容审核方式、`store:false` 判定与匿名标识传递由 D-193 修订；本条其余内容保留为历史记录。D-193 已于同日实施：当前代码为 `deepseek / deepseek-flash` 三角色配置，`packages/ai-provider-openai` 保留为可回退实现但不再装配。
 
 ## D-181：冻结第二闸门匿名限流、费用与证据快照实现
 
@@ -2071,7 +2071,7 @@
 - 会话快照：真实回答、采用范围和不可变证据快照默认只保存在 `sessionStorage`，不写入共享业务数据库；页面恢复必须同时校验契约、数据发布、供应商、模型、提示词和模式版本。
 - 证据约束：模型只能引用服务端提供的证据 ID 白名单，输出中的数值必须能回指同一确定性结果；任何额外数字、未知证据或范围不一致都使生成结果失败并回退固定示例。
 - 回归触发：供应商、模型、适配器、提示词、输出模式或价格版本改变时，重新运行完整 20 题固定 AI 评估集以及数字越界、证据引用、限流、费用和失败回退测试，未通过不得激活新配置。
-- **（2026-10-21 窄修订，D-193）** DeepSeek 路径不向供应商传 `safety_identifier`；平台内部匿名派生、限流与审计仍按 D-181 执行，原始 IP / User-Agent 仍不落盘、不入日志。本注记为计划，尚未实施；当前代码仍为 OpenAI 路径。
+- **（2026-10-21 窄修订，D-193）** DeepSeek 路径不向供应商传 `safety_identifier`；平台内部匿名派生、限流与审计仍按 D-181 执行，原始 IP / User-Agent 仍不落盘、不入日志。本注记已于同日实施：装配层调用适配器工厂时不再解析匿名派生值。
 
 ## D-182：冻结首个纵向切片的技术排除项
 
@@ -2216,14 +2216,15 @@
   - `packages/ai` 控制面：匿名派生、限流、预算预留、两级熔断。**不**接触 HTTP、**不**查库。
   - `packages/ai` 网关与会话（`gateway/gateway.ts`、`gateway/gateway-session.ts`）：角色路由 → 能力门 → 预检消费 → 适配器 → 重试 → 三检 → 记录 → 结算编排。**不**派生匿名、**不**查库、**不**构造适配器。
   - `packages/ai-provider-*`：供应商协议与错误映射、成本估算。不含业务规则。
-- **（2026-10-21 窄修订，D-193）** 计划自实施起，`packages/ai` 的网关会话在控制面预检之前增加平台侧输入审核步骤；D-192 其余层职责与结算语义不变；审核拒绝不产生预留，因此不触及决策四的「未响应保留预留额」规则。本注记为计划，尚未实施；当前代码仍为 OpenAI 路径。
+- **（2026-10-21 窄修订，D-193）** 计划自实施起，`packages/ai` 的网关会话在控制面预检之前增加平台侧输入审核步骤；D-192 其余层职责与结算语义不变；审核拒绝不产生预留，因此不触及决策四的「未响应保留预留额」规则。本注记已于同日实施：审核步骤位于会话链路中控制面预检之前，拒绝路径不触及适配器、账本与限流窗口。
 - 决策二（四条接线位置，均为显式函数而非约定）：
   1. **证据范围**：`buildNeutralEvidenceWhitelist(data)`（`ai-model.ts`）产出网关唯一的事实入口——`scope_anchor` + 4 个 `result_sets{evidence_ids, numbers}`。锚点是**规范化 JSON 并剔除 `factor_id`**：它只影响下钻排序，若计入则「选了因素」与「没选因素」会成为两个范围，而四族里只有 `drilldown` 带 `factor_id` ⇒ 只要选了因素真实输出必然回落。四族锚点不一致 ⇒ 返回 `null` ⇒ 失败关闭。
   2. **匿名标识**：`deriveSafetyIdentifier(...)`（`ai-model.ts`）——适配器的 `safety_identifier` **只能**取它的返回值；控制面按同一组输入自行派生，两处值一致（有测试锁定）。原始 IP / User-Agent 不落盘、不入日志、不进审计。
   3. **预算预留**：`runGatewaySession` 内的 `evaluateControlPlane`（限流 → L2 → 原子预留 → L1）。
   4. **预算结算**：`runGatewaySession` 内、且**仅当收到供应商响应**时把预留替换为实际成本（USD → CNY 用控制面配置的汇率版本）。
-- **（2026-10-21 窄修订，D-193）** DeepSeek 路径的适配器不接收 `safety_identifier`，装配条件 3（工厂必须取得派生标识）对 DeepSeek 不适用；平台内部匿名派生不变，D-192 其余装配边界不变。本注记同为计划，尚未实施；当前代码仍为 OpenAI 路径。
+- **（2026-10-21 窄修订，D-193）** DeepSeek 路径的适配器不接收 `safety_identifier`，装配条件 3（工厂必须取得派生标识）对 DeepSeek 不适用；平台内部匿名派生不变，D-192 其余装配边界不变。本注记已于同日实施：默认工厂签名的派生标识参数已移除。
 - 决策三（适配器边界与门 C）：**本轮不装配任何真实适配器**——装配层的 `adapter` 恒为 `null`。`null` 时装配层**完全不进入会话**（不预检、不预留、不写账本、不写限流窗口），直接回落固定示例 ⇒ **零真实调用、零付费**。`LOGIPLAN_AI_LIVE_CALLS` 是门 C 的显式开关；门 C 开启时在此处用 `deriveSafetyIdentifier` 的返回值装配 `packages/ai-provider-openai` 的适配器。这样「本部署没有真实调用路径」是**构造性**事实，而不是配置约定。
+- **（2026-10-21 窄修订，D-193）** 决策三的门 C 装配对象改为 `packages/ai-provider-deepseek`，且不再以 `deriveSafetyIdentifier` 的返回值作为装配前提；`adapter = null` 时的零调用语义与开关名不变。
 - 决策四（失败方向，逐条）：
   - 预检不放行 ⇒ 未调用、未预留 ⇒ 不记录、不结算。
   - 预检放行 ⇒ 一定发生过一次预留 ⇒ **一定**尝试结算。
@@ -2242,7 +2243,7 @@
 
 ## D-193：后台模型切换至 DeepSeek 并冻结平台侧审核与峰值价格
 
-- 状态：已确认（仅决策已确认；代码实施另行立项，本轮未改代码）
+- 状态：已确认并已实施（2026-10-21 实施代码；真实调用验收与 20 题评估尚未执行）
 - 日期：2026-10-21
 - 背景：D-174 允许新增供应商，要求实现适配器、能力声明与兼容测试；D-180 冻结了 OpenAI 初始角色配置与 `omni-moderation-latest` 审核。2026-10-20 已完成 `packages/ai-provider-deepseek` 的未激活低层适配（提交 `b7ba535`；注入式客户端、协议映射、错误映射、超时、成本注入、固定能力声明），全程使用替身、零真实调用。2026-10-21 第二轮独立复查仍为 FAIL，唯一阻断是 dormant 边界测试只识别名称为 `process` 的标识符，`import proc from "node:process"` 会漏报；按两轮上限已停止自动返工。本决策确定正式切换的范围与参数。
 - 决策一（切换范围）：三个角色全部改为 `provider = "deepseek"`、`model = "deepseek-flash"`。`packages/ai-provider-openai` 保留在仓库中但不再装配，作为可回退实现，不删除既有代码与测试。切换后浏览器仍不得提交供应商名、模型名或供应商参数（D-174 不变）。回退到 OpenAI 需同时回退价格版本，或为 `PRICE_2026_V2` 增补 OpenAI 条目；`PRICE_2026_V1` 保留。
@@ -2255,7 +2256,7 @@
 - 决策三（平台侧内容审核）：在 `packages/ai` 增加供应商中立的审核端口，在控制面限流、L2 熔断检查与预算预留**之前**执行。命中或审核异常一律失败关闭、不重试、直接回落固定示例；此路径**不产生预留、不写账本、不写限流窗口、不调用适配器**，沿用 D-180 的失败方向。默认实现为本地规则审核：沿用现有 500 Unicode 字符输入上限；控制字符与异常字符集；提示注入模式；明确禁止内容词表。规则集受版本控制并随配置进 Git。如实记录这是相对模型审核的能力降级：本地规则无法覆盖语义级有害内容。输出三检（公共 Zod 模式、证据白名单、数值回指）、证据范围锚定与失败关闭不变，仍是最外层防线。本轮不新增任何依赖或外部审核调用。
 - 决策四（价格与预算）：新增价格版本 `PRICE_2026_V2`。DeepSeek 按峰值档冻结，取 cache miss 价格：`deepseek-flash` 输入 0.30 美元 / 百万 token、输出 1.20 美元 / 百万 token。依据：DeepSeek 官方定价页（2026-10-21 核查），峰值时段为 UTC 周一至周五 01:00–04:00 与 06:00–10:00（不含中国法定节假日），对应上海时间约 09:00–12:00 与 14:00–18:00。汇率沿用 `FX_2026_V1 = 7.4`、10% 安全余量与月度 30 元人民币上限不变；价格版本变化后须按 D-190 重新推导阈值。缓存命中价、峰谷自动切换、缓存 token 折扣不纳入本版本；估算一律按峰值保守，宁可高估（D-181）。`deepseek-v4-pro` 暂不加入价格表，仅在评估未达标时按决策五另行变更。
 - 决策五（激活与验收顺序）：
-  - 代码实施顺序：修复 dormant 边界测试 → 能力模型与角色配置 → 平台审核端口 → 真实客户端与装配（`DEEPSEEK_API_KEY`）→ 价格表 → 全量验证 → 独立审查。边界测试修复需在代码实施前由用户单独授权；截至本决策记录，该授权尚未给出（2026-10-21 用户仅确认写入本决策文档），不得声称已获授权。
+  - 代码实施顺序：修复 dormant 边界测试 → 能力模型与角色配置 → 平台审核端口 → 真实客户端与装配（`DEEPSEEK_API_KEY`）→ 价格表 → 全量验证 → 独立审查。边界测试修复需在代码实施前由用户单独授权；该授权已于 2026-10-21 由用户指令给出，并按此顺序实施。
   - 密钥只走服务端环境变量 `DEEPSEEK_API_KEY`，只由装配处读取，不进入构建产物或浏览器包（D-177）。不新增 SDK 依赖；真实客户端使用注入的网络能力，单次尝试、无内部重试，重试仍唯一归属中立网关（D-192 决策七）。
   - `LOGIPLAN_AI_LIVE_CALLS` 在密钥与真实客户端就绪前保持关闭，线上行为不变。真实调用验收判据：响应 `status === "LIVE_GENERATED"`、输出三检通过、月度账本 `Δused_cny > 0`。
   - 20 题评估的执行环境与账本：20 题评估在**本地或非生产部署**中以 `LOGIPLAN_AI_LIVE_CALLS=1` 执行，使用**独立账本基线**（独立 Redis 实例或独立键前缀），不写生产账本；生产环境的该开关在评估通过前保持关闭。隔离评估环境是唯一允许开启开关执行 20 题的路径；「不得把开关打开作为评估手段」限定为「不得在**生产环境**以打开开关代替评估」。D-192 决策七的「真实调用与 20 题评估共用同一个月度预算、不分池」在**同一环境内**继续成立；隔离评估环境使用独立账本，但预算参数、10% 余量与 30 元口径不变；20 题按峰值上界估算约 0.43 元。评估结果按 D-190 决策三归档；未通过不得打开生产开关。
@@ -2263,5 +2264,5 @@
   - 20 题门槛按 `docs/gate2-design.md` §5.1 与 D-190 决策三执行：至少 18/20；E19、E20 必过；程序计算数字精确一致；出现编造数字、虚假证据或把相关性写成确定因果即整体失败；脚本自动执行加人工复核结论并归档；报告真实生成题数，回落固定示例的题目计为不通过；真实生成题数必须等于题集总数（20 题），低于总数不得判定评估通过。不得以本决策的枚举替代上述完整门槛。供应商、模型、适配器、提示词、输出模式或价格版本任一变化，必须重跑完整 20 题，未通过不得激活新配置。
   - 若 `deepseek-flash` 未通过 20 题评估，允许改为 `deepseek-v4-pro`：需另行新增价格条目与角色配置变更，并重新重跑 20 题；不得静默切换或按角色自动降级。
 - 保留约束：① 输出三检、证据白名单与范围锚定、全路径失败关闭不变；② D-190 的熔断参数、预算与配置版本化形态不变；③ D-191 的多快照输出契约与 D-192 的四层装配边界不变；④ 查询契约 V1.0 / V1.1 不变；⑤ 不新增依赖、不改锁文件。
-- 影响（计划，本轮均未实施）：`packages/ai-provider-deepseek`（边界测试、真实客户端、`adapter.ts` 的 `reasoningEffort` 映射）、`packages/ai`（能力声明、角色配置、审核端口、价格表、装配子路径）、`apps/web/app/lib/ai-server.ts`（按 provider 选择适配器）、`.env.example`（`DEEPSEEK_API_KEY`）、`vitest.config.ts`（如需新增覆盖范围）、`docs/current-plan.md`。推理强度传递的实施范围：`packages/ai/src/adapter/adapter-contract.ts`（`AdapterRequest` 增加 `reasoningEffort`）、`packages/ai/src/gateway/gateway.ts`（按角色路由透传该值）、`packages/ai-provider-deepseek/src/adapter.ts`（移除硬编码 `low`，按 `reasoningEffort` 映射 `minimal → "none"`、`low → "low"`；`types.ts` 的档位类型已含 `"none"`，无需修改）、`packages/ai-provider-openai` 的适配器实现（保持现有映射）、`packages/ai/src/adapter/adapter-compat.test.ts`（契约字段与映射断言）；**不改** `packages/ai/src/routing/role-routing.ts` 的 `ROLE_REASONING_EFFORTS` 枚举与 `packages/ai/src/config/role-config.ts` 的角色配置取值。价格版本切换的同批约束：`packages/ai/src/control-plane/server.ts` 的 `deriveBudgetThreshold(PRICE_VERSION_V1, ...)` 与 `currentPriceVersion` 必须与价格表同批切到 `PRICE_2026_V2`，否则账本返回 `stale_threshold`；`apps/web/app/lib/ai-server.ts` 传给工厂的价格版本也必须同批切换，否则 `deepseek-flash` 估算为 `Infinity`、预留失败。需在实施时同步但本轮不改的文档：`docs/development-roadmap.md` 中“首个适配器使用 OpenAI”的表述（约 L183）与该页以 D-180 OpenAI 配置为前提的段落（约 L326“第二闸门首个模型适配器按 D-180 使用 OpenAI SDK 7.5.0 与 Responses API”）、`docs/gate2-design.md` §1.3、§2、§3.1、§5.2 与 §6、`packages/ai-provider-deepseek/README.md`（其三 false 与“现有网关会失败关闭”的表述在实施后过期）、`docs/current-plan.md` §15。本轮实际只改 `docs/decisions.md`。
-- 风险与未决：① 三角色统一 `deepseek-flash` 可能无法通过 20 题门槛；预算不是约束（约 1400 次，按单次输入 4000、输出 1200 token 的上界与峰值价估算），必要时按决策五改用 `deepseek-v4-pro`。② 本地规则审核弱于模型审核，属已接受的降级。③ DeepSeek 不支持 OpenAI 的 `safety_identifier`；其 Responses API 存在等效的匿名 `user` 字段，本轮不传，仅平台内部保留匿名派生。④ dormant 边界测试的 `node:process` 别名漏报仍未关闭，是代码实施的第一项。⑤ 未执行真实 DeepSeek 调用、付费 API、20 题评估与部署。
+- 影响（2026-10-21 已实施，逐项如下）：`packages/ai-provider-deepseek`（边界测试、真实客户端、`adapter.ts` 的 `reasoningEffort` 映射）、`packages/ai`（能力声明、角色配置、审核端口、价格表、装配子路径）、`apps/web/app/lib/ai-server.ts`（按 provider 选择适配器）、`.env.example`（`DEEPSEEK_API_KEY`）、`vitest.config.ts`（如需新增覆盖范围）、`docs/current-plan.md`。推理强度传递的实施范围：`packages/ai/src/adapter/adapter-contract.ts`（`AdapterRequest` 增加 `reasoningEffort`）、`packages/ai/src/gateway/gateway.ts`（按角色路由透传该值）、`packages/ai-provider-deepseek/src/adapter.ts`（移除硬编码 `low`，按 `reasoningEffort` 映射 `minimal → "none"`、`low → "low"`；`types.ts` 的档位类型已含 `"none"`，无需修改）、`packages/ai-provider-openai` 的适配器实现（保持现有映射）、`packages/ai/src/adapter/adapter-compat.test.ts`（契约字段与映射断言）；**不改** `packages/ai/src/routing/role-routing.ts` 的 `ROLE_REASONING_EFFORTS` 枚举与 `packages/ai/src/config/role-config.ts` 的角色配置取值。价格版本切换的同批约束：`packages/ai/src/control-plane/server.ts` 的 `deriveBudgetThreshold(PRICE_VERSION_V1, ...)` 与 `currentPriceVersion` 必须与价格表同批切到 `PRICE_2026_V2`，否则账本返回 `stale_threshold`；`apps/web/app/lib/ai-server.ts` 传给工厂的价格版本也必须同批切换，否则 `deepseek-flash` 估算为 `Infinity`、预留失败。需在实施时同步的文档：`docs/development-roadmap.md` 中“首个适配器使用 OpenAI”的表述（约 L183）与该页以 D-180 OpenAI 配置为前提的段落（约 L326“第二闸门首个模型适配器按 D-180 使用 OpenAI SDK 7.5.0 与 Responses API”）、`docs/gate2-design.md` §2 与 §6、`packages/ai-provider-deepseek/README.md`（其三 false 与“现有网关会失败关闭”的表述在实施后过期）、`docs/current-plan.md` §15；以上文档已于同日同步。锁文件仅新增 3 行内部 workspace 链接（`packages/ai` → `@logiplan/ai-provider-deepseek`），无外部依赖与版本变化，该新增已获用户授权。
+- 风险与未决：① 三角色统一 `deepseek-flash` 可能无法通过 20 题门槛；预算不是约束（约 1400 次，按单次输入 4000、输出 1200 token 的上界与峰值价估算），必要时按决策五改用 `deepseek-v4-pro`。② 本地规则审核弱于模型审核，属已接受的降级。③ DeepSeek 不支持 OpenAI 的 `safety_identifier`；其 Responses API 存在等效的匿名 `user` 字段，本轮不传，仅平台内部保留匿名派生。④ dormant 边界测试的 `node:process` 别名漏报已于 2026-10-21 关闭（同时检查四种导入形态的模块 specifier，并对门 C 激活接缝加白名单）。⑤ 未执行真实 DeepSeek 调用、付费 API、20 题评估与部署。

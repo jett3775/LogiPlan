@@ -10,7 +10,7 @@
  */
 
 /** 规则集版本；规则变更必须同时修改本标识。 */
-export const INPUT_MODERATION_RULES_VERSION = "INPUT_RULES_2026_V1";
+export const INPUT_MODERATION_RULES_VERSION = "INPUT_RULES_2026_V2";
 
 /** 输入长度上限（Unicode 码点，沿用既有 500 字符口径）。 */
 export const MAX_INPUT_CHARACTERS = 500;
@@ -26,8 +26,7 @@ export const INPUT_MODERATION_RULES = [
 export type InputModerationRule = (typeof INPUT_MODERATION_RULES)[number];
 
 export type InputModerationDecision =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly rule: InputModerationRule };
+  { readonly ok: true } | { readonly ok: false; readonly rule: InputModerationRule };
 
 export interface InputModerationPort {
   check(input: string): InputModerationDecision | Promise<InputModerationDecision>;
@@ -50,6 +49,7 @@ const PROMPT_INJECTION_PATTERNS: readonly RegExp[] = [
   /\bjailbreak\b/iu,
   /忽略(?:掉)?(?:之前|以上|上面|前面)(?:的)?(?:所有)?(?:指令|要求|提示|规则)/u,
   /(?:泄露|输出|显示|复述|告诉我)(?:你的)?(?:系统提示|系统指令|提示词|初始设定)/u,
+  /(?:系统提示|系统指令|提示词|初始设定)(?:复述|输出|泄露|告诉我)/u,
   /你现在是(?:一个)?(?:不受限制|没有限制|无限制)/u,
 ];
 

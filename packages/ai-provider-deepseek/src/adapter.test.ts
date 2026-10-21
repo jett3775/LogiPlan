@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ProviderAdapter as NeutralProviderAdapter } from "../../ai/src/adapter/adapter-contract";
-import { defaultGatewayConfig, runGateway } from "../../ai/src/gateway/gateway";
+import { defaultGatewayConfig } from "../../ai/src/gateway/gateway";
 import { createDeepSeekAdapter, DEEPSEEK_CAPABILITIES } from "./adapter";
 import { isProviderInvocationError, ProviderInvocationError } from "./errors";
 import type {
@@ -101,6 +101,14 @@ afterEach(() => {
 });
 
 describe("DeepSeek Responses 协议映射", () => {
+  it("minimal 推理强度映射为 none，避免思考模式占用 400 token 输出预算", async () => {
+    const double = clientDouble();
+    await adapter(double).invoke(request({ reasoningEffort: "minimal", maxOutputTokens: 400 }));
+
+    expect(double.calls[0]?.reasoning).toEqual({ effort: "none" });
+    expect(double.calls[0]?.max_output_tokens).toBe(400);
+  });
+
   it("映射结构化请求和已完成响应，且不发送 store、safety_identifier 或工具字段", async () => {
     const double = clientDouble();
     const result = await adapter(double).invoke(request());
@@ -397,28 +405,16 @@ describe("超时与正式角色能力门", () => {
   });
 
   it.each(["intent_parse", "management_analysis", "fallback"] as const)(
-    "正式角色 %s 在网关能力门失败关闭且客户端零调用",
-    async (role) => {
-      const double = clientDouble();
-      const deepseek = adapter(double);
-      const outcome = await runGateway(
-        defaultGatewayConfig("test"),
-        { adapter: deepseek },
-        {
-          request_id: `req-deepseek-capability-gate-${role}`,
-          role,
-          input: "不会到达供应商",
-          scope_anchor: "scope-test",
-          evidence: { scope_anchor: "scope-test", result_sets: [] },
-          preflight: { liveCallPermitted: true, errorCode: null },
-        },
+    "正式角色 %s 的必需能力被 DeepSeek 声明覆盖（D-193 收窄后放行）",
+    (role) => {
+      const route = defaultGatewayConfig("test").routes.find(
+        (candidate) => candidate.role === role,
       );
-      expect(outcome.kind).toBe("fallback");
-      if (outcome.kind === "fallback") {
-        expect(outcome.errorCode).toBe("PROVIDER_REQUEST_INVALID");
-        expect(outcome.spend.attempts).toBe(0);
-      }
-      expect(double.calls).toHaveLength(0);
+      expect(route, role).toBeDefined();
+      const missing = (route?.requiredCapabilities ?? []).filter(
+        (name) => !DEEPSEEK_CAPABILITIES[name],
+      );
+      expect(missing, role).toEqual([]);
     },
   );
 });
