@@ -423,6 +423,38 @@ describe("D-192 阶段 1：适配器工厂接缝与门 C 关闭开关", () => {
     expect(typeof adapter?.invoke).toBe("function");
   });
 
+  it("DEEPSEEK_BASE_URL 只接受干净的 https；非法取值失败关闭", async () => {
+    const factoryInput = (environment: Record<string, string | undefined>) => ({
+      environment,
+      priceVersion: PRICE_VERSION_V2,
+    });
+    const base = { LOGIPLAN_AI_LIVE_CALLS: "1", DEEPSEEK_API_KEY: "relay-token" };
+
+    expect(
+      await createProviderAdapter(
+        factoryInput({ ...base, DEEPSEEK_BASE_URL: "http://relay.example" }),
+      ),
+    ).toBeNull();
+    expect(
+      await createProviderAdapter(
+        factoryInput({ ...base, DEEPSEEK_BASE_URL: "https://user:pass@relay.example" }),
+      ),
+    ).toBeNull();
+    expect(
+      await createProviderAdapter(
+        factoryInput({ ...base, DEEPSEEK_BASE_URL: "https://relay.example/?x=1" }),
+      ),
+    ).toBeNull();
+    expect(
+      await createProviderAdapter(factoryInput({ ...base, DEEPSEEK_BASE_URL: "not a url" })),
+    ).toBeNull();
+
+    const adapter = await createProviderAdapter(
+      factoryInput({ ...base, DEEPSEEK_BASE_URL: "https://relay.example/" }),
+    );
+    expect(adapter).not.toBeNull();
+  });
+
   it("关闭开关：开关关闭时装配层不进入会话（回落固定示例）", async () => {
     state.data = buildData();
     let runtimeCalls = 0;

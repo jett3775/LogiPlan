@@ -79,6 +79,38 @@ export const LIVE_CALLS_ENV_KEY = "LOGIPLAN_AI_LIVE_CALLS";
 export const DEEPSEEK_API_KEY_ENV_KEY = "DEEPSEEK_API_KEY";
 
 /**
+ * 覆盖供应商端点（仅用于隔离环境的安全评估）。
+ *
+ * 真实密钥不出用户本机时，适配器指向一个外部中继：沙箱里只有中继令牌，不是 DeepSeek
+ * 密钥。只接受 `https:`，且不得携带凭据、查询串或片段；取值非法时与缺密钥同等处理——
+ * 返回 `null`，不装配适配器（失败关闭）。
+ */
+export const DEEPSEEK_BASE_URL_ENV_KEY = "DEEPSEEK_BASE_URL";
+
+const resolveBaseUrl = (
+  environment: Record<string, string | undefined>,
+): string | undefined | null => {
+  const raw = environment[DEEPSEEK_BASE_URL_ENV_KEY];
+  if (raw === undefined || raw.length === 0) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    return null;
+  }
+  return raw.replace(/\/+$/u, "");
+};
+
+/**
  * 真实客户端装配接缝（门 C）。
  *
  * 匿名标识由平台内部派生（控制面限流 / 审计 / 熔断），**不传给供应商**（D-193）：DeepSeek
@@ -107,6 +139,8 @@ export const createProviderAdapter: ProviderAdapterFactory = async (input) => {
   if (input.environment[LIVE_CALLS_ENV_KEY] !== "1") return null;
   const apiKey = input.environment[DEEPSEEK_API_KEY_ENV_KEY];
   if (apiKey === undefined || apiKey.length === 0) return null;
+  const baseUrl = resolveBaseUrl(input.environment);
+  if (baseUrl === null) return null;
 
   // 只有真正要装配时才加载客户端。`apps/web` **不**导入供应商实现（AC3.3），也**不**
   // 直接导入适配器包（那会破坏「适配器包只被 `packages/ai` 依赖」的边界）；只走
@@ -115,6 +149,7 @@ export const createProviderAdapter: ProviderAdapterFactory = async (input) => {
   return createDeepSeekAdapterFromApiKey({
     apiKey,
     priceVersion: input.priceVersion,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
     // 价格表单一来源：`packages/ai` 的 `pricing.ts`（未知模型 / 版本 → `Infinity`，失败关闭）。
     costLookup: estimateCostUsd,
     resolveSystemPrompt,

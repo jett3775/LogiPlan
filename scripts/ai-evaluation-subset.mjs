@@ -360,8 +360,17 @@ const preflight = async () => {
 
   if ((process.env["LOGIPLAN_AI_LIVE_CALLS"] ?? "") !== "1" || !key) return false;
 
+  // 配置了中继时，`DEEPSEEK_API_KEY` 只是中继令牌，探测也必须走同一个端点。
+  const apiBase = (process.env["DEEPSEEK_BASE_URL"] ?? "https://api.deepseek.com").replace(
+    /\/+$/u,
+    "",
+  );
+  record(
+    apiBase === "https://api.deepseek.com" ? "预检：直连供应商端点" : "预检：经中继端点",
+    apiBase,
+  );
   try {
-    const probe = await fetch("https://api.deepseek.com/models", {
+    const probe = await fetch(`${apiBase}/models`, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(20_000),
     });
